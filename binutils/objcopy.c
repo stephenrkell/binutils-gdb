@@ -72,6 +72,35 @@ struct addsym_node
   char *    othersym;
 };
 
+struct unbind_node
+{
+  char *sym;
+  char *ref_name;
+  char *def_name;
+  asymbol *ref_sym;
+  asymbol *def_sym;
+  struct unbind_node *next;
+};
+
+struct expand_node
+{
+  char *sym;
+  struct expand_node *next;
+};
+
+struct expanded_reloc_node
+{
+  struct expanded_reloc_node *next;
+  arelent *relent;
+  asymbol *sym;
+};
+
+struct symbols_in_out_pair
+{
+  asymbol **isyms;
+  asymbol **osyms;
+};
+
 typedef struct section_rename
 {
   const char *            old_name;
@@ -193,6 +222,14 @@ struct section_add
   asection *section;
 };
 
+/* List of symbols to add. */
+struct symbol_add
+{
+  struct symbol_add *next;
+  asymbol *sp;
+  asymbol *original_sym; /* the symbol this one was cloned from */
+};
+
 /* List of sections to add to the output BFD.  */
 static struct section_add *add_sections;
 
@@ -233,7 +270,7 @@ static bfd_boolean wildcard = FALSE;
 static bfd_boolean localize_hidden = FALSE;
 
 /* List of symbols to strip, keep, localize, keep-global, weaken,
-   or redefine.  */
+   redefine, unbind or expand.  */
 static htab_t strip_specific_htab = NULL;
 static htab_t strip_unneeded_htab = NULL;
 static htab_t keep_specific_htab = NULL;
@@ -244,6 +281,18 @@ static htab_t weaken_specific_htab = NULL;
 static struct redefine_node *redefine_sym_list = NULL;
 static struct addsym_node *add_sym_list = NULL, **add_sym_tail = &add_sym_list;
 static int add_symbols = 0;
+static struct unbind_node *unbind_sym_list = NULL;
+static struct expand_node *expand_sym_list = NULL;
+struct expanded_reloc_node *expanded_reloc_list = NULL;
+
+/* True if --prefer-non-section-relocs is in effect. */
+static bfd_boolean prefer_non_section_relocs = FALSE;
+
+/* Pair section symbols with corresponding zero-offset regular symbols. */
+static asymbol *(*section_start_symbols)[2] = NULL;
+
+/* List of symbols to be added during copy. */
+struct symbol_add *symbol_add_list = NULL;
 
 /* If this is TRUE, we weaken global symbols (set BSF_WEAK).  */
 static bfd_boolean weaken = FALSE;
@@ -294,6 +343,7 @@ enum command_line_switch
   OPTION_DEBUGGING,
   OPTION_DECOMPRESS_DEBUG_SECTIONS,
   OPTION_DUMP_SECTION,
+  OPTION_EXPAND_SYM,
   OPTION_EXTRACT_DWO,
   OPTION_EXTRACT_SYMBOL,
   OPTION_FILE_ALIGNMENT,
@@ -314,6 +364,7 @@ enum command_line_switch
   OPTION_NO_CHANGE_WARNINGS,
   OPTION_ONLY_KEEP_DEBUG,
   OPTION_PAD_TO,
+  OPTION_PREFER_NON_SECTION_RELOCS,
   OPTION_PREFIX_ALLOC_SECTIONS,
   OPTION_PREFIX_SECTIONS,
   OPTION_PREFIX_SYMBOLS,
@@ -336,6 +387,7 @@ enum command_line_switch
   OPTION_STRIP_UNNEEDED_SYMBOL,
   OPTION_STRIP_UNNEEDED_SYMBOLS,
   OPTION_SUBSYSTEM,
+  OPTION_UNBIND_SYM,
   OPTION_UPDATE_SECTION,
   OPTION_WEAKEN,
   OPTION_WEAKEN_SYMBOLS,
@@ -444,6 +496,9 @@ static struct option copy_options[] =
   {"readonly-text", no_argument, 0, OPTION_READONLY_TEXT},
   {"redefine-sym", required_argument, 0, OPTION_REDEFINE_SYM},
   {"redefine-syms", required_argument, 0, OPTION_REDEFINE_SYMS},
+  {"unbind-sym", required_argument, 0, OPTION_UNBIND_SYM},
+  {"expand-sym", required_argument, 0, OPTION_EXPAND_SYM},
+  {"prefer-non-section-relocs", no_argument, 0, OPTION_PREFER_NON_SECTION_RELOCS},
   {"remove-leading-char", no_argument, 0, OPTION_REMOVE_LEADING_CHAR},
   {"remove-section", required_argument, 0, 'R'},
   {"rename-section", required_argument, 0, OPTION_RENAME_SECTION},
@@ -502,6 +557,13 @@ static int compare_section_lma (const void *, const void *);
 static void mark_symbols_used_in_relocations (bfd *, asection *, void *);
 static bfd_boolean write_debugging_info (bfd *, void *, long *, asymbol ***);
 static const char *lookup_sym_redefinition (const char *);
+static const char *get_sym_unbound_ref_name (const char *);
+static const char *get_sym_unbound_def_name (const char *);
+static const char *set_unbound_def_ref_sym_pair (const char *, asymbol *, asymbol *);
+static void add_expanded_symbols (bfd *, sec_ptr, void *);
+static void redirect_unbound_debug_relocs (bfd *, sec_ptr, void *);
+static void expand_relocs (bfd *, sec_ptr, void *);
+static void rewrite_section_relocs (bfd *, sec_ptr, void *);
 
 static void
 copy_usage (FILE *stream, int exit_status)
@@ -588,6 +650,9 @@ copy_usage (FILE *stream, int exit_status)
      --redefine-sym <old>=<new>    Redefine symbol name <old> to <new>\n\
      --redefine-syms <file>        --redefine-sym for all symbol pairs \n\
                                      listed in <file>\n\
+     --unbind-sym <sym>            Separate <sym> into  __def_<sym> and __ref<sym>\n\
+     --expand-sym <sym>            Expand references to <sym> to unique names __ref_<sym>_<id>\n\
+     --prefer-non-section-relocs   Avoid section symbols in relocations, where possible\n\
      --srec-len <number>           Restrict the length of generated Srecords\n\
      --srec-forceS3                Restrict the type of generated Srecords to S3\n\
      --strip-symbols <file>        -N for all symbols listed in <file>\n\
@@ -1343,6 +1408,34 @@ create_new_symbol (struct addsym_node *ptr, bfd *obfd)
   return sym;
 }
 
+/* Create a new symbol equal to an existing one except for its name. */
+static asymbol *
+clone_symbol (bfd *abfd, asymbol *isym, const char *new_name)
+{
+  asymbol *osym;
+  /* Make a new symbol. */
+  osym = bfd_make_empty_symbol (abfd);
+  /* Set name appropriately. */
+  bfd_asymbol_name (osym) = new_name;
+  /* Set section, flags, value as in existing symbol. */
+  bfd_set_section(osym, bfd_get_section(isym));
+  osym->flags = isym->flags;
+  osym->value = isym->value;
+  /* Note: does *NOT* copy private data! The caller must do this if necessary. */
+  return osym;
+}
+
+/* Modify a symbol's flags, section and value, making it undefined.
+ * This is useful after cloning the symbol, perhaps renaming the definition. */
+static void
+make_symbol_undefined (asymbol *sym)
+{
+  bfd_set_section(sym, bfd_und_section_ptr);
+  sym->value = 0;
+  sym->flags &= ~(BSF_LOCAL | BSF_GLOBAL | BSF_EXPORT | BSF_WEAK);
+}
+
+
 /* Choose which symbol entries to copy; put the result in OSYMS.
    We don't copy in place, because that confuses the relocs.
    Return the number of symbols to print.  */
@@ -1353,6 +1446,7 @@ filter_symbols (bfd *abfd, bfd *obfd, asymbol **osyms,
 {
   asymbol **from = isyms, **to = osyms;
   long src_count = 0, dst_count = 0;
+  struct symbol_add *sa_ptr; /* iterator for loop */
   int relocatable = (abfd->flags & (EXEC_P | DYNAMIC)) == 0;
 
   for (; src_count < symcount; src_count++)
@@ -1384,6 +1478,51 @@ filter_symbols (bfd *abfd, bfd *obfd, asymbol **osyms,
 	  new_name = (char *) lookup_sym_redefinition (old_name);
 	  bfd_asymbol_name (sym) = new_name;
 	  name = new_name;
+	}
+
+      if (unbind_sym_list)
+	{
+	  char *old_name, *new_name;
+
+	  old_name = (char *) bfd_asymbol_name (sym);
+	  new_name = (char *) get_sym_unbound_ref_name (old_name);
+	  bfd_asymbol_name (sym) = new_name;
+	  name = new_name;
+
+	  if (new_name != old_name && !undefined)
+	    {
+	      /* We have renamed a symbol which must be unbound.
+	       * Create a new symbol which is a copy of this one,
+	       * renamed, and modify this one so that it is
+	       * undefined. We will add the new symbols later,
+	       * but keep them in a list for now. */
+
+	      struct symbol_add *sa;
+	      sa = xmalloc(sizeof (struct symbol_add));
+	      /* Clone the old symbol with a new name. */
+	      sa->sp = clone_symbol(abfd, sym, get_sym_unbound_def_name (old_name));
+	      /* NOTE: this doesn't copy the private data. We will do this in
+	       * copy_object. We need the obfd to do it, which not all callers
+	       * to clone_symbol have available. */
+
+	      /* Add the new symbol to the list of new symbols. */
+	      sa->next = symbol_add_list;
+	      sa->original_sym = sym;
+	      symbol_add_list = sa;
+
+	      /* Record the association between __ref_ and __def_ symbol. */
+	      set_unbound_def_ref_sym_pair (old_name, sym, sa->sp);
+
+	      /* Update the old symbol's flags, section and value, making it undefined.
+	       * The "def" symbol gets created later. Note that relocations will now
+	       * all be pointing at the "ref" name, but some of them ought to point
+	       * instead to the "def" name. Specifically, relocs from debugging info
+	       * need to be switched back to the "def" name. We do this in FIXME: where? */
+	      make_symbol_undefined(sym);
+
+	      /* The current symbol has now been made undefined. */
+	      undefined = 1;
+	   }
 	}
 
       /* Check if we will remove the current leading character.  */
@@ -1503,7 +1642,7 @@ filter_symbols (bfd *abfd, bfd *obfd, asymbol **osyms,
 
       if (keep)
 	{
-	  if ((flags & BSF_GLOBAL) != 0
+	  if ((undefined || (flags & BSF_GLOBAL) != 0)
 	      && (weaken || is_specified_symbol (name, weaken_specific_htab)))
 	    {
 	      sym->flags &= ~ BSF_GLOBAL;
@@ -1550,6 +1689,9 @@ filter_symbols (bfd *abfd, bfd *obfd, asymbol **osyms,
 	}
     }
 
+  for (sa_ptr = symbol_add_list; sa_ptr != NULL; sa_ptr = sa_ptr->next)
+    to[dst_count++] = sa_ptr->sp;
+
   to[dst_count] = NULL;
 
   return dst_count;
@@ -1567,6 +1709,55 @@ lookup_sym_redefinition (const char *source)
       return list->target;
 
   return source;
+}
+
+/* Find the name to which the references to SOURCE should be rewritten */
+
+static const char *
+get_sym_unbound_ref_name (const char *sym)
+{
+  struct unbind_node *list;
+
+  for (list = unbind_sym_list; list != NULL; list = list->next)
+    if (strcmp (sym, list->sym) == 0)
+      {
+	return list->ref_name;
+      }
+
+  return sym;
+}
+
+/* Find the name to which the definition of SOURCE should be rewritten */
+
+static const char *
+get_sym_unbound_def_name (const char *sym)
+{
+  struct unbind_node *list;
+
+  for (list = unbind_sym_list; list != NULL; list = list->next)
+    if (strcmp (sym, list->sym) == 0)
+      {
+	return list->def_name;
+      }
+
+  return sym;
+}
+
+/* Record the pair of __ref_,__def_ symbols involved in the unbinding of OLD_NAME. */
+
+static const char *
+set_unbound_def_ref_sym_pair (const char *old_name, asymbol *old_ref_sym, asymbol *new_def_sym)
+{
+  struct unbind_node *list;
+
+  for (list = unbind_sym_list; list != NULL; list = list->next)
+    if (strcmp (old_name, list->sym) == 0)
+      {
+	list->def_sym = new_def_sym;
+	list->ref_sym = old_ref_sym;
+      }
+
+  return old_name;
 }
 
 /* Add a node to a symbol redefine list.  */
@@ -1593,6 +1784,68 @@ redefine_list_append (const char *cause, const char *source, const char *target)
 
   new_node->source = strdup (source);
   new_node->target = strdup (target);
+  new_node->next = NULL;
+
+  *p = new_node;
+}
+
+static void
+unbind_list_append (const char *cause, const char *sym)
+{
+  struct unbind_node **p;
+  struct unbind_node *list;
+  struct unbind_node *new_node;
+  const char def_prefix[] = "__def_";
+  const char ref_prefix[] = "__ref_";
+  size_t sym_len = strlen(sym);
+
+  for (p = &unbind_sym_list; (list = *p) != NULL; p = &list->next)
+    {
+      if (strcmp (sym, list->sym) == 0)
+	fatal (_("%s: Multiple unbinding of symbol \"%s\""),
+	       cause, sym);
+    }
+
+  new_node = xmalloc (sizeof (struct unbind_node));
+
+  new_node->sym = strdup (sym);
+
+  new_node->def_name = xmalloc (sizeof def_prefix + sym_len);
+  strncpy(new_node->def_name, def_prefix, sizeof def_prefix - 1);
+  strncpy(new_node->def_name + sizeof def_prefix - 1, sym, sym_len + 1);
+
+  new_node->ref_name = xmalloc (sizeof ref_prefix + strlen(sym));
+  strncpy(new_node->ref_name, ref_prefix, sizeof ref_prefix - 1);
+  strncpy(new_node->ref_name + sizeof ref_prefix - 1, sym, sym_len + 1);
+
+  new_node->next = NULL;
+
+  *p = new_node;
+}
+
+static void
+expand_list_append (const char *cause, const char *sym)
+{
+  /* First add to the unbind sym list too, so that we compute
+   * an unbound name for them, which will be the stem of the expanded
+   * names generated. */
+  unbind_list_append (cause, sym);
+
+  /* Now add to the expand list */
+  struct expand_node **p;
+  struct expand_node *list;
+  struct expand_node *new_node;
+
+  for (p = &expand_sym_list; (list = *p) != NULL; p = &list->next)
+    {
+      if (strcmp (sym, list->sym) == 0)
+	fatal (_("%s: Multiple expanding of symbol \"%s\""),
+	       cause, sym);
+    }
+
+  new_node = xmalloc (sizeof (struct expand_node));
+
+  new_node->sym = strdup (sym);
   new_node->next = NULL;
 
   *p = new_node;
@@ -2313,6 +2566,35 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
   if (convert_debugging)
     dhandle = read_debugging_info (ibfd, isympp, symcount, FALSE);
 
+  if (prefer_non_section_relocs) {
+    /* Build the list of symbol pairs, such that one is a section symbol,
+       and the other, if not null, is a symbol defined at the start of the
+       section. Only do so for symbols defined in text sections!
+       This is because our bss relocs were getting all screwed up when we did
+       this. I'm not entirely sure why though. */
+    size_t nentries = bfd_count_sections (ibfd);
+    section_start_symbols = xcalloc (nentries, sizeof (*section_start_symbols));
+    asymbol **s;
+    bfd_boolean real_section;
+    bfd_boolean text_section;
+
+    /* Iterate through symbols and, if they are offset zero in their section,
+       remember them. */
+    for (s = isympp; *s != NULL; s++) {
+      sec_ptr section = bfd_get_section (*s);
+      real_section = !bfd_is_const_section (section);
+      text_section = (bfd_get_section_flags (ibfd, section) & SEC_CODE);
+
+      if (real_section && text_section && (*s)->value == 0) {
+	if ((*s)->flags & BSF_SECTION_SYM) {
+	  section_start_symbols[section->index][0] = *s;
+	} else {
+	  section_start_symbols[section->index][1] = *s;
+	}
+      }
+    }
+  }
+
   if (strip_symbols == STRIP_DEBUG
       || strip_symbols == STRIP_ALL
       || strip_symbols == STRIP_UNNEEDED
@@ -2335,7 +2617,10 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
       || remove_leading_char
       || redefine_sym_list
       || weaken
-      || add_symbols)
+      || add_symbols
+      || unbind_sym_list
+      || expand_sym_list
+      || prefer_non_section_relocs)
     {
       /* Mark symbols used in output relocations so that they
 	 are kept, even if they are local labels or static symbols.
@@ -2345,12 +2630,82 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
 	 haven't been set yet.  mark_symbols_used_in_relocations will
 	 ignore input sections which have no corresponding output
 	 section.  */
-      if (strip_symbols != STRIP_ALL)
-	bfd_map_over_sections (ibfd,
+	int added_syms_upper_bound = 0;
+	struct unbind_node *n;
+	for (n = unbind_sym_list; n != NULL; n = n->next)
+	  ++added_syms_upper_bound;
+
+	/* Add any symbols from expanding. Those from unbinding will get
+	 * added during filter_symbols. */
+	if (expand_sym_list)
+	  {
+	    bfd_map_over_sections (ibfd,
+	      add_expanded_symbols,
+	      isympp);
+	    /* We don't need to increment the upper bound, since
+	       add_expanded_symbols adds to the symbol_add_list. */
+	}
+
+	/* Count the symbols we just added. Note that this doesn't include
+	 * the ones that will be added during unbinding in filter_symbols,
+	 * which is why we added those separately above. */
+	if (symbol_add_list != NULL)
+	  {
+	     struct symbol_add *ns;
+	     for (ns = symbol_add_list; ns != NULL; ns = ns->next)
+	       ++added_syms_upper_bound;
+	  }
+        if (strip_symbols != STRIP_ALL)
+	  bfd_map_over_sections (ibfd,
 			       mark_symbols_used_in_relocations,
 			       isympp);
-      osympp = (asymbol **) xmalloc ((symcount + add_symbols + 1) * sizeof (asymbol *));
-      symcount = filter_symbols (ibfd, obfd, osympp, isympp, symcount);
+
+	osympp = (asymbol **) xmalloc ((symcount + add_symbols + added_syms_upper_bound + 1) * sizeof (asymbol *));
+	symcount = filter_symbols (ibfd, obfd, osympp, isympp, symcount);
+
+	/* If we're preferring non-section symbols in relocs, we need to walk
+	 * the relocations and swap over the relevant any symbol references. */
+	if (prefer_non_section_relocs)
+	  {
+	    bfd_map_over_sections (ibfd,
+	      rewrite_section_relocs,
+	      osympp);
+	   }
+
+	/* If we're unbinding symbols, we now need to walk the relocations
+	 * again and update and *debug info* relocs so that they point to
+	 * the "def" symbol, not the "ref" one. */
+	if (unbind_sym_list)
+	  {
+	    struct symbols_in_out_pair p;
+	    p.isyms = isympp;
+	    p.osyms = osympp;
+
+	    bfd_map_over_sections (ibfd,
+	      redirect_unbound_debug_relocs,
+	      &p); /* expand_relocs needs both isyms and osyms */
+	  }
+
+	/* If we're expanding symbols, we now need to walk the relocations
+	 * again and updated any referencing expanded symbols. */
+	if (expand_sym_list)
+	{
+	  struct symbol_add *ns;
+	  struct symbols_in_out_pair p;
+	  p.isyms = isympp;
+	  p.osyms = osympp;
+
+	  bfd_map_over_sections (ibfd,
+	    expand_relocs,
+	    &p); /* expand_relocs needs both isyms and osyms */
+
+	  /* When we cloned the symbols and renamed them, we didn't copy
+	  * private data. Do this now for each symbol we added. */
+	  for (ns = symbol_add_list; ns != NULL; ns = ns->next)
+	    {
+	      bfd_copy_private_symbol_data(ibfd, ns->sp, obfd, ns->original_sym);
+	    }
+	}
     }
 
   if (convert_debugging && dhandle != NULL)
@@ -2756,7 +3111,7 @@ copy_file (const char *input_filename, const char *output_filename,
     case compress_gabi_zlib:
       ibfd->flags |= BFD_COMPRESS;
       /* Don't check if input is ELF here since this information is
-	 only available after bfd_check_format_matches is called.  */
+	 only available after bfd_check_format_matches is called. */
       if (do_debug_sections != compress_gnu_zlib)
 	ibfd->flags |= BFD_COMPRESS_GABI;
       break;
@@ -3454,6 +3809,324 @@ mark_symbols_used_in_relocations (bfd *ibfd, sec_ptr isection, void *symbolsarg)
   if (relpp != NULL)
     free (relpp);
 }
+
+/* Adds entries to symbols_to_add for each symbol used in a relocation,
+ * if that symbol is one that we're expanding (with --expand-sym).  */
+static void
+add_expanded_symbols (bfd *ibfd, sec_ptr isection, void *symbolsarg)
+{
+  asymbol **symbols = symbolsarg;
+  long relsize;
+  arelent **relpp;
+  long relcount, i;
+
+  /* Ignore an input section with no corresponding output section.  */
+  if (isection->output_section == NULL)
+    return;
+
+  relsize = bfd_get_reloc_upper_bound (ibfd, isection);
+  if (relsize < 0)
+    {
+      /* Do not complain if the target does not support relocations.  */
+      if (relsize == -1 && bfd_get_error () == bfd_error_invalid_operation)
+	return;
+      bfd_fatal (bfd_get_filename (ibfd));
+    }
+
+  if (relsize == 0)
+    return;
+
+  relpp = xmalloc (relsize);
+  relcount = bfd_canonicalize_reloc (ibfd, isection, relpp, symbols);
+  if (relcount < 0)
+    bfd_fatal (bfd_get_filename (ibfd));
+
+  /* Examine each symbol used in a relocation.  If it's not one of the
+     special bfd section symbols, and *is* a symbol we're expanding, then
+     create a new symbol specific to this relocation. We add it to the global
+     symbols_to_add list for now, and it will get added during filter_symbols. */
+  for (i = 0; i < relcount; i++)
+    {
+      if (*relpp[i]->sym_ptr_ptr != bfd_com_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_abs_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_und_section_ptr->symbol)
+      {
+	/* It's not one of the special bfd section symbols; is it one
+	 * that we're expanding with --expand-sym ?  Use linear search,
+	 * for now. */
+	struct expand_node *nn;
+	for (nn = expand_sym_list; nn != NULL; nn = nn->next)
+	{
+	  const char *sym_name = bfd_asymbol_name(*relpp[i]->sym_ptr_ptr);
+	  if (strcmp(nn->sym, sym_name) == 0)
+	  {
+	     /* Create a new symbol, and add it to the list of symbols to
+	      * add. These will get added during filter_symbols. We can't update
+	      * the reloc yet, because we need to have put the asymbol pointer
+	      * into osyms first (to get the symbol_ptr_ptr). */
+
+	     /* Allocate memory for the new symbol name.
+	      * Longest string is two chars per byte, plus '0x' and null. */
+	     const int length = 2 * sizeof(relpp[i]->address) + 2 + 1;
+	     char offset_str[length];
+	     const char *unbound_ref_name = get_sym_unbound_ref_name(sym_name);
+	     const char *section_name = bfd_section_name(ibfd, isection);
+	     sprintf_vma(offset_str, relpp[i]->address);
+	     int new_sym_name_length =
+		 strlen(unbound_ref_name)
+		 + strlen(section_name)
+		 + strlen(offset_str) + 3; /* two separators and null */
+	     char *new_sym_name = xmalloc(new_sym_name_length);
+
+	     /* Build the new symbol name */
+	     snprintf(new_sym_name, new_sym_name_length,
+		 "%s_%s_%s", unbound_ref_name, section_name, offset_str);
+
+	     /* The symbol should be like the existing one
+	      * *but* made undefined if necessary, since the whole point
+	      * of expanding symbols is that it yields a bunch of undefined
+	      * symbols, one per reference to the original symbol.
+	      * If the original symbol is defined in the same
+	      * file, it should be untouched. */
+	     asymbol *new_sym = clone_symbol(ibfd, *relpp[i]->sym_ptr_ptr, new_sym_name);
+	     /* Can't copy_private_data here -- will be done later */
+	     make_symbol_undefined(new_sym); /* new_sym is necessarily undefined */
+
+	     /* Add the symbol to the symbols_to_add list. */
+	     struct symbol_add *sa;
+	     sa = xmalloc(sizeof (struct symbol_add));
+	     sa->sp = new_sym;
+	     sa->original_sym = *relpp[i]->sym_ptr_ptr;
+	     sa->next = symbol_add_list;
+	     symbol_add_list = sa;
+
+	     /* Record the association between this reloc and the new symbol */
+	     struct expanded_reloc_node *en = xmalloc(sizeof (struct expanded_reloc_node));
+	     en->relent = relpp[i];
+	     en->sym = new_sym;
+	     en->next = expanded_reloc_list;
+	     expanded_reloc_list = en;
+
+	     break;
+	  }
+	}
+      }
+	/* (*relpp[i]->sym_ptr_ptr)->flags |= BSF_KEEP; */
+    }
+
+  if (relpp != NULL)
+    free (relpp);
+}
+static void
+rewrite_section_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
+{
+  asymbol **isyms = symbolsarg;
+  long relsize;
+  arelent **relpp;
+  long relcount, i;
+
+  /* Ignore an input section with no corresponding output section.  */
+  if (isection->output_section == NULL)
+    return;
+
+  relsize = bfd_get_reloc_upper_bound (ibfd, isection);
+  if (relsize < 0)
+    {
+      /* Do not complain if the target does not support relocations.  */
+      if (relsize == -1 && bfd_get_error () == bfd_error_invalid_operation)
+	return;
+      bfd_fatal (bfd_get_filename (ibfd));
+    }
+
+  if (relsize == 0)
+    return;
+
+  relpp = xmalloc (relsize);
+  relcount = bfd_canonicalize_reloc (ibfd, isection, relpp, isyms);
+  if (relcount < 0)
+    bfd_fatal (bfd_get_filename (ibfd));
+
+  /* Examine each symbol used in a relocation.  If it's not one of the
+     special bfd section symbols, and *is* a section symbol, *and* there
+     is an equivalent non-section symbol at offset 0 in that section,
+     update the reloc to point to that symbol. */
+
+  for (i = 0; i < relcount; i++)
+    {
+      if (*relpp[i]->sym_ptr_ptr != bfd_com_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_abs_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_und_section_ptr->symbol)
+      {
+	sec_ptr symbol_section = bfd_get_section (*relpp[i]->sym_ptr_ptr);
+	if (section_start_symbols[symbol_section->index][0]
+	    && section_start_symbols[symbol_section->index][1]
+	    && *relpp[i]->sym_ptr_ptr == section_start_symbols[symbol_section->index][0]) {
+	    *relpp[i]->sym_ptr_ptr = section_start_symbols[symbol_section->index][1];
+	}
+      }
+    }
+
+  if (relpp != NULL)
+    free (relpp);
+}
+static void
+redirect_unbound_debug_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
+{
+  struct symbols_in_out_pair *pp = symbolsarg;
+  asymbol **isyms = pp->isyms;
+  asymbol **osyms = pp->osyms;
+  long relsize;
+  arelent **relpp;
+  long relcount, i;
+
+  /* Ignore an input section with no corresponding output section.  */
+  if (isection->output_section == NULL)
+    return;
+
+  /* Ignore a non-debug (non-eh_frame) input section. HACK: eh_frame... */
+  if (!(bfd_get_section_flags (ibfd, isection) & SEC_DEBUGGING)
+	  && 0 != strcmp(bfd_get_section_name (ibfd, isection), ".eh_frame") )
+    return;
+
+  relsize = bfd_get_reloc_upper_bound (ibfd, isection);
+  if (relsize < 0)
+    {
+      /* Do not complain if the target does not support relocations.  */
+      if (relsize == -1 && bfd_get_error () == bfd_error_invalid_operation)
+	return;
+      bfd_fatal (bfd_get_filename (ibfd));
+    }
+
+  if (relsize == 0)
+    return;
+
+  relpp = xmalloc (relsize);
+  relcount = bfd_canonicalize_reloc (ibfd, isection, relpp, isyms);
+  if (relcount < 0)
+    bfd_fatal (bfd_get_filename (ibfd));
+
+  /* Examine the symbol used in each relocation.  If it's not one of the
+     special bfd section symbols, and *is* a symbol we've unbound, then
+     updated the reloc to point to the "def" not "ref" symbol in the osympp. */
+  for (i = 0; i < relcount; i++)
+    {
+      if (*relpp[i]->sym_ptr_ptr != bfd_com_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_abs_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_und_section_ptr->symbol)
+      {
+	/* It's not one of the special bfd section symbols; is it one
+	 * that we're expanding with --unbind-sym ?  Use linear search,
+	 * for now. */
+	const char *reloc_sym_name = bfd_asymbol_name(*relpp[i]->sym_ptr_ptr);
+	struct unbind_node *nu;
+	for (nu = unbind_sym_list; nu != NULL; nu = nu->next)
+	{
+	  if (strcmp(get_sym_unbound_ref_name(nu->sym), reloc_sym_name) == 0)
+	  {
+	     /* We have previously created a __def_ symbol.
+	      * Search for that symbol in the osyms,
+		and set the reloc's sym_ptr_ptr to point to its table entry. */
+	     asymbol **s;
+	     for (s = osyms; *s != NULL && *s != nu->def_sym; s++);
+	     if (*s == nu->def_sym)
+	     {
+		/* s is def_sym in osympp */
+		relpp[i]->sym_ptr_ptr = s;
+	     }
+	     else non_fatal(_("Failed to find osym matching expected unbound __def_ sym."));
+	  }
+	}
+      }
+    }
+
+  if (relpp != NULL)
+    free (relpp);
+}
+
+static void
+expand_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
+{
+  struct symbols_in_out_pair *pp = symbolsarg;
+  asymbol **isyms = pp->isyms;
+  asymbol **osyms = pp->osyms;
+  long relsize;
+  arelent **relpp;
+  long relcount, i;
+
+  /* Ignore an input section with no corresponding output section.  */
+  if (isection->output_section == NULL)
+    return;
+
+  relsize = bfd_get_reloc_upper_bound (ibfd, isection);
+  if (relsize < 0)
+    {
+      /* Do not complain if the target does not support relocations.  */
+      if (relsize == -1 && bfd_get_error () == bfd_error_invalid_operation)
+	return;
+      bfd_fatal (bfd_get_filename (ibfd));
+    }
+
+  if (relsize == 0)
+    return;
+
+  relpp = xmalloc (relsize);
+  relcount = bfd_canonicalize_reloc (ibfd, isection, relpp, isyms);
+  if (relcount < 0)
+    bfd_fatal (bfd_get_filename (ibfd));
+
+  /* Examine each symbol used in a relocation.  If it's not one of the
+     special bfd section symbols, and *is* a symbol we're expanding, then
+     we have previously created a new symbol specific to this relocation.
+     Updated the reloc to point to that symbol in the osympp. */
+  for (i = 0; i < relcount; i++)
+    {
+      if (*relpp[i]->sym_ptr_ptr != bfd_com_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_abs_section_ptr->symbol
+	  && *relpp[i]->sym_ptr_ptr != bfd_und_section_ptr->symbol)
+      {
+	/* It's not one of the special bfd section symbols; is it one
+	 * that we're expanding with --expand-sym ?  Use linear search,
+	 * for now. */
+	struct expand_node *ne;
+	for (ne = expand_sym_list; ne != NULL; ne = ne->next)
+	{
+	  const char *sym_name = bfd_asymbol_name(*relpp[i]->sym_ptr_ptr);
+
+	  /* Since we first unbind every expanded symbol, i.e. this function
+	   * is called *after* unbinding, we need to compare against the unbound
+	   * name of the symbol. */
+	  if (strcmp(get_sym_unbound_ref_name(ne->sym), sym_name) == 0)
+	  {
+	     /* We are expanding this symbol and have previously created
+		a new symbol. Search for that symbol in the sym table (symbols),
+		and set the reloc's sym_ptr_ptr to point to its table entry. */
+	     struct expanded_reloc_node *nr;
+	     for (nr = expanded_reloc_list; nr != NULL && nr->relent != relpp[i]; nr = nr->next);
+	     if (nr != NULL)
+	     {
+	       /* We found the sym added earlier. Now we have to search for it
+		* in the osyms. */
+	       asymbol **s;
+	       for (s = osyms; *s != NULL && *s != nr->sym; s++);
+	       if (*s == nr->sym)
+	       {
+		 /* We found the osyms entry -- update the reloc. */
+		 relpp[i]->sym_ptr_ptr = s;
+	       }
+	       else non_fatal(_("Failed to find osym matching expected expanded sym."));
+
+	     }
+	     else non_fatal(_("Failed to find expected expanded reloc node."));
+	     break;
+	  }
+	}
+      }
+    }
+
+  if (relpp != NULL)
+    free (relpp);
+}
+
 
 /* Write out debugging information.  */
 
@@ -4310,6 +4983,26 @@ copy_main (int argc, char *argv[])
 
 	case OPTION_REDEFINE_SYMS:
 	  add_redefine_syms_file (optarg);
+	  break;
+
+	case OPTION_UNBIND_SYM:
+	  {
+	    /* Push this unbinding onto unbind_symbol_list.  */
+	    unbind_list_append("--unbind-sym", optarg);
+	  }
+	  break;
+
+	case OPTION_EXPAND_SYM:
+	  {
+	    /* Push this expanding onto expand_symbol_list.  */
+	    expand_list_append("--expand-sym", optarg);
+	  }
+	  break;
+
+	case OPTION_PREFER_NON_SECTION_RELOCS:
+	  {
+	    prefer_non_section_relocs = TRUE;
+	  }
 	  break;
 
 	case OPTION_SET_SECTION_FLAGS:
