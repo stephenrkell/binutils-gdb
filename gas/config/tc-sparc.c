@@ -1,5 +1,5 @@
 /* tc-sparc.c -- Assemble for the SPARC
-   Copyright (C) 1989-2015 Free Software Foundation, Inc.
+   Copyright (C) 1989-2016 Free Software Foundation, Inc.
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
@@ -47,7 +47,7 @@ static int get_expression (char *);
 #ifndef DEFAULT_ARCH
 #define DEFAULT_ARCH "sparclite"
 #endif
-static char *default_arch = DEFAULT_ARCH;
+static const char *default_arch = DEFAULT_ARCH;
 
 /* Non-zero if the initial values of `max_architecture' and `sparc_arch_size'
    have been set.  */
@@ -200,7 +200,7 @@ const char FLT_CHARS[] = "rRsSfFdDxXpP";
 
 struct sparc_it
   {
-    char *error;
+    const char *error;
     unsigned long opcode;
     struct nlist *nlistp;
     expressionS exp;
@@ -241,8 +241,8 @@ enum sparc_arch_types {v6, v7, v8, leon, sparclet, sparclite, sparc86x, v8plus,
   | HWCAP2_XMPMUL | HWCAP2_XMONT
 
 static struct sparc_arch {
-  char *name;
-  char *opcode_arch;
+  const char *name;
+  const char *opcode_arch;
   enum sparc_arch_types arch_type;
   /* Default word size, as specified during configuration.
      A value of zero means can't be used to specify default architecture.  */
@@ -300,7 +300,7 @@ static struct sparc_arch {
 static enum sparc_arch_types default_arch_type;
 
 static struct sparc_arch *
-lookup_arch (char *name)
+lookup_arch (const char *name)
 {
   struct sparc_arch *sa;
 
@@ -490,7 +490,7 @@ struct option md_longopts[] = {
 size_t md_longopts_size = sizeof (md_longopts);
 
 int
-md_parse_option (int c, char *arg)
+md_parse_option (int c, const char *arg)
 {
   /* We don't get a chance to initialize anything before we're called,
      so handle that now.  */
@@ -758,11 +758,11 @@ md_show_usage (FILE *stream)
 }
 
 /* Native operand size opcode translation.  */
-struct
+static struct
   {
-    char *name;
-    char *name32;
-    char *name64;
+    const char *name;
+    const char *name32;
+    const char *name64;
   } native_op_table[] =
 {
   {"ldn", "ld", "ldx"},
@@ -782,7 +782,7 @@ struct
 
 struct priv_reg_entry
 {
-  char *name;
+  const char *name;
   int regnum;
 };
 
@@ -904,7 +904,7 @@ md_begin (void)
   for (i = 0; native_op_table[i].name; i++)
     {
       const struct sparc_opcode *insn;
-      char *name = ((sparc_arch_size == 32)
+      const char *name = ((sparc_arch_size == 32)
 		    ? native_op_table[i].name32
 		    : native_op_table[i].name64);
       insn = (struct sparc_opcode *) hash_find (op_hash, name);
@@ -1547,7 +1547,7 @@ get_hwcap_name (bfd_uint64_t mask)
 static int
 sparc_ip (char *str, const struct sparc_opcode **pinsn)
 {
-  char *error_message = "";
+  const char *error_message = "";
   char *s;
   const char *args;
   char c;
@@ -1841,22 +1841,22 @@ sparc_ip (char *str, const struct sparc_opcode **pinsn)
 			  ++s;
 			}
 
-		      if (current_architecture >= SPARC_OPCODE_ARCH_V9)
-			{
-			  if (num < 16 || 31 < num)
-			    {
-			      error_message = _(": asr number must be between 16 and 31");
-			      goto error;
-			    }
-			}
-		      else
-			{
-			  if (num < 0 || 31 < num)
-			    {
-			      error_message = _(": asr number must be between 0 and 31");
-			      goto error;
-			    }
-			}
+                      /* We used to check here for the asr number to
+                         be between 16 and 31 in V9 and later, as
+                         mandated by the section C.1.1 "Register
+                         Names" in the SPARC spec.  However, we
+                         decided to remove this restriction as a) it
+                         introduces problems when new V9 asr registers
+                         are introduced, b) the Solaris assembler
+                         doesn't implement this restriction and c) the
+                         restriction will go away in future revisions
+                         of the Oracle SPARC Architecture.  */
+
+                      if (num < 0 || 31 < num)
+                        {
+                          error_message = _(": asr number must be between 0 and 31");
+                          goto error;
+                        }
 
 		      opcode |= (*args == 'M' ? RS1 (num) : RD (num));
 		      continue;
@@ -2065,7 +2065,7 @@ sparc_ip (char *str, const struct sparc_opcode **pinsn)
 		  static const struct ops
 		  {
 		    /* The name as it appears in assembler.  */
-		    char *name;
+		    const char *name;
 		    /* strlen (name), precomputed for speed */
 		    int len;
 		    /* The reloc this pseudo-op translates to.  */
@@ -2370,7 +2370,9 @@ sparc_ip (char *str, const struct sparc_opcode **pinsn)
 		char format;
 
 		if (*s++ == '%'
-		    && ((format = *s) == 'f')
+		    && ((format = *s) == 'f'
+                        || format == 'd'
+                        || format == 'q')
 		    && ISDIGIT (*++s))
 		  {
 		    for (mask = 0; ISDIGIT (*s); ++s)
@@ -2381,19 +2383,23 @@ sparc_ip (char *str, const struct sparc_opcode **pinsn)
 		    if ((*args == 'v'
 			 || *args == 'B'
 			 || *args == '5'
-			 || *args == 'H')
+			 || *args == 'H'
+			 || format == 'd')
 			&& (mask & 1))
 		      {
+                        /* register must be even numbered */
 			break;
-		      }		/* register must be even numbered */
+		      }
 
 		    if ((*args == 'V'
 			 || *args == 'R'
-			 || *args == 'J')
+			 || *args == 'J'
+			 || format == 'q')
 			&& (mask & 3))
 		      {
+                        /* register must be multiple of 4 */
 			break;
-		      }		/* register must be multiple of 4 */
+		      }
 
 		    if (mask >= 64)
 		      {
@@ -2512,7 +2518,7 @@ sparc_ip (char *str, const struct sparc_opcode **pinsn)
 
 	      {
 		char *s1;
-		char *op_arg = NULL;
+		const char *op_arg = NULL;
 		static expressionS op_exp;
 		bfd_reloc_code_real_type old_reloc = the_insn.reloc;
 
@@ -2521,7 +2527,7 @@ sparc_ip (char *str, const struct sparc_opcode **pinsn)
 		  {
 		    static const struct ops {
 		      /* The name as it appears in assembler.  */
-		      char *name;
+		      const char *name;
 		      /* strlen (name), precomputed for speed */
 		      int len;
 		      /* The reloc this pseudo-op translates to.  */
@@ -2620,6 +2626,11 @@ sparc_ip (char *str, const struct sparc_opcode **pinsn)
 		    *s1 = '\0';
 		    (void) get_expression (s);
 		    *s1 = ')';
+		    if (expr_end != s1)
+		      {
+			as_bad (_("Expression inside %%%s could not be parsed"), op_arg);
+			return special_case;
+		      }
 		    s = s1 + 1;
 		    if (*s == ',' || *s == ']' || !*s)
 		      continue;
@@ -3228,7 +3239,7 @@ output_insn (const struct sparc_opcode *insn, struct sparc_it *theinsn)
 #endif
 }
 
-char *
+const char *
 md_atof (int type, char *litP, int *sizeP)
 {
   return ieee_md_atof (type, litP, sizeP, target_big_endian);
@@ -3674,10 +3685,10 @@ tc_gen_reloc (asection *section, fixS *fixp)
   arelent *reloc;
   bfd_reloc_code_real_type code;
 
-  relocs[0] = reloc = (arelent *) xmalloc (sizeof (arelent));
+  relocs[0] = reloc = XNEW (arelent);
   relocs[1] = NULL;
 
-  reloc->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
+  reloc->sym_ptr_ptr = XNEW (asymbol *);
   *reloc->sym_ptr_ptr = symbol_get_bfdsym (fixp->fx_addsy);
   reloc->address = fixp->fx_frag->fr_address + fixp->fx_where;
 
@@ -3882,10 +3893,10 @@ tc_gen_reloc (asection *section, fixS *fixp)
      on the same location.  */
   if (code == BFD_RELOC_SPARC_OLO10)
     {
-      relocs[1] = reloc = (arelent *) xmalloc (sizeof (arelent));
+      relocs[1] = reloc = XNEW (arelent);
       relocs[2] = NULL;
 
-      reloc->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
+      reloc->sym_ptr_ptr = XNEW (asymbol *);
       *reloc->sym_ptr_ptr
 	= symbol_get_bfdsym (section_symbol (absolute_section));
       reloc->address = fixp->fx_frag->fr_address + fixp->fx_where;
@@ -4407,7 +4418,7 @@ s_register (int ignore ATTRIBUTE_UNUSED)
       if (regname[0] == 'i')
 	regname = NULL;
       else
-	regname = "";
+	regname = (char *) "";
     }
   else
     {
@@ -4823,18 +4834,25 @@ sparc_cfi_frame_initial_instructions (void)
 int
 sparc_regname_to_dw2regnum (char *regname)
 {
-  char *p, *q;
+  char *q;
+  int i;
 
   if (!regname[0])
     return -1;
 
-  q = "goli";
-  p = strchr (q, regname[0]);
-  if (p)
+  switch (regname[0])
+    {
+    case 'g': i = 0; break;
+    case 'o': i = 1; break;
+    case 'l': i = 2; break;
+    case 'i': i = 3; break;
+    default: i = -1; break;
+    }
+  if (i != -1)
     {
       if (regname[1] < '0' || regname[1] > '8' || regname[2])
 	return -1;
-      return (p - q) * 8 + regname[1] - '0';
+      return i * 8 + regname[1] - '0';
     }
   if (regname[0] == 's' && regname[1] == 'p' && !regname[2])
     return 14;
@@ -4845,7 +4863,7 @@ sparc_regname_to_dw2regnum (char *regname)
       unsigned int regnum;
 
       regnum = strtoul (regname + 1, &q, 10);
-      if (p == q || *q)
+      if (q == NULL || *q)
         return -1;
       if (regnum >= ((regname[0] == 'f'
 		      && SPARC_OPCODE_ARCH_V9_P (max_architecture))

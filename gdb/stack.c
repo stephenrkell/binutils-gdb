@@ -1,6 +1,6 @@
 /* Print and select stack frames for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -310,8 +310,6 @@ void
 read_frame_local (struct symbol *sym, struct frame_info *frame,
 		  struct frame_arg *argp)
 {
-  struct value *val = NULL;
-
   argp->sym = sym;
   argp->val = NULL;
   argp->error = NULL;
@@ -1509,27 +1507,32 @@ frame_info (char *addr_exp, int from_tty)
   wrap_here ("    ");
   printf_filtered ("saved %s = ", pc_regname);
 
-  TRY
+  if (!frame_id_p (frame_unwind_caller_id (fi)))
+    val_print_unavailable (gdb_stdout);
+  else
     {
-      caller_pc = frame_unwind_caller_pc (fi);
-      caller_pc_p = 1;
-    }
-  CATCH (ex, RETURN_MASK_ERROR)
-    {
-      switch (ex.error)
+      TRY
 	{
-	case NOT_AVAILABLE_ERROR:
-	  val_print_unavailable (gdb_stdout);
-	  break;
-	case OPTIMIZED_OUT_ERROR:
-	  val_print_not_saved (gdb_stdout);
-	  break;
-	default:
-	  fprintf_filtered (gdb_stdout, _("<error: %s>"), ex.message);
-	  break;
+	  caller_pc = frame_unwind_caller_pc (fi);
+	  caller_pc_p = 1;
 	}
+      CATCH (ex, RETURN_MASK_ERROR)
+	{
+	  switch (ex.error)
+	    {
+	    case NOT_AVAILABLE_ERROR:
+	      val_print_unavailable (gdb_stdout);
+	      break;
+	    case OPTIMIZED_OUT_ERROR:
+	      val_print_not_saved (gdb_stdout);
+	      break;
+	    default:
+	      fprintf_filtered (gdb_stdout, _("<error: %s>"), ex.message);
+	      break;
+	    }
+	}
+      END_CATCH
     }
-  END_CATCH
 
   if (caller_pc_p)
     fputs_filtered (paddress (gdbarch, caller_pc), gdb_stdout);

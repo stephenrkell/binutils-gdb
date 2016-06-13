@@ -1,5 +1,5 @@
 /* MI Command Set - stack commands.
-   Copyright (C) 2000-2015 Free Software Foundation, Inc.
+   Copyright (C) 2000-2016 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions (a Red Hat company).
 
    This file is part of GDB.
@@ -218,11 +218,9 @@ mi_cmd_stack_list_locals (char *command, char **argv, int argc)
   enum print_values print_value;
   int oind = 0;
   int skip_unavailable = 0;
-  int i;
 
   if (argc > 1)
     {
-      int i;
       enum opt
       {
 	NO_FRAME_FILTERS,
@@ -418,7 +416,6 @@ mi_cmd_stack_list_variables (char *command, char **argv, int argc)
 
   if (argc > 1)
     {
-      int i;
       enum opt
       {
 	NO_FRAME_FILTERS,

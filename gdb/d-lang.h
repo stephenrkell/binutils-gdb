@@ -1,6 +1,6 @@
 /* D language support definitions for GDB, the GNU debugger.
 
-   Copyright (C) 2005-2015 Free Software Foundation, Inc.
+   Copyright (C) 2005-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -58,7 +58,7 @@ struct builtin_d_type
 
 extern int d_parse (struct parser_state *);
 
-extern void d_error (char *);
+extern void d_yyerror (char *);
 
 /* Defined in d-lang.c  */
 

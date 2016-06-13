@@ -1,6 +1,6 @@
 /* Low level packing and unpacking of values for GDB, the GNU Debugger.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -955,13 +955,86 @@ allocate_value_lazy (struct type *type)
   return val;
 }
 
+/* The maximum size, in bytes, that GDB will try to allocate for a value.
+   The initial value of 64k was not selected for any specific reason, it is
+   just a reasonable starting point.  */
+
+static int max_value_size = 65536; /* 64k bytes */
+
+/* It is critical that the MAX_VALUE_SIZE is at least as big as the size of
+   LONGEST, otherwise GDB will not be able to parse integer values from the
+   CLI; for example if the MAX_VALUE_SIZE could be set to 1 then GDB would
+   be unable to parse "set max-value-size 2".
+
+   As we want a consistent GDB experience across hosts with different sizes
+   of LONGEST, this arbitrary minimum value was selected, so long as this
+   is bigger than LONGEST on all GDB supported hosts we're fine.  */
+
+#define MIN_VALUE_FOR_MAX_VALUE_SIZE 16
+gdb_static_assert (sizeof (LONGEST) <= MIN_VALUE_FOR_MAX_VALUE_SIZE);
+
+/* Implement the "set max-value-size" command.  */
+
+static void
+set_max_value_size (char *args, int from_tty,
+		    struct cmd_list_element *c)
+{
+  gdb_assert (max_value_size == -1 || max_value_size >= 0);
+
+  if (max_value_size > -1 && max_value_size < MIN_VALUE_FOR_MAX_VALUE_SIZE)
+    {
+      max_value_size = MIN_VALUE_FOR_MAX_VALUE_SIZE;
+      error (_("max-value-size set too low, increasing to %d bytes"),
+	     max_value_size);
+    }
+}
+
+/* Implement the "show max-value-size" command.  */
+
+static void
+show_max_value_size (struct ui_file *file, int from_tty,
+		     struct cmd_list_element *c, const char *value)
+{
+  if (max_value_size == -1)
+    fprintf_filtered (file, _("Maximum value size is unlimited.\n"));
+  else
+    fprintf_filtered (file, _("Maximum value size is %d bytes.\n"),
+		      max_value_size);
+}
+
+/* Called before we attempt to allocate or reallocate a buffer for the
+   contents of a value.  TYPE is the type of the value for which we are
+   allocating the buffer.  If the buffer is too large (based on the user
+   controllable setting) then throw an error.  If this function returns
+   then we should attempt to allocate the buffer.  */
+
+static void
+check_type_length_before_alloc (const struct type *type)
+{
+  unsigned int length = TYPE_LENGTH (type);
+
+  if (max_value_size > -1 && length > max_value_size)
+    {
+      if (TYPE_NAME (type) != NULL)
+	error (_("value of type `%s' requires %u bytes, which is more "
+		 "than max-value-size"), TYPE_NAME (type), length);
+      else
+	error (_("value requires %u bytes, which is more than "
+		 "max-value-size"), length);
+    }
+}
+
 /* Allocate the contents of VAL if it has not been allocated yet.  */
 
 static void
 allocate_value_contents (struct value *val)
 {
   if (!val->contents)
-    val->contents = (gdb_byte *) xzalloc (TYPE_LENGTH (val->enclosing_type));
+    {
+      check_type_length_before_alloc (val->enclosing_type);
+      val->contents
+	= (gdb_byte *) xzalloc (TYPE_LENGTH (val->enclosing_type));
+    }
 }
 
 /* Allocate a  value  and its contents for type TYPE.  */
@@ -1020,7 +1093,7 @@ allocate_optimized_out_value (struct type *type)
 /* Accessor methods.  */
 
 struct value *
-value_next (struct value *value)
+value_next (const struct value *value)
 {
   return value->next;
 }
@@ -1070,7 +1143,7 @@ set_value_bitsize (struct value *value, int bit)
 }
 
 struct value *
-value_parent (struct value *value)
+value_parent (const struct value *value)
 {
   return value->parent;
 }
@@ -1106,7 +1179,7 @@ value_contents_all_raw (struct value *value)
 }
 
 struct type *
-value_enclosing_type (struct value *value)
+value_enclosing_type (const struct value *value)
 {
   return value->enclosing_type;
 }
@@ -1130,9 +1203,10 @@ value_actual_type (struct value *value, int resolve_simple_types,
       /* If result's target type is TYPE_CODE_STRUCT, proceed to
 	 fetch its rtti type.  */
       if ((TYPE_CODE (result) == TYPE_CODE_PTR
-	  || TYPE_CODE (result) == TYPE_CODE_REF)
+	   || TYPE_CODE (result) == TYPE_CODE_REF)
 	  && TYPE_CODE (check_typedef (TYPE_TARGET_TYPE (result)))
-	     == TYPE_CODE_STRUCT)
+	     == TYPE_CODE_STRUCT
+	  && !value_optimized_out (value))
         {
           struct type *real_type;
 
@@ -1259,7 +1333,6 @@ void
 value_contents_copy_raw (struct value *dst, int dst_offset,
 			 struct value *src, int src_offset, int length)
 {
-  range_s *r;
   int src_bit_offset, dst_bit_offset, bit_length;
   struct gdbarch *arch = get_value_arch (src);
   int unit_size = gdbarch_addressable_memory_unit_size (arch);
@@ -1314,7 +1387,7 @@ value_contents_copy (struct value *dst, int dst_offset,
 }
 
 int
-value_lazy (struct value *value)
+value_lazy (const struct value *value)
 {
   return value->lazy;
 }
@@ -1326,7 +1399,7 @@ set_value_lazy (struct value *value, int val)
 }
 
 int
-value_stack (struct value *value)
+value_stack (const struct value *value)
 {
   return value->stack;
 }
@@ -1360,7 +1433,17 @@ value_optimized_out (struct value *value)
   /* We can only know if a value is optimized out once we have tried to
      fetch it.  */
   if (VEC_empty (range_s, value->optimized_out) && value->lazy)
-    value_fetch_lazy (value);
+    {
+      TRY
+	{
+	  value_fetch_lazy (value);
+	}
+      CATCH (ex, RETURN_MASK_ERROR)
+	{
+	  /* Fall back to checking value->optimized_out.  */
+	}
+      END_CATCH
+    }
 
   return !VEC_empty (range_s, value->optimized_out);
 }
@@ -1397,7 +1480,7 @@ value_bits_synthetic_pointer (const struct value *value,
 }
 
 int
-value_embedded_offset (struct value *value)
+value_embedded_offset (const struct value *value)
 {
   return value->embedded_offset;
 }
@@ -1409,7 +1492,7 @@ set_value_embedded_offset (struct value *value, int val)
 }
 
 int
-value_pointed_to_offset (struct value *value)
+value_pointed_to_offset (const struct value *value)
 {
   return value->pointed_to_offset;
 }
@@ -1457,12 +1540,17 @@ value_address (const struct value *value)
     return 0;
   if (value->parent != NULL)
     return value_address (value->parent) + value->offset;
-  else
-    return value->location.address + value->offset;
+  if (NULL != TYPE_DATA_LOCATION (value_type (value)))
+    {
+      gdb_assert (PROP_CONST == TYPE_DATA_LOCATION_KIND (value_type (value)));
+      return TYPE_DATA_LOCATION_ADDR (value_type (value));
+    }
+
+  return value->location.address + value->offset;
 }
 
 CORE_ADDR
-value_raw_address (struct value *value)
+value_raw_address (const struct value *value)
 {
   if (value->lval == lval_internalvar
       || value->lval == lval_internalvar_component
@@ -1499,7 +1587,7 @@ deprecated_value_regnum_hack (struct value *value)
 }
 
 int
-deprecated_value_modifiable (struct value *value)
+deprecated_value_modifiable (const struct value *value)
 {
   return value->modifiable;
 }
@@ -1560,7 +1648,7 @@ value_free (struct value *val)
 /* Free all values allocated since MARK was obtained by value_mark
    (except for those released).  */
 void
-value_free_to_mark (struct value *mark)
+value_free_to_mark (const struct value *mark)
 {
   struct value *val;
   struct value *next;
@@ -1652,7 +1740,7 @@ release_value_or_incref (struct value *val)
 
 /* Release all values up to mark  */
 struct value *
-value_release_to_mark (struct value *mark)
+value_release_to_mark (const struct value *mark)
 {
   struct value *val;
   struct value *next;
@@ -1773,6 +1861,8 @@ void
 set_value_component_location (struct value *component,
 			      const struct value *whole)
 {
+  struct type *type;
+
   gdb_assert (whole->lval != lval_xcallable);
 
   if (whole->lval == lval_internalvar)
@@ -1788,9 +1878,15 @@ set_value_component_location (struct value *component,
       if (funcs->copy_closure)
         component->location.computed.closure = funcs->copy_closure (whole);
     }
+
+  /* If type has a dynamic resolved location property
+     update it's value address.  */
+  type = value_type (whole);
+  if (NULL != TYPE_DATA_LOCATION (type)
+      && TYPE_DATA_LOCATION_KIND (type) == PROP_CONST)
+    set_value_address (component, TYPE_DATA_LOCATION_ADDR (type));
 }
 
-
 /* Access to the value history.  */
 
 /* Record a new value in the value history.
@@ -2343,6 +2439,15 @@ set_internalvar (struct internalvar *var, struct value *val)
 	 call error () until new_data is installed into the var->u to avoid
 	 leaking memory.  */
       release_value (new_data.value);
+
+      /* Internal variables which are created from values with a dynamic
+         location don't need the location property of the origin anymore.
+         The resolved dynamic location is used prior then any other address
+         when accessing the value.
+         If we keep it, we would still refer to the origin value.
+         Remove the location property in case it exist.  */
+      remove_dyn_prop (DYN_PROP_DATA_LOCATION, value_type (new_data.value));
+
       break;
     }
 
@@ -2416,7 +2521,7 @@ clear_internalvar (struct internalvar *var)
 }
 
 char *
-internalvar_name (struct internalvar *var)
+internalvar_name (const struct internalvar *var)
 {
   return var->name;
 }
@@ -2830,12 +2935,12 @@ unpack_long (struct type *type, const gdb_byte *valaddr)
 	return extract_signed_integer (valaddr, len, byte_order);
 
     case TYPE_CODE_FLT:
-      return extract_typed_floating (valaddr, type);
+      return (LONGEST) extract_typed_floating (valaddr, type);
 
     case TYPE_CODE_DECFLOAT:
       /* libdecnumber has a function to convert from decimal to integer, but
 	 it doesn't work when the decimal number has a fractional part.  */
-      return decimal_to_doublest (valaddr, len, byte_order);
+      return (LONGEST) decimal_to_doublest (valaddr, len, byte_order);
 
     case TYPE_CODE_PTR:
     case TYPE_CODE_REF:
@@ -2986,9 +3091,12 @@ value_static_field (struct type *type, int fieldno)
 void
 set_value_enclosing_type (struct value *val, struct type *new_encl_type)
 {
-  if (TYPE_LENGTH (new_encl_type) > TYPE_LENGTH (value_enclosing_type (val))) 
-    val->contents =
-      (gdb_byte *) xrealloc (val->contents, TYPE_LENGTH (new_encl_type));
+  if (TYPE_LENGTH (new_encl_type) > TYPE_LENGTH (value_enclosing_type (val)))
+    {
+      check_type_length_before_alloc (new_encl_type);
+      val->contents
+	= (gdb_byte *) xrealloc (val->contents, TYPE_LENGTH (new_encl_type));
+    }
 
   val->enclosing_type = new_encl_type;
 }
@@ -3080,6 +3188,17 @@ value_primitive_field (struct value *arg1, int offset,
       v->type = type;
       v->offset = value_offset (arg1);
       v->embedded_offset = offset + value_embedded_offset (arg1) + boffset;
+    }
+  else if (NULL != TYPE_DATA_LOCATION (type))
+    {
+      /* Field is a dynamic data member.  */
+
+      gdb_assert (0 == offset);
+      /* We expect an already resolved data location.  */
+      gdb_assert (PROP_CONST == TYPE_DATA_LOCATION_KIND (type));
+      /* For dynamic data types defer memory allocation
+         until we actual access the value.  */
+      v = allocate_value_lazy (type);
     }
   else
     {
@@ -3685,8 +3804,8 @@ coerce_ref_if_computed (const struct value *arg)
 
 struct value *
 readjust_indirect_value_type (struct value *value, struct type *enc_type,
-			      struct type *original_type,
-			      struct value *original_value)
+			      const struct type *original_type,
+			      const struct value *original_value)
 {
   /* Re-adjust type.  */
   deprecated_set_value_type (value, TYPE_TARGET_TYPE (original_type));
@@ -3791,7 +3910,7 @@ set_value_initialized (struct value *val, int status)
 /* Return the initialized field in a value struct.  */
 
 int
-value_initialized (struct value *val)
+value_initialized (const struct value *val)
 {
   return val->initialized;
 }
@@ -4013,4 +4132,17 @@ Check whether an expression is void.\n\
 Usage: $_isvoid (expression)\n\
 Return 1 if the expression is void, zero otherwise."),
 			 isvoid_internal_fn, NULL);
+
+  add_setshow_zuinteger_unlimited_cmd ("max-value-size",
+				       class_support, &max_value_size, _("\
+Set maximum sized value gdb will load from the inferior."), _("\
+Show maximum sized value gdb will load from the inferior."), _("\
+Use this to control the maximum size, in bytes, of a value that gdb\n\
+will load from the inferior.  Setting this value to 'unlimited'\n\
+disables checking.\n\
+Setting this does not invalidate already allocated values, it only\n\
+prevents future values, larger than this size, from being allocated."),
+			    set_max_value_size,
+			    show_max_value_size,
+			    &setlist, &showlist);
 }

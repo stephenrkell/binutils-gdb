@@ -1,7 +1,7 @@
 /* GNU/Linux/AArch64 specific low level interface, for the remote server for
    GDB.
 
-   Copyright (C) 2009-2015 Free Software Foundation, Inc.
+   Copyright (C) 2009-2016 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GDB.
@@ -163,23 +163,9 @@ static CORE_ADDR
 aarch64_get_pc (struct regcache *regcache)
 {
   if (register_size (regcache->tdesc, 0) == 8)
-    {
-      unsigned long pc;
-
-      collect_register_by_name (regcache, "pc", &pc);
-      if (debug_threads)
-	debug_printf ("stop pc is %08lx\n", pc);
-      return pc;
-    }
+    return linux_get_pc_64bit (regcache);
   else
-    {
-      unsigned int pc;
-
-      collect_register_by_name (regcache, "pc", &pc);
-      if (debug_threads)
-	debug_printf ("stop pc is %04x\n", pc);
-      return pc;
-    }
+    return linux_get_pc_32bit (regcache);
 }
 
 /* Implementation of linux_target_ops method "set_pc".  */
@@ -188,15 +174,9 @@ static void
 aarch64_set_pc (struct regcache *regcache, CORE_ADDR pc)
 {
   if (register_size (regcache->tdesc, 0) == 8)
-    {
-      unsigned long newpc = pc;
-      supply_register_by_name (regcache, "pc", &newpc);
-    }
+    linux_set_pc_64bit (regcache, pc);
   else
-    {
-      unsigned int newpc = pc;
-      supply_register_by_name (regcache, "pc", &newpc);
-    }
+    linux_set_pc_32bit (regcache, pc);
 }
 
 #define aarch64_breakpoint_len 4
@@ -211,14 +191,19 @@ static const gdb_byte aarch64_breakpoint[] = {0x00, 0x00, 0x20, 0xd4};
 static int
 aarch64_breakpoint_at (CORE_ADDR where)
 {
-  gdb_byte insn[aarch64_breakpoint_len];
+  if (is_64bit_tdesc ())
+    {
+      gdb_byte insn[aarch64_breakpoint_len];
 
-  (*the_target->read_memory) (where, (unsigned char *) &insn,
-			      aarch64_breakpoint_len);
-  if (memcmp (insn, aarch64_breakpoint, aarch64_breakpoint_len) == 0)
-    return 1;
+      (*the_target->read_memory) (where, (unsigned char *) &insn,
+				  aarch64_breakpoint_len);
+      if (memcmp (insn, aarch64_breakpoint, aarch64_breakpoint_len) == 0)
+	return 1;
 
-  return 0;
+      return 0;
+    }
+  else
+    return arm_breakpoint_at (where);
 }
 
 static void
@@ -260,22 +245,6 @@ aarch64_supports_z_point_type (char z_type)
   switch (z_type)
     {
     case Z_PACKET_SW_BP:
-      {
-	if (!extended_protocol && is_64bit_tdesc ())
-	  {
-	    /* Only enable Z0 packet in non-multi-arch debugging.  If
-	       extended protocol is used, don't enable Z0 packet because
-	       GDBserver may attach to 32-bit process.  */
-	    return 1;
-	  }
-	else
-	  {
-	    /* Disable Z0 packet so that GDBserver doesn't have to handle
-	       different breakpoint instructions (aarch64, arm, thumb etc)
-	       in multi-arch debugging.  */
-	    return 0;
-	  }
-      }
     case Z_PACKET_HW_BP:
     case Z_PACKET_WRITE_WP:
     case Z_PACKET_READ_WP:
@@ -442,7 +411,7 @@ ps_get_thread_area (const struct ps_prochandle *ph,
 /* Implementation of linux_target_ops method "siginfo_fixup".  */
 
 static int
-aarch64_linux_siginfo_fixup (siginfo_t *native, void *inf, int direction)
+aarch64_linux_siginfo_fixup (siginfo_t *native, gdb_byte *inf, int direction)
 {
   /* Is the inferior 32-bit?  If so, then fixup the siginfo object.  */
   if (!is_64bit_tdesc ())
@@ -2289,7 +2258,7 @@ aarch64_emit_add (void)
   uint32_t *p = buf;
 
   p += emit_pop (p, x1);
-  p += emit_add (p, x0, x0, register_operand (x1));
+  p += emit_add (p, x0, x1, register_operand (x0));
 
   emit_ops_insns (buf, p - buf);
 }
@@ -2303,7 +2272,7 @@ aarch64_emit_sub (void)
   uint32_t *p = buf;
 
   p += emit_pop (p, x1);
-  p += emit_sub (p, x0, x0, register_operand (x1));
+  p += emit_sub (p, x0, x1, register_operand (x0));
 
   emit_ops_insns (buf, p - buf);
 }
@@ -2940,8 +2909,44 @@ aarch64_supports_range_stepping (void)
 static const gdb_byte *
 aarch64_sw_breakpoint_from_kind (int kind, int *size)
 {
-  *size = aarch64_breakpoint_len;
-  return aarch64_breakpoint;
+  if (is_64bit_tdesc ())
+    {
+      *size = aarch64_breakpoint_len;
+      return aarch64_breakpoint;
+    }
+  else
+    return arm_sw_breakpoint_from_kind (kind, size);
+}
+
+/* Implementation of linux_target_ops method "breakpoint_kind_from_pc".  */
+
+static int
+aarch64_breakpoint_kind_from_pc (CORE_ADDR *pcptr)
+{
+  if (is_64bit_tdesc ())
+    return aarch64_breakpoint_len;
+  else
+    return arm_breakpoint_kind_from_pc (pcptr);
+}
+
+/* Implementation of the linux_target_ops method
+   "breakpoint_kind_from_current_state".  */
+
+static int
+aarch64_breakpoint_kind_from_current_state (CORE_ADDR *pcptr)
+{
+  if (is_64bit_tdesc ())
+    return aarch64_breakpoint_len;
+  else
+    return arm_breakpoint_kind_from_current_state (pcptr);
+}
+
+/* Support for hardware single step.  */
+
+static int
+aarch64_supports_hardware_single_step (void)
+{
+  return 1;
 }
 
 struct linux_target_ops the_low_target =
@@ -2953,9 +2958,9 @@ struct linux_target_ops the_low_target =
   NULL, /* fetch_register */
   aarch64_get_pc,
   aarch64_set_pc,
-  NULL, /* breakpoint_kind_from_pc */
+  aarch64_breakpoint_kind_from_pc,
   aarch64_sw_breakpoint_from_kind,
-  NULL, /* breakpoint_reinsert_addr */
+  NULL, /* get_next_pcs */
   0,    /* decr_pc_after_break */
   aarch64_breakpoint_at,
   aarch64_supports_z_point_type,
@@ -2977,6 +2982,8 @@ struct linux_target_ops the_low_target =
   aarch64_emit_ops,
   aarch64_get_min_fast_tracepoint_insn_len,
   aarch64_supports_range_stepping,
+  aarch64_breakpoint_kind_from_current_state,
+  aarch64_supports_hardware_single_step,
 };
 
 void

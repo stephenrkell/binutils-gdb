@@ -1,5 +1,5 @@
 /* SPU target-dependent code for GDB, the GNU debugger.
-   Copyright (C) 2006-2015 Free Software Foundation, Inc.
+   Copyright (C) 2006-2016 Free Software Foundation, Inc.
 
    Contributed by Ulrich Weigand <uweigand@de.ibm.com>.
    Based on a port by Sid Manning <sid@us.ibm.com>.
@@ -1632,7 +1632,9 @@ spu_software_single_step (struct frame_info *frame)
   pc = get_frame_pc (frame);
 
   if (target_read_memory (pc, buf, 4))
-    return 1;
+    throw_error (MEMORY_ERROR, _("Could not read instruction at %s."),
+		 paddress (gdbarch, pc));
+
   insn = extract_unsigned_integer (buf, 4, byte_order);
 
   /* Get local store limit.  */
@@ -2001,7 +2003,7 @@ spu_catch_start (struct objfile *objfile)
 
   /* Use a numerical address for the set_breakpoint command to avoid having
      the breakpoint re-set incorrectly.  */
-  location = new_address_location (pc);
+  location = new_address_location (pc, NULL, 0);
   back_to = make_cleanup_delete_event_location (location);
   create_breakpoint (get_objfile_arch (objfile), location,
 		     NULL /* cond_string */, -1 /* thread */,
@@ -2423,7 +2425,7 @@ info_spu_dma_cmdlist (gdb_byte *buf, int nr, enum bfd_endian byte_order)
       int mfc_cmd_opcode, mfc_cmd_tag, rclass_id, tclass_id;
       int list_lsa, list_size, mfc_lsa, mfc_size;
       ULONGEST mfc_ea;
-      int list_valid_p, noop_valid_p, qw_valid_p, ea_valid_p, cmd_error_p;
+      int list_valid_p, qw_valid_p, ea_valid_p, cmd_error_p;
 
       /* Decode contents of MFC Command Queue Context Save/Restore Registers.
 	 See "Cell Broadband Engine Registers V1.3", section 3.3.2.1.  */
@@ -2448,7 +2450,6 @@ info_spu_dma_cmdlist (gdb_byte *buf, int nr, enum bfd_endian byte_order)
 
       mfc_lsa = spu_mfc_get_bitfield (mfc_cq_dw2, 0, 13);
       mfc_size = spu_mfc_get_bitfield (mfc_cq_dw2, 14, 24);
-      noop_valid_p = spu_mfc_get_bitfield (mfc_cq_dw2, 37, 37);
       qw_valid_p = spu_mfc_get_bitfield (mfc_cq_dw2, 38, 38);
       ea_valid_p = spu_mfc_get_bitfield (mfc_cq_dw2, 39, 39);
       cmd_error_p = spu_mfc_get_bitfield (mfc_cq_dw2, 40, 40);

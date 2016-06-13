@@ -1,5 +1,5 @@
 /* Remote serial interface for local (hardwired) serial ports for GO32.
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
 
    Contributed by Nigel Stephens, Algorithmics Ltd. (nigel@algor.co.uk).
 
@@ -616,6 +616,8 @@ dos_readchar (struct serial *scb, int timeout)
   then = rawclock () + (timeout * RAWHZ);
   while ((c = dos_getc (port)) < 0)
     {
+      QUIT;
+
       if (timeout >= 0 && (rawclock () - then) >= 0)
 	return SERIAL_TIMEOUT;
     }
@@ -794,6 +796,8 @@ dos_write (struct serial *scb, const void *buf, size_t count)
 
   while (count > 0)
     {
+      QUIT;
+
       /* Send the data, fifosize bytes at a time.  */
       cnt = fifosize > count ? count : fifosize;
       port->txbusy = 1;

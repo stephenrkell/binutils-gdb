@@ -1,6 +1,6 @@
 /* Target-dependent code for OpenBSD/i386.
 
-   Copyright (C) 1988-2015 Free Software Foundation, Inc.
+   Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -489,8 +489,6 @@ i386obsd_aout_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 static void
 i386obsd_elf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-
   /* It's still OpenBSD.  */
   i386obsd_init_abi (info, gdbarch);
 

@@ -1,6 +1,6 @@
 /* C language support definitions for GDB, the GNU debugger.
 
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -63,7 +63,7 @@ DEF_ENUM_FLAGS_TYPE (enum c_string_type_values, c_string_type);
 
 extern int c_parse (struct parser_state *);
 
-extern void c_error (char *);
+extern void c_yyerror (char *);
 
 extern int c_parse_escape (const char **, struct obstack *);
 

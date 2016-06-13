@@ -1,4 +1,4 @@
-! Copyright 2015 Free Software Foundation, Inc.
+! Copyright 2015-2016 Free Software Foundation, Inc.
 !
 ! This program is free software; you can redistribute it and/or modify
 ! it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@ program vla
   real, target, allocatable :: vla2(:, :)
   real, pointer :: pvla2 (:, :)
   logical :: l
+  nullify (pvla2)
 
   allocate (vla1 (5))         ! vla1-not-allocated
   l = allocated(vla1)         ! vla1-allocated

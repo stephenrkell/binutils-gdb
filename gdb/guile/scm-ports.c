@@ -1,7 +1,7 @@
 /* Support for connecting Guile's stdio to GDB's.
    as well as r/w memory via ports.
 
-   Copyright (C) 2014-2015 Free Software Foundation, Inc.
+   Copyright (C) 2014-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -201,7 +201,9 @@ ioscm_input_waiting (SCM port)
     FD_ZERO (&input_fds);
     FD_SET (fdes, &input_fds);
 
-    num_found = gdb_select (num_fds, &input_fds, NULL, NULL, &timeout);
+    num_found = interruptible_select (num_fds,
+				      &input_fds, NULL, NULL,
+				      &timeout);
     if (num_found < 0)
       {
 	/* Guile doesn't export SIGINT hooks like Python does.

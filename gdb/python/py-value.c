@@ -1,6 +1,6 @@
 /* Python interface to values.
 
-   Copyright (C) 2008-2015 Free Software Foundation, Inc.
+   Copyright (C) 2008-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -1827,6 +1827,9 @@ static PyNumberMethods value_object_as_number = {
   NULL,                       /* nb_inplace_add */
   NULL,                       /* nb_inplace_subtract */
   NULL,                       /* nb_inplace_multiply */
+#ifndef IS_PY3K
+  NULL,                       /* nb_inplace_divide */
+#endif
   NULL,                       /* nb_inplace_remainder */
   NULL,                       /* nb_inplace_power */
   NULL,                       /* nb_inplace_lshift */
@@ -1835,7 +1838,13 @@ static PyNumberMethods value_object_as_number = {
   NULL,                       /* nb_inplace_xor */
   NULL,                       /* nb_inplace_or */
   NULL,                       /* nb_floor_divide */
-  valpy_divide                /* nb_true_divide */
+  valpy_divide,               /* nb_true_divide */
+  NULL,			      /* nb_inplace_floor_divide */
+  NULL,			      /* nb_inplace_true_divide */
+#ifndef HAVE_LIBPYTHON2_4
+  /* This was added in Python 2.5.  */
+  valpy_long,		      /* nb_index */
+#endif /* HAVE_LIBPYTHON2_4 */
 };
 
 static PyMappingMethods value_object_as_mapping = {

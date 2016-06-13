@@ -1,6 +1,6 @@
 /* Handle SVR4 shared libraries for GDB, the GNU Debugger.
 
-   Copyright (C) 1990-2015 Free Software Foundation, Inc.
+   Copyright (C) 1990-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -1916,7 +1916,6 @@ svr4_handle_solib_event (void)
   struct cleanup *old_chain, *usm_chain;
   struct value *val = NULL;
   CORE_ADDR pc, debug_base, lm = 0;
-  int is_initial_ns;
   struct frame_info *frame = get_current_frame ();
 
   /* Do nothing if not using the probes interface.  */

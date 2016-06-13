@@ -1,6 +1,6 @@
 /* Pascal language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2015 Free Software Foundation, Inc.
+   Copyright (C) 2000-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -423,7 +423,7 @@ const struct language_defn pascal_language_defn =
   macro_expansion_no,
   &exp_descriptor_standard,
   pascal_parse,
-  pascal_error,
+  pascal_yyerror,
   null_post_parser,
   pascal_printchar,		/* Print a character constant */
   pascal_printstr,		/* Function to print string constant */

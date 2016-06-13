@@ -1,5 +1,5 @@
 /* ldcref.c -- output a cross reference table
-   Copyright (C) 1996-2015 Free Software Foundation, Inc.
+   Copyright (C) 1996-2016 Free Software Foundation, Inc.
    Written by Ian Lance Taylor <ian@cygnus.com>
 
    This file is part of the GNU Binutils.
@@ -534,8 +534,14 @@ check_local_sym_xref (lang_input_statement_type *statement)
 	    symname = sym->name;
 	  for (ncrs = nocrossref_list; ncrs != NULL; ncrs = ncrs->next)
 	    for (ncr = ncrs->list; ncr != NULL; ncr = ncr->next)
-	      if (strcmp (ncr->name, outsecname) == 0)
-		check_refs (symname, FALSE, sym->section, abfd, ncrs);
+	      {
+		if (strcmp (ncr->name, outsecname) == 0)
+		  check_refs (symname, FALSE, sym->section, abfd, ncrs);
+		/* The NOCROSSREFS_TO command only checks symbols defined in
+		   the first section in the list.  */
+		if (ncrs->onlyfirst)
+		  break;
+	      }
 	}
     }
 }
@@ -572,10 +578,16 @@ check_nocrossref (struct cref_hash_entry *h, void *ignore ATTRIBUTE_UNUSED)
 
   for (ncrs = nocrossref_list; ncrs != NULL; ncrs = ncrs->next)
     for (ncr = ncrs->list; ncr != NULL; ncr = ncr->next)
-      if (strcmp (ncr->name, defsecname) == 0)
-	for (ref = h->refs; ref != NULL; ref = ref->next)
-	  check_refs (hl->root.string, TRUE, hl->u.def.section,
-		      ref->abfd, ncrs);
+      {
+	if (strcmp (ncr->name, defsecname) == 0)
+	  for (ref = h->refs; ref != NULL; ref = ref->next)
+	    check_refs (hl->root.string, TRUE, hl->u.def.section,
+			ref->abfd, ncrs);
+	/* The NOCROSSREFS_TO command only checks symbols defined in the first
+	   section in the list.  */
+	if (ncrs->onlyfirst)
+	  break;
+      }
 
   return TRUE;
 }

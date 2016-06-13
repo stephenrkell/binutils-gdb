@@ -1,6 +1,6 @@
 /* This is the machine dependent code of the Visium Assembler.
 
-   Copyright (C) 2005-2015 Free Software Foundation, Inc.
+   Copyright (C) 2005-2016 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -112,9 +112,9 @@ tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
   arelent *reloc;
   bfd_reloc_code_real_type code;
 
-  reloc = (arelent *) xmalloc (sizeof (arelent));
+  reloc = XNEW (arelent);
 
-  reloc->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
+  reloc->sym_ptr_ptr = XNEW (asymbol *);
   *reloc->sym_ptr_ptr = symbol_get_bfdsym (fixp->fx_addsy);
   reloc->address = fixp->fx_frag->fr_address + fixp->fx_where;
 
@@ -265,7 +265,7 @@ static struct visium_option_table visium_opts[] =
 
 struct visium_arch_option_table
 {
-  char *name;
+  const char *name;
   enum visium_arch_val value;
 };
 
@@ -280,14 +280,14 @@ static struct visium_arch_option_table visium_archs[] =
 
 struct visium_long_option_table
 {
-  char *option;			/* Substring to match.  */
-  char *help;			/* Help information.  */
-  int (*func) (char *subopt);	/* Function to decode sub-option.  */
-  char *deprecated;		/* If non-null, print this message.  */
+  const char *option;			/* Substring to match.  */
+  const char *help;			/* Help information.  */
+  int (*func) (const char *subopt);	/* Function to decode sub-option.  */
+  const char *deprecated;		/* If non-null, print this message.  */
 };
 
 static int
-visium_parse_arch (char *str)
+visium_parse_arch (const char *str)
 {
   struct visium_arch_option_table *opt;
 
@@ -317,7 +317,7 @@ static struct visium_long_option_table visium_long_opts[] =
 };
 
 int
-md_parse_option (int c, char *arg)
+md_parse_option (int c, const char *arg)
 {
   struct visium_option_table *opt;
   struct visium_long_option_table *lopt;
@@ -826,7 +826,7 @@ md_begin (void)
 /* Equal to MAX_PRECISION in atof-ieee.c.  */
 #define MAX_LITTLENUMS 6
 
-char *
+const char *
 md_atof (int type, char *litP, int *sizeP)
 {
   int i, prec;
@@ -861,7 +861,7 @@ md_atof (int type, char *litP, int *sizeP)
 
     default:
       *sizeP = 0;
-      return "Bad call to MD_ATOF()";
+      return _("Bad call to MD_ATOF()");
     }
 
   t = atof_ieee (input_line_pointer, type, words);

@@ -1,6 +1,6 @@
 /* GDB routines for supporting auto-loaded scripts.
 
-   Copyright (C) 2012-2015 Free Software Foundation, Inc.
+   Copyright (C) 2012-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -1012,7 +1012,7 @@ execute_script_contents (struct auto_load_pspace_info *pspace_info,
 {
   objfile_script_executor_func *executor;
   const char *newline, *script_text;
-  char *name, *end;
+  char *name;
   int is_safe, in_hash_table;
   struct cleanup *cleanups;
 
@@ -1309,7 +1309,6 @@ char auto_load_info_scripts_pattern_nl[] = "";
 static void
 print_scripts (VEC (loaded_script_ptr) *scripts)
 {
-  struct ui_out *uiout = current_uiout;
   int i;
   loaded_script_ptr script;
 

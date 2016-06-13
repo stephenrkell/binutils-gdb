@@ -131,7 +131,9 @@ power9:
 	xxextractuw 4,5,0x0
 	xxextractuw 40,50,0xf
 	xxspltib    4,0x0
+	xxspltib    4,-128
 	xxspltib    41,255
+	xxspltib    41,-1
 	xxinsertw   5,6,0
 	xxinsertw   50,60,0xf
 	xxbrh       6,7
@@ -354,6 +356,8 @@ power9:
 	rmieg       30
 	ldmx        10,0,15
 	ldmx        10,3,15
+	lwzmx       11,0,16
+	lwzmx       11,3,16
 	stop
 	wait
 	wait        0
@@ -368,12 +372,14 @@ power9:
 	xscmpeqdp   30,40,50
 	xscmpgtdp   31,41,51
 	xscmpgedp   32,42,52
-	xscmpnedp   33,43,53
 	xsmincdp    34,44,54
 	xsmaxcdp    35,45,55
 	xsminjdp    36,46,56
 	xsmaxjdp    37,47,57
-	xvcmpnedp   38,48,58
-	xvcmpnedp.  39,49,59
-	xvcmpnesp   40,50,60
-	xvcmpnesp.  41,51,61
+	vmsumudm    20,21,22,23
+	addex       11,12,13,0
+	addex       11,12,13,1
+	addex       11,12,13,2
+	addex.      21,22,23,0
+	addex.      21,22,23,1
+	addex.      21,22,23,2

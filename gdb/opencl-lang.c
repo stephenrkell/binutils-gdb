@@ -1,5 +1,5 @@
 /* OpenCL language support for GDB, the GNU debugger.
-   Copyright (C) 2010-2015 Free Software Foundation, Inc.
+   Copyright (C) 2010-2016 Free Software Foundation, Inc.
 
    Contributed by Ken Werner <ken.werner@de.ibm.com>.
 
@@ -984,7 +984,7 @@ Cannot perform conditional operation on vectors with different sizes"));
 						"structure");
 
 	    if (noside == EVAL_AVOID_SIDE_EFFECTS)
-	      v = value_zero (value_type (v), not_lval);
+	      v = value_zero (value_type (v), VALUE_LVAL (v));
 	    return v;
 	  }
       }
@@ -1054,7 +1054,7 @@ const struct language_defn opencl_language_defn =
   macro_expansion_c,
   &exp_descriptor_opencl,
   c_parse,
-  c_error,
+  c_yyerror,
   null_post_parser,
   c_printchar,			/* Print a character constant */
   c_printstr,			/* Function to print string constant */

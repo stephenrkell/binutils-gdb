@@ -1,6 +1,6 @@
 /* Ada language support definitions for GDB, the GNU debugger.
 
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -159,7 +159,7 @@ extern int ada_get_field_index (const struct type *type,
 
 extern int ada_parse (struct parser_state *);    /* Defined in ada-exp.y */
 
-extern void ada_error (char *); /* Defined in ada-exp.y */
+extern void ada_yyerror (char *); /* Defined in ada-exp.y */
 
                         /* Defined in ada-typeprint.c */
 extern void ada_print_type (struct type *, const char *, struct ui_file *, int,

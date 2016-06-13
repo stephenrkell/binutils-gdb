@@ -1,6 +1,6 @@
 /* C language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -835,7 +835,7 @@ const struct language_defn c_language_defn =
   macro_expansion_c,
   &exp_descriptor_c,
   c_parse,
-  c_error,
+  c_yyerror,
   null_post_parser,
   c_printchar,			/* Print a character constant */
   c_printstr,			/* Function to print string constant */
@@ -962,7 +962,7 @@ const struct language_defn cplus_language_defn =
   macro_expansion_c,
   &exp_descriptor_c,
   c_parse,
-  c_error,
+  c_yyerror,
   null_post_parser,
   c_printchar,			/* Print a character constant */
   c_printstr,			/* Function to print string constant */
@@ -1007,7 +1007,7 @@ const struct language_defn asm_language_defn =
   macro_expansion_c,
   &exp_descriptor_c,
   c_parse,
-  c_error,
+  c_yyerror,
   null_post_parser,
   c_printchar,			/* Print a character constant */
   c_printstr,			/* Function to print string constant */
@@ -1057,7 +1057,7 @@ const struct language_defn minimal_language_defn =
   macro_expansion_c,
   &exp_descriptor_c,
   c_parse,
-  c_error,
+  c_yyerror,
   null_post_parser,
   c_printchar,			/* Print a character constant */
   c_printstr,			/* Function to print string constant */

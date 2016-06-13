@@ -1,6 +1,6 @@
 /* Low level interface for debugging AIX 4.3+ pthreads.
 
-   Copyright (C) 1999-2015 Free Software Foundation, Inc.
+   Copyright (C) 1999-2016 Free Software Foundation, Inc.
    Written by Nick Duffek <nsd@redhat.com>.
 
    This file is part of GDB.
@@ -462,7 +462,7 @@ pdc_read_data (pthdb_user_t user, void *buf,
       "pdc_read_data (user = %ld, buf = 0x%lx, addr = %s, len = %ld)\n",
       user, (long) buf, hex_string (addr), len);
 
-  status = target_read_memory (addr, buf, len);
+  status = target_read_memory (addr, (gdb_byte *) buf, len);
   ret = status == 0 ? PDC_SUCCESS : PDC_FAILURE;
 
   if (debug_aix_thread)
@@ -484,7 +484,7 @@ pdc_write_data (pthdb_user_t user, void *buf,
       "pdc_write_data (user = %ld, buf = 0x%lx, addr = %s, len = %ld)\n",
       user, (long) buf, hex_string (addr), len);
 
-  status = target_write_memory (addr, buf, len);
+  status = target_write_memory (addr, (gdb_byte *) buf, len);
   ret = status == 0 ? PDC_SUCCESS : PDC_FAILURE;
 
   if (debug_aix_thread)
@@ -1007,10 +1007,10 @@ aix_thread_resume (struct target_ops *ops,
 
       if (arch64)
 	ptrace64aix (PTT_CONTINUE, tid[0], (long long) 1,
-		     gdb_signal_to_host (sig), (void *) tid);
+		     gdb_signal_to_host (sig), (PTRACE_TYPE_ARG5) tid);
       else
 	ptrace32 (PTT_CONTINUE, tid[0], (addr_ptr) 1,
-		  gdb_signal_to_host (sig), (void *) tid);
+		  gdb_signal_to_host (sig), (PTRACE_TYPE_ARG5) tid);
     }
 }
 

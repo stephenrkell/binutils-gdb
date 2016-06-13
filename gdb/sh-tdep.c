@@ -1,6 +1,6 @@
 /* Target-dependent code for Renesas Super-H, for GDB.
 
-   Copyright (C) 1993-2015 Free Software Foundation, Inc.
+   Copyright (C) 1993-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -1305,8 +1305,6 @@ sh_extract_return_value_nofpu (struct type *type, struct regcache *regcache,
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int len = TYPE_LENGTH (type);
-  int return_register = R0_REGNUM;
-  int offset;
 
   if (len <= 4)
     {

@@ -1,5 +1,5 @@
 /* PowerPC-specific support for 32-bit ELF
-   Copyright (C) 1994-2015 Free Software Foundation, Inc.
+   Copyright (C) 1994-2016 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Cygnus Support.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -35,7 +35,6 @@
 #include "elf32-ppc.h"
 #include "elf-vxworks.h"
 #include "dwarf2.h"
-#include "elf-linux-psinfo.h"
 
 typedef enum split16_format_type
 {
@@ -1819,30 +1818,28 @@ struct elf_external_ppc_linux_prpsinfo32
     char pr_psargs[80];			/* Initial part of arg list.  */
   };
 
-/* Helper macro to swap (properly handling endianess) things from the
-   `elf_internal_prpsinfo' structure to the `elf_external_ppc_prpsinfo32'
-   structure.
+/* Helper function to copy an elf_internal_linux_prpsinfo in host
+   endian to an elf_external_ppc_linux_prpsinfo32 in target endian.  */
 
-   Note that FROM should be a pointer, and TO should be the explicit type.  */
-
-#define PPC_LINUX_PRPSINFO32_SWAP_FIELDS(abfd, from, to)	      \
-  do								      \
-    {								      \
-      H_PUT_8 (abfd, from->pr_state, &to.pr_state);		      \
-      H_PUT_8 (abfd, from->pr_sname, &to.pr_sname);		      \
-      H_PUT_8 (abfd, from->pr_zomb, &to.pr_zomb);		      \
-      H_PUT_8 (abfd, from->pr_nice, &to.pr_nice);		      \
-      H_PUT_32 (abfd, from->pr_flag, to.pr_flag);		      \
-      H_PUT_32 (abfd, from->pr_uid, to.pr_uid);			      \
-      H_PUT_32 (abfd, from->pr_gid, to.pr_gid);			      \
-      H_PUT_32 (abfd, from->pr_pid, to.pr_pid);			      \
-      H_PUT_32 (abfd, from->pr_ppid, to.pr_ppid);		      \
-      H_PUT_32 (abfd, from->pr_pgrp, to.pr_pgrp);		      \
-      H_PUT_32 (abfd, from->pr_sid, to.pr_sid);			      \
-      strncpy (to.pr_fname, from->pr_fname, sizeof (to.pr_fname));    \
-      strncpy (to.pr_psargs, from->pr_psargs, sizeof (to.pr_psargs)); \
-    } while (0)
-
+static inline void
+swap_ppc_linux_prpsinfo32_out (bfd *obfd,
+			       const struct elf_internal_linux_prpsinfo *from,
+			       struct elf_external_ppc_linux_prpsinfo32 *to)
+{
+  bfd_put_8 (obfd, from->pr_state, &to->pr_state);
+  bfd_put_8 (obfd, from->pr_sname, &to->pr_sname);
+  bfd_put_8 (obfd, from->pr_zomb, &to->pr_zomb);
+  bfd_put_8 (obfd, from->pr_nice, &to->pr_nice);
+  bfd_put_32 (obfd, from->pr_flag, to->pr_flag);
+  bfd_put_32 (obfd, from->pr_uid, to->pr_uid);
+  bfd_put_32 (obfd, from->pr_gid, to->pr_gid);
+  bfd_put_32 (obfd, from->pr_pid, to->pr_pid);
+  bfd_put_32 (obfd, from->pr_ppid, to->pr_ppid);
+  bfd_put_32 (obfd, from->pr_pgrp, to->pr_pgrp);
+  bfd_put_32 (obfd, from->pr_sid, to->pr_sid);
+  strncpy (to->pr_fname, from->pr_fname, sizeof (to->pr_fname));
+  strncpy (to->pr_psargs, from->pr_psargs, sizeof (to->pr_psargs));
+}
 
 /* Initialize the ppc_elf_howto_table, so that linear accesses can be done.  */
 
@@ -2199,13 +2196,93 @@ ppc_elf_mkobject (bfd *abfd)
 				  PPC32_ELF_DATA);
 }
 
+/* When defaulting arch/mach, decode apuinfo to find a better match.  */
+
+bfd_boolean
+_bfd_elf_ppc_set_arch (bfd *abfd)
+{
+  unsigned long mach = 0;
+  asection *s;
+  unsigned char *contents;
+
+  if (abfd->arch_info->bits_per_word == 32
+      && bfd_big_endian (abfd))
+    {
+
+      for (s = abfd->sections; s != NULL; s = s->next)
+	if ((elf_section_data (s)->this_hdr.sh_flags & SHF_PPC_VLE) != 0)
+	  break;
+      if (s != NULL)
+	mach = bfd_mach_ppc_vle;
+    }
+
+  if (mach == 0)
+    {
+      s = bfd_get_section_by_name (abfd, APUINFO_SECTION_NAME);
+      if (s != NULL && bfd_malloc_and_get_section (abfd, s, &contents))
+	{
+	  unsigned int apuinfo_size = bfd_get_32 (abfd, contents + 4);
+	  unsigned int i;
+
+	  for (i = 20; i < apuinfo_size + 20 && i + 4 <= s->size; i += 4)
+	    {
+	      unsigned int val = bfd_get_32 (abfd, contents + i);
+	      switch (val >> 16)
+		{
+		case PPC_APUINFO_PMR:
+		case PPC_APUINFO_RFMCI:
+		  if (mach == 0)
+		    mach = bfd_mach_ppc_titan;
+		  break;
+
+		case PPC_APUINFO_ISEL:
+		case PPC_APUINFO_CACHELCK:
+		  if (mach == bfd_mach_ppc_titan)
+		    mach = bfd_mach_ppc_e500mc;
+		  break;
+
+		case PPC_APUINFO_SPE:
+		case PPC_APUINFO_EFS:
+		case PPC_APUINFO_BRLOCK:
+		  if (mach != bfd_mach_ppc_vle)
+		    mach = bfd_mach_ppc_e500;
+
+		case PPC_APUINFO_VLE:
+		  mach = bfd_mach_ppc_vle;
+		  break;
+
+		default:
+		  mach = -1ul;
+		}
+	    }
+	  free (contents);
+	}
+    }
+
+  if (mach != 0 && mach != -1ul)
+    {
+      const bfd_arch_info_type *arch;
+
+      for (arch = abfd->arch_info->next; arch; arch = arch->next)
+	if (arch->mach == mach)
+	  {
+	    abfd->arch_info = arch;
+	    break;
+	  }
+    }
+  return TRUE;
+}
+
 /* Fix bad default arch selected for a 32 bit input bfd when the
-   default is 64 bit.  */
+   default is 64 bit.  Also select arch based on apuinfo.  */
 
 static bfd_boolean
 ppc_elf_object_p (bfd *abfd)
 {
-  if (abfd->arch_info->the_default && abfd->arch_info->bits_per_word == 64)
+  if (!abfd->arch_info->the_default)
+    return TRUE;
+
+  if (abfd->arch_info->bits_per_word == 64)
     {
       Elf_Internal_Ehdr *i_ehdr = elf_elfheader (abfd);
 
@@ -2216,7 +2293,7 @@ ppc_elf_object_p (bfd *abfd)
 	  BFD_ASSERT (abfd->arch_info->bits_per_word == 32);
 	}
     }
-  return TRUE;
+  return _bfd_elf_ppc_set_arch (abfd);
 }
 
 /* Function to set whether a module needs the -mrelocatable bit set.  */
@@ -2297,14 +2374,15 @@ ppc_elf_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
 }
 
 char *
-elfcore_write_ppc_linux_prpsinfo32 (bfd *abfd, char *buf, int *bufsiz,
-				      const struct elf_internal_linux_prpsinfo *prpsinfo)
+elfcore_write_ppc_linux_prpsinfo32
+  (bfd *abfd,
+   char *buf,
+   int *bufsiz,
+   const struct elf_internal_linux_prpsinfo *prpsinfo)
 {
   struct elf_external_ppc_linux_prpsinfo32 data;
 
-  memset (&data, 0, sizeof (data));
-  PPC_LINUX_PRPSINFO32_SWAP_FIELDS (abfd, prpsinfo, data);
-
+  swap_ppc_linux_prpsinfo32_out (abfd, prpsinfo, &data);
   return elfcore_write_note (abfd, buf, bufsiz,
 			     "CORE", NT_PRPSINFO, &data, sizeof (data));
 }
@@ -2521,16 +2599,16 @@ ppc_elf_modify_segment_map (bfd *abfd,
 
 static const struct bfd_elf_special_section ppc_elf_special_sections[] =
 {
-  { STRING_COMMA_LEN (".plt"),             0, SHT_NOBITS,   SHF_ALLOC + SHF_EXECINSTR },
-  { STRING_COMMA_LEN (".sbss"),           -2, SHT_NOBITS,   SHF_ALLOC + SHF_WRITE },
-  { STRING_COMMA_LEN (".sbss2"),          -2, SHT_PROGBITS, SHF_ALLOC },
-  { STRING_COMMA_LEN (".sdata"),          -2, SHT_PROGBITS, SHF_ALLOC + SHF_WRITE },
-  { STRING_COMMA_LEN (".sdata2"),         -2, SHT_PROGBITS, SHF_ALLOC },
-  { STRING_COMMA_LEN (".tags"),            0, SHT_ORDERED,  SHF_ALLOC },
-  { STRING_COMMA_LEN (".PPC.EMB.apuinfo"), 0, SHT_NOTE,     0 },
-  { STRING_COMMA_LEN (".PPC.EMB.sbss0"),   0, SHT_PROGBITS, SHF_ALLOC },
-  { STRING_COMMA_LEN (".PPC.EMB.sdata0"),  0, SHT_PROGBITS, SHF_ALLOC },
-  { NULL,                              0,  0, 0,            0 }
+  { STRING_COMMA_LEN (".plt"), 0, SHT_NOBITS, SHF_ALLOC + SHF_EXECINSTR },
+  { STRING_COMMA_LEN (".sbss"), -2, SHT_NOBITS, SHF_ALLOC + SHF_WRITE },
+  { STRING_COMMA_LEN (".sbss2"), -2, SHT_PROGBITS, SHF_ALLOC },
+  { STRING_COMMA_LEN (".sdata"), -2, SHT_PROGBITS, SHF_ALLOC + SHF_WRITE },
+  { STRING_COMMA_LEN (".sdata2"), -2, SHT_PROGBITS, SHF_ALLOC },
+  { STRING_COMMA_LEN (".tags"), 0, SHT_ORDERED, SHF_ALLOC },
+  { STRING_COMMA_LEN (APUINFO_SECTION_NAME), 0, SHT_NOTE, 0 },
+  { STRING_COMMA_LEN (".PPC.EMB.sbss0"), 0, SHT_PROGBITS, SHF_ALLOC },
+  { STRING_COMMA_LEN (".PPC.EMB.sdata0"), 0, SHT_PROGBITS, SHF_ALLOC },
+  { NULL, 0, 0, 0, 0 }
 };
 
 /* This is what we want for new plt/got.  */
@@ -2638,9 +2716,6 @@ apuinfo_list_finish (void)
 
   head = NULL;
 }
-
-#define APUINFO_SECTION_NAME	".PPC.EMB.apuinfo"
-#define APUINFO_LABEL		"APUinfo"
 
 /* Scan the input BFDs and create a linked list of
    the APUinfo values that will need to be emitted.  */
@@ -3676,11 +3751,10 @@ ppc_elf_add_symbol_hook (bfd *abfd,
       *valp = sym->st_size;
     }
 
-  if ((ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC
-       || ELF_ST_BIND (sym->st_info) == STB_GNU_UNIQUE)
+  if (ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC
       && (abfd->flags & DYNAMIC) == 0
       && bfd_get_flavour (info->output_bfd) == bfd_target_elf_flavour)
-    elf_tdata (info->output_bfd)->has_gnu_symbols = elf_gnu_symbol_any;
+    elf_tdata (info->output_bfd)->has_gnu_symbols |= elf_gnu_symbol_ifunc;
 
   return TRUE;
 }
@@ -3948,6 +4022,7 @@ ppc_elf_check_relocs (bfd *abfd,
       enum elf_ppc_reloc_type r_type;
       struct elf_link_hash_entry *h;
       int tls_type;
+      struct plt_entry **ifunc;
 
       r_symndx = ELF32_R_SYM (rel->r_info);
       if (r_symndx < symtab_hdr->sh_info)
@@ -3980,6 +4055,7 @@ ppc_elf_check_relocs (bfd *abfd,
 
       tls_type = 0;
       r_type = ELF32_R_TYPE (rel->r_info);
+      ifunc = NULL;
       if (h == NULL && !htab->is_vxworks)
 	{
 	  Elf_Internal_Sym *isym = bfd_sym_from_r_symndx (&htab->sym_cache,
@@ -3989,8 +4065,6 @@ ppc_elf_check_relocs (bfd *abfd,
 
 	  if (ELF_ST_TYPE (isym->st_info) == STT_GNU_IFUNC)
 	    {
-	      struct plt_entry **ifunc;
-
 	      /* Set PLT_IFUNC flag for this sym, no GOT entry yet.  */
 	      ifunc = update_local_sym_info (abfd, symtab_hdr, r_symndx,
 					     PLT_IFUNC);
@@ -4224,21 +4298,20 @@ ppc_elf_check_relocs (bfd *abfd,
 #ifdef DEBUG
 	  fprintf (stderr, "Reloc requires a PLT entry\n");
 #endif
-	  /* This symbol requires a procedure linkage table entry.  We
-	     actually build the entry in finish_dynamic_symbol,
-	     because this might be a case of linking PIC code without
-	     linking in any dynamic objects, in which case we don't
-	     need to generate a procedure linkage table after all.  */
-
+	  /* This symbol requires a procedure linkage table entry.  */
 	  if (h == NULL)
 	    {
-	      /* It does not make sense to have a procedure linkage
-		 table entry for a local symbol.  */
-	      info->callbacks->einfo (_("%P: %H: %s reloc against local symbol\n"),
-				      abfd, sec, rel->r_offset,
-				      ppc_elf_howto_table[r_type]->name);
-	      bfd_set_error (bfd_error_bad_value);
-	      return FALSE;
+	      if (ifunc == NULL)
+		{
+		  /* It does not make sense to have a procedure linkage
+		     table entry for a non-ifunc local symbol.  */
+		  info->callbacks->einfo
+		    (_("%P: %H: %s reloc against local symbol\n"),
+		     abfd, sec, rel->r_offset,
+		     ppc_elf_howto_table[r_type]->name);
+		  bfd_set_error (bfd_error_bad_value);
+		  return FALSE;
+		}
 	    }
 	  else
 	    {
@@ -4316,9 +4389,10 @@ ppc_elf_check_relocs (bfd *abfd,
 	    {
 	      if (bfd_link_pic (info))
 		{
-		  info->callbacks->einfo (_("%P: %H: @local call to ifunc %s\n"),
-					  abfd, sec, rel->r_offset,
-					  h->root.root.string);
+		  info->callbacks->einfo
+		    (_("%P: %H: @local call to ifunc %s\n"),
+		     abfd, sec, rel->r_offset,
+		     h->root.root.string);
 		  bfd_set_error (bfd_error_bad_value);
 		  return FALSE;
 		}
@@ -5166,6 +5240,7 @@ ppc_elf_tls_setup (bfd *obfd, struct bfd_link_info *info)
 		  tga->root.type = bfd_link_hash_indirect;
 		  tga->root.u.i.link = &opt->root;
 		  ppc_elf_copy_indirect_symbol (info, opt, tga);
+		  opt->forced_local = 0;
 		  if (opt->dynindx != -1)
 		    {
 		      /* Use __tls_get_addr_opt in dynamic relocations.  */
@@ -8569,13 +8644,12 @@ ppc_elf_relocate_section (bfd *output_bfd,
 	     at a symbol not in this object.  */
 	  if (unresolved_reloc)
 	    {
-	      if (! (*info->callbacks->undefined_symbol) (info,
-							  h->root.root.string,
-							  input_bfd,
-							  input_section,
-							  rel->r_offset,
-							  TRUE))
-		return FALSE;
+	      (*info->callbacks->undefined_symbol) (info,
+						    h->root.root.string,
+						    input_bfd,
+						    input_section,
+						    rel->r_offset,
+						    TRUE);
 	      goto copy_reloc;
 	    }
 	  break;
@@ -8968,8 +9042,10 @@ ppc_elf_relocate_section (bfd *output_bfd,
 	case R_PPC_PLTREL24:
 	  if (h != NULL && ifunc == NULL)
 	    {
-	      struct plt_entry *ent = find_plt_ent (&h->plt.plist, got2,
-						    bfd_link_pic (info) ? addend : 0);
+	      struct plt_entry *ent;
+
+	      ent = find_plt_ent (&h->plt.plist, got2,
+				  bfd_link_pic (info) ? addend : 0);
 	      if (ent == NULL
 		  || htab->plt == NULL)
 		{
@@ -9509,13 +9585,9 @@ ppc_elf_relocate_section (bfd *output_bfd,
 		       && (h->root.type == bfd_link_hash_undefweak
 			   || h->root.type == bfd_link_hash_undefined)
 		       && is_branch_reloc (r_type)))
-		{
-		  if (!((*info->callbacks->reloc_overflow)
-			(info, (h ? &h->root : NULL), sym_name,
-			 howto->name, rel->r_addend,
-			 input_bfd, input_section, rel->r_offset)))
-		    return FALSE;
-		}
+		info->callbacks->reloc_overflow
+		  (info, (h ? &h->root : NULL), sym_name, howto->name,
+		   rel->r_addend, input_bfd, input_section, rel->r_offset);
 	    }
 	  else
 	    {

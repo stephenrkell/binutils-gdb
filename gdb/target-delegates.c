@@ -1530,23 +1530,23 @@ debug_extra_thread_info (struct target_ops *self, struct thread_info *arg1)
   return result;
 }
 
-static char *
+static const char *
 delegate_thread_name (struct target_ops *self, struct thread_info *arg1)
 {
   self = self->beneath;
   return self->to_thread_name (self, arg1);
 }
 
-static char *
+static const char *
 tdefault_thread_name (struct target_ops *self, struct thread_info *arg1)
 {
   return NULL;
 }
 
-static char *
+static const char *
 debug_thread_name (struct target_ops *self, struct thread_info *arg1)
 {
-  char * result;
+  const char * result;
   fprintf_unfiltered (gdb_stdlog, "-> %s->to_thread_name (...)\n", debug_target.to_shortname);
   result = debug_target.to_thread_name (&debug_target, arg1);
   fprintf_unfiltered (gdb_stdlog, "<- %s->to_thread_name (", debug_target.to_shortname);
@@ -1554,7 +1554,7 @@ debug_thread_name (struct target_ops *self, struct thread_info *arg1)
   fputs_unfiltered (", ", gdb_stdlog);
   target_debug_print_struct_thread_info_p (arg1);
   fputs_unfiltered (") = ", gdb_stdlog);
-  target_debug_print_char_p (result);
+  target_debug_print_const_char_p (result);
   fputs_unfiltered ("\n", gdb_stdlog);
   return result;
 }
@@ -1608,23 +1608,18 @@ debug_interrupt (struct target_ops *self, ptid_t arg1)
 }
 
 static void
-delegate_check_pending_interrupt (struct target_ops *self)
+delegate_pass_ctrlc (struct target_ops *self)
 {
   self = self->beneath;
-  self->to_check_pending_interrupt (self);
+  self->to_pass_ctrlc (self);
 }
 
 static void
-tdefault_check_pending_interrupt (struct target_ops *self)
+debug_pass_ctrlc (struct target_ops *self)
 {
-}
-
-static void
-debug_check_pending_interrupt (struct target_ops *self)
-{
-  fprintf_unfiltered (gdb_stdlog, "-> %s->to_check_pending_interrupt (...)\n", debug_target.to_shortname);
-  debug_target.to_check_pending_interrupt (&debug_target);
-  fprintf_unfiltered (gdb_stdlog, "<- %s->to_check_pending_interrupt (", debug_target.to_shortname);
+  fprintf_unfiltered (gdb_stdlog, "-> %s->to_pass_ctrlc (...)\n", debug_target.to_shortname);
+  debug_target.to_pass_ctrlc (&debug_target);
+  fprintf_unfiltered (gdb_stdlog, "<- %s->to_pass_ctrlc (", debug_target.to_shortname);
   target_debug_print_struct_target_ops_p (&debug_target);
   fputs_unfiltered (")\n", gdb_stdlog);
 }
@@ -1803,6 +1798,30 @@ debug_async (struct target_ops *self, int arg1)
   fprintf_unfiltered (gdb_stdlog, "-> %s->to_async (...)\n", debug_target.to_shortname);
   debug_target.to_async (&debug_target, arg1);
   fprintf_unfiltered (gdb_stdlog, "<- %s->to_async (", debug_target.to_shortname);
+  target_debug_print_struct_target_ops_p (&debug_target);
+  fputs_unfiltered (", ", gdb_stdlog);
+  target_debug_print_int (arg1);
+  fputs_unfiltered (")\n", gdb_stdlog);
+}
+
+static void
+delegate_thread_events (struct target_ops *self, int arg1)
+{
+  self = self->beneath;
+  self->to_thread_events (self, arg1);
+}
+
+static void
+tdefault_thread_events (struct target_ops *self, int arg1)
+{
+}
+
+static void
+debug_thread_events (struct target_ops *self, int arg1)
+{
+  fprintf_unfiltered (gdb_stdlog, "-> %s->to_thread_events (...)\n", debug_target.to_shortname);
+  debug_target.to_thread_events (&debug_target, arg1);
+  fprintf_unfiltered (gdb_stdlog, "<- %s->to_thread_events (", debug_target.to_shortname);
   target_debug_print_struct_target_ops_p (&debug_target);
   fputs_unfiltered (", ", gdb_stdlog);
   target_debug_print_int (arg1);
@@ -4170,8 +4189,8 @@ install_delegators (struct target_ops *ops)
     ops->to_stop = delegate_stop;
   if (ops->to_interrupt == NULL)
     ops->to_interrupt = delegate_interrupt;
-  if (ops->to_check_pending_interrupt == NULL)
-    ops->to_check_pending_interrupt = delegate_check_pending_interrupt;
+  if (ops->to_pass_ctrlc == NULL)
+    ops->to_pass_ctrlc = delegate_pass_ctrlc;
   if (ops->to_rcmd == NULL)
     ops->to_rcmd = delegate_rcmd;
   if (ops->to_pid_to_exec_file == NULL)
@@ -4186,6 +4205,8 @@ install_delegators (struct target_ops *ops)
     ops->to_is_async_p = delegate_is_async_p;
   if (ops->to_async == NULL)
     ops->to_async = delegate_async;
+  if (ops->to_thread_events == NULL)
+    ops->to_thread_events = delegate_thread_events;
   if (ops->to_supports_non_stop == NULL)
     ops->to_supports_non_stop = delegate_supports_non_stop;
   if (ops->to_always_non_stop_p == NULL)
@@ -4416,7 +4437,7 @@ install_dummy_methods (struct target_ops *ops)
   ops->to_thread_name = tdefault_thread_name;
   ops->to_stop = tdefault_stop;
   ops->to_interrupt = tdefault_interrupt;
-  ops->to_check_pending_interrupt = tdefault_check_pending_interrupt;
+  ops->to_pass_ctrlc = default_target_pass_ctrlc;
   ops->to_rcmd = default_rcmd;
   ops->to_pid_to_exec_file = tdefault_pid_to_exec_file;
   ops->to_log_command = tdefault_log_command;
@@ -4424,6 +4445,7 @@ install_dummy_methods (struct target_ops *ops)
   ops->to_can_async_p = tdefault_can_async_p;
   ops->to_is_async_p = tdefault_is_async_p;
   ops->to_async = tdefault_async;
+  ops->to_thread_events = tdefault_thread_events;
   ops->to_supports_non_stop = tdefault_supports_non_stop;
   ops->to_always_non_stop_p = tdefault_always_non_stop_p;
   ops->to_find_memory_regions = dummy_find_memory_regions;
@@ -4571,7 +4593,7 @@ init_debug_target (struct target_ops *ops)
   ops->to_thread_name = debug_thread_name;
   ops->to_stop = debug_stop;
   ops->to_interrupt = debug_interrupt;
-  ops->to_check_pending_interrupt = debug_check_pending_interrupt;
+  ops->to_pass_ctrlc = debug_pass_ctrlc;
   ops->to_rcmd = debug_rcmd;
   ops->to_pid_to_exec_file = debug_pid_to_exec_file;
   ops->to_log_command = debug_log_command;
@@ -4579,6 +4601,7 @@ init_debug_target (struct target_ops *ops)
   ops->to_can_async_p = debug_can_async_p;
   ops->to_is_async_p = debug_is_async_p;
   ops->to_async = debug_async;
+  ops->to_thread_events = debug_thread_events;
   ops->to_supports_non_stop = debug_supports_non_stop;
   ops->to_always_non_stop_p = debug_always_non_stop_p;
   ops->to_find_memory_regions = debug_find_memory_regions;

@@ -1,6 +1,6 @@
 /* Support for printing Pascal values for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2015 Free Software Foundation, Inc.
+   Copyright (C) 2000-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -49,7 +49,9 @@ static const struct generic_val_print_decorations p_decorations =
   " * I",
   "true",
   "false",
-  "void"
+  "void",
+  "{",
+  "}"
 };
 
 /* See val_print for a description of the various parameters of this

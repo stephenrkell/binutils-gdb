@@ -1,4 +1,4 @@
-# Copyright (C) 2012-2015 Free Software Foundation, Inc.
+# Copyright (C) 2012-2016 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -513,6 +513,11 @@ if { [istarget mips*-*-vxworks*] } {
     run_dump_test "vxworks1-xgot"
     run_dump_test "vxworks1-el"
     run_dump_test "vxworks1-xgot-el"
+
+    run_list_test "option-pic-vxworks-1" "-mvxworks-pic" \
+	"MIPS invalid PIC option in VxWorks PIC"
+    run_list_test "option-pic-vxworks-2" "-mvxworks-pic" \
+	"MIPS invalid switch to SVR4 PIC from VxWorks PIC"
 } elseif { [istarget mips*-*-*] } {
     set addr32 [expr [istarget mipstx39*-*-*] || [istarget mips-*-linux*] || [istarget mipsel-*-linux*] \
 		     || [istarget mipsisa32-*-linux*] || [istarget mipsisa32el-*-linux*]]
@@ -569,6 +574,20 @@ if { [istarget mips*-*-vxworks*] } {
 	run_list_test "branch-swap-2" "--defsym count=$count" \
 	    "MIPS branch swapping ($count)"
     }
+
+    run_dump_test "branch-section-1"
+    run_dump_test "branch-section-2"
+    run_dump_test "branch-section-3"
+    run_dump_test "branch-section-4"
+    run_dump_test "branch-extern-1"
+    run_dump_test "branch-extern-2"
+    run_dump_test "branch-extern-3"
+    run_dump_test "branch-extern-4"
+    run_dump_test "branch-weak-1"
+    run_dump_test "branch-weak-2"
+    run_dump_test "branch-weak-3"
+    run_dump_test "branch-weak-4"
+    run_dump_test "branch-weak-5"
 
     run_dump_test "compact-eh-eb-1"
     run_dump_test "compact-eh-eb-2"
@@ -741,6 +760,7 @@ if { [istarget mips*-*-vxworks*] } {
     run_dump_test_arches "rol64-hw"	[mips_arch_list_matching gpr64 ror]
 
     run_dump_test "sb"
+    run_dump_test_arches "sdata-gp"	[mips_arch_list_matching mips1]
     run_dump_test "trunc"
     run_dump_test "ulh"
     run_dump_test_arches "ulh2-eb"	[mips_arch_list_matching mips1 !mips32r6]
@@ -774,6 +794,17 @@ if { [istarget mips*-*-vxworks*] } {
     run_dump_test "mips16-jalx"
     run_dump_test "mips-jalx"
     run_dump_test "mips-jalx-2"
+    run_dump_test "jalx-imm"
+    run_dump_test "jalx-addend"
+    run_dump_test "jalx-local"
+    if $has_newabi {
+	run_dump_test "jalx-imm-n32"
+	run_dump_test "jalx-addend-n32"
+	run_dump_test "jalx-local-n32"
+	run_dump_test "jalx-imm-n64"
+	run_dump_test "jalx-addend-n64"
+	run_dump_test "jalx-local-n64"
+    }
     # Check MIPS16 HI16/LO16 relocations
     run_dump_test "mips16-hilo"
     if $has_newabi {
@@ -1133,6 +1164,7 @@ if { [istarget mips*-*-vxworks*] } {
 					    !octeon]
     run_dump_test_arches "mips32-dspr2"	[mips_arch_list_matching mips32r2 \
 					    !octeon]
+    run_dump_test_arches "mips32-dspr3"	[mips_arch_list_matching mips32r6]
     run_dump_test "mips64-dsp"
     run_dump_test "mips32-mt"
 
@@ -1467,6 +1499,17 @@ if { [istarget mips*-*-vxworks*] } {
     run_list_test "module-check-warn" "-32"
 
     run_dump_test "li-d"
+
+    run_dump_test "option-pic-1"
+    run_list_test "option-pic-2" "" \
+	"MIPS invalid PIC option"
+    run_list_test "option-pic-vxworks-1" "-mvxworks-pic" \
+	"MIPS invalid PIC option in VxWorks PIC"
+    run_list_test "option-pic-vxworks-2" "-mvxworks-pic" \
+	"MIPS invalid switch to SVR4 PIC from VxWorks PIC"
+
+    run_dump_test_arches "isa-override-1" "" [mips_arch_list_matching mips1]
+    run_list_test_arches "isa-override-2" "-32" [mips_arch_list_matching mips1]
 
     run_dump_test_arches "r6"		[mips_arch_list_matching mips32r6]
     if $has_newabi {

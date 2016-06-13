@@ -1,6 +1,6 @@
 /* Select target systems and architectures at runtime for GDB.
 
-   Copyright (C) 1990-2015 Free Software Foundation, Inc.
+   Copyright (C) 1990-2016 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
 
@@ -466,6 +466,14 @@ target_terminal_is_inferior (void)
 
 /* See target.h.  */
 
+int
+target_terminal_is_ours (void)
+{
+  return (terminal_state == terminal_is_ours);
+}
+
+/* See target.h.  */
+
 void
 target_terminal_inferior (void)
 {
@@ -483,6 +491,11 @@ target_terminal_inferior (void)
      inferior's terminal modes.  */
   (*current_target.to_terminal_inferior) (&current_target);
   terminal_state = terminal_is_inferior;
+
+  /* If the user hit C-c before, pretend that it was hit right
+     here.  */
+  if (check_quit_flag ())
+    target_pass_ctrlc ();
 }
 
 /* See target.h.  */
@@ -1522,8 +1535,6 @@ target_memory_map (void)
   VEC(mem_region_s) *result;
   struct mem_region *last_one, *this_one;
   int ix;
-  struct target_ops *t;
-
   result = current_target.to_memory_map (&current_target);
   if (result == NULL)
     return NULL;
@@ -2157,6 +2168,8 @@ target_pre_inferior (int from_tty)
      the inferior was attached to.  */
   current_inferior ()->attach_flag = 0;
 
+  current_inferior ()->highest_thread_num = 0;
+
   agent_capability_invalidate ();
 }
 
@@ -2215,8 +2228,6 @@ target_preopen (int from_tty)
 void
 target_detach (const char *args, int from_tty)
 {
-  struct target_ops* t;
-  
   if (gdbarch_has_global_breakpoints (target_gdbarch ()))
     /* Don't remove global breakpoints here.  They're removed on
        disconnection from the target.  */
@@ -2265,7 +2276,7 @@ target_pid_to_str (ptid_t ptid)
   return (*current_target.to_pid_to_str) (&current_target, ptid);
 }
 
-char *
+const char *
 target_thread_name (struct thread_info *info)
 {
   return current_target.to_thread_name (&current_target, info);
@@ -2274,8 +2285,6 @@ target_thread_name (struct thread_info *info)
 void
 target_resume (ptid_t ptid, int step, enum gdb_signal signal)
 {
-  struct target_ops *t;
-
   target_dcache_invalidate ();
 
   current_target.to_resume (&current_target, ptid, step, signal);
@@ -2778,7 +2787,7 @@ static int lowest_closed_fd;
 static int
 acquire_fileio_fd (struct target_ops *t, int fd)
 {
-  fileio_fh_t *fh, buf;
+  fileio_fh_t *fh;
 
   gdb_assert (!is_closed_fileio_fh (fd));
 
@@ -3350,9 +3359,17 @@ target_interrupt (ptid_t ptid)
 /* See target.h.  */
 
 void
-target_check_pending_interrupt (void)
+target_pass_ctrlc (void)
 {
-  (*current_target.to_check_pending_interrupt) (&current_target);
+  (*current_target.to_pass_ctrlc) (&current_target);
+}
+
+/* See target.h.  */
+
+void
+default_target_pass_ctrlc (struct target_ops *ops)
+{
+  target_interrupt (inferior_ptid);
 }
 
 /* See target/target.h.  */
@@ -3476,8 +3493,6 @@ target_fetch_registers (struct regcache *regcache, int regno)
 void
 target_store_registers (struct regcache *regcache, int regno)
 {
-  struct target_ops *t;
-
   if (!may_write_registers)
     error (_("Writing to registers is not allowed (regno %d)"), regno);
 
@@ -3848,6 +3863,14 @@ target_async (int enable)
 {
   infrun_async (enable);
   current_target.to_async (&current_target, enable);
+}
+
+/* See target.h.  */
+
+void
+target_thread_events (int enable)
+{
+  current_target.to_thread_events (&current_target, enable);
 }
 
 /* Controls if targets can report that they can/are async.  This is

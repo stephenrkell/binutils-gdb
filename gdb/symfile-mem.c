@@ -1,6 +1,6 @@
 /* Reading symbol files from memory.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -214,8 +214,7 @@ add_vsyscall_page (struct target_ops *target, int from_tty)
 	  format should fix this.  */
 	{
 	  warning (_("Could not load vsyscall page "
-		     "because no executable was specified\n"
-		     "try using the \"file\" command first."));
+		     "because no executable was specified"));
 	  return;
 	}
       args.bfd = bfd;

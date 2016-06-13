@@ -1,6 +1,6 @@
 /* Native support code for PPC AIX, for GDB the GNU debugger.
 
-   Copyright (C) 2006-2015 Free Software Foundation, Inc.
+   Copyright (C) 2006-2016 Free Software Foundation, Inc.
 
    Free Software Foundation, Inc.
 
@@ -290,8 +290,6 @@ rs6000_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
       else
 	{
 	  /* Argument can fit in one register.  No problem.  */
-	  int adj = gdbarch_byte_order (gdbarch)
-		    == BFD_ENDIAN_BIG ? reg_size - len : 0;
 	  gdb_byte word[MAX_REGISTER_SIZE];
 
 	  memset (word, 0, reg_size);

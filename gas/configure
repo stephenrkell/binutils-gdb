@@ -640,6 +640,7 @@ target_cpu_type
 extra_objects
 cgen_cpu_prefix
 GDBINIT
+WARN_WRITE_STRINGS
 NO_WERROR
 WARN_CFLAGS
 OTOOL64
@@ -664,6 +665,7 @@ CPP
 am__fastdepCC_FALSE
 am__fastdepCC_TRUE
 CCDEPMODE
+am__nodep
 AMDEPBACKSLASH
 AMDEP_FALSE
 AMDEP_TRUE
@@ -765,6 +767,8 @@ enable_largefile
 enable_targets
 enable_checking
 enable_compressed_debug_sections
+enable_x86_relax_relocations
+enable_elf_stt_common
 enable_werror
 enable_build_warnings
 enable_nls
@@ -1414,7 +1418,11 @@ Optional Features:
   --enable-targets        alternative target configurations besides the primary
   --enable-checking       enable run-time checks
   --enable-compressed-debug-sections={all,gas,none}
-                          compress debug sections by default]
+                          compress debug sections by default
+  --enable-x86-relax-relocations
+                          generate x86 relax relocations by default
+  --enable-elf-stt-common generate ELF common symbols with STT_COMMON type by
+                          default
   --enable-werror         treat compile warnings as errors
   --enable-build-warnings enable build-time compiler warnings
   --disable-nls           do not use Native Language Support
@@ -3696,6 +3704,7 @@ fi
 if test "x$enable_dependency_tracking" != xno; then
   am_depcomp="$ac_aux_dir/depcomp"
   AMDEPBACKSLASH='\'
+  am__nodep='_no'
 fi
  if test "x$enable_dependency_tracking" != xno; then
   AMDEP_TRUE=
@@ -3758,11 +3767,11 @@ MAKEINFO=${MAKEINFO-"${am_missing_run}makeinfo"}
 
 # We need awk for the "check" target.  The system "awk" is bad on
 # some platforms.
-# Always define AMTAR for backward compatibility.
+# Always define AMTAR for backward compatibility.  Yes, it's still used
+# in the wild :-(  We should find a proper way to deprecate it ...
+AMTAR='$${TAR-tar}'
 
-AMTAR=${AMTAR-"${am_missing_run}tar"}
-
-am__tar='${AMTAR} chof - "$$tardir"'; am__untar='${AMTAR} xf -'
+am__tar='$${TAR-tar} chof - "$$tardir"' am__untar='$${TAR-tar} xf -'
 
 
 
@@ -3780,6 +3789,7 @@ else
   # instance it was reported that on HP-UX the gcc test will end up
   # making a dummy file named `D' -- because `-MD' means `put the output
   # in D'.
+  rm -rf conftest.dir
   mkdir conftest.dir
   # Copy depcomp to subdir because otherwise we won't find it if we're
   # using a relative directory.
@@ -3839,7 +3849,7 @@ else
 	break
       fi
       ;;
-    msvisualcpp | msvcmsys)
+    msvc7 | msvc7msys | msvisualcpp | msvcmsys)
       # This compiler won't grok `-c -o', but also, the minuso test has
       # not run yet.  These depmodes are late enough in the game, and
       # so weak that their functioning should not be impacted.
@@ -8944,7 +8954,7 @@ _LT_EOF
 	if $NM -V 2>&1 | $GREP 'GNU' > /dev/null; then
 	  export_symbols_cmds='$NM -Bpg $libobjs $convenience | awk '\''{ if (((\$ 2 == "T") || (\$ 2 == "D") || (\$ 2 == "B") || (\$ 2 == "W")) && (substr(\$ 3,1,1) != ".")) { print \$ 3 } }'\'' | sort -u > $export_symbols'
 	else
-	  export_symbols_cmds='$NM -BCpg $libobjs $convenience | awk '\''{ if (((\$ 2 == "T") || (\$ 2 == "D") || (\$ 2 == "B")) && (substr(\$ 3,1,1) != ".")) { print \$ 3 } }'\'' | sort -u > $export_symbols'
+	  export_symbols_cmds='$NM -BCpg $libobjs $convenience | awk '\''{ if (((\$ 2 == "T") || (\$ 2 == "D") || (\$ 2 == "B") || (\$ 2 == "L")) && (substr(\$ 3,1,1) != ".")) { print \$ 3 } }'\'' | sort -u > $export_symbols'
 	fi
 	aix_use_runtimelinking=no
 
@@ -10972,7 +10982,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 10975 "configure"
+#line 10985 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -11078,7 +11088,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 11081 "configure"
+#line 11091 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -11680,13 +11690,38 @@ if test "${enable_compressed_debug_sections+set}" = set; then :
 esac
 fi
 
+# PR gas/19520
+# Decide if x86 assembler should generate relax relocations.
+ac_default_x86_relax_relocations=unset
+# Provide a configure time option to override our default.
+# Check whether --enable-x86_relax_relocations was given.
+if test "${enable_x86_relax_relocations+set}" = set; then :
+  enableval=$enable_x86_relax_relocations; case "${enableval}" in
+  no)  ac_default_x86_relax_relocations=0 ;;
+esac
+fi
+
+# Decide if ELF assembler should generate common symbols with the
+# STT_COMMON type.
+ac_default_elf_stt_common=unset
+# Provide a configure time option to override our default.
+# Check whether --enable-elf_stt_common was given.
+if test "${enable_elf_stt_common+set}" = set; then :
+  enableval=$enable_elf_stt_common; case "${enableval}" in
+  yes)  ac_default_elf_stt_common=1 ;;
+esac
+fi
+
 using_cgen=no
 
 
 # Set the 'development' global.
 . $srcdir/../bfd/development.sh
 
+# Default set of GCC warnings to enable.
 GCC_WARN_CFLAGS="-W -Wall -Wstrict-prototypes -Wmissing-prototypes"
+
+# Add -Wshadow if the compiler is a sufficiently recent version of GCC.
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 __GNUC__
@@ -11696,6 +11731,35 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 
 else
   GCC_WARN_CFLAGS="$GCC_WARN_CFLAGS -Wshadow"
+fi
+rm -f conftest*
+
+
+# Add -Wstack-usage if the compiler is a sufficiently recent version of GCC.
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+__GNUC__
+_ACEOF
+if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
+  $EGREP "^[0-4]$" >/dev/null 2>&1; then :
+
+else
+  GCC_WARN_CFLAGS="$GCC_WARN_CFLAGS -Wstack-usage=262144"
+fi
+rm -f conftest*
+
+
+# Set WARN_WRITE_STRINGS if the compiler supports -Wwrite-strings.
+WARN_WRITE_STRINGS=""
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+__GNUC__
+_ACEOF
+if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
+  $EGREP "^[0-3]$" >/dev/null 2>&1; then :
+
+else
+  WARN_WRITE_STRINGS="-Wwrite-strings"
 fi
 rm -f conftest*
 
@@ -11754,6 +11818,7 @@ fi
 if test x"$silent" != x"yes" && test x"$WARN_CFLAGS" != x""; then
   echo "Setting warning flags = $WARN_CFLAGS" 6>&1
 fi
+
 
 
 
@@ -12083,6 +12148,17 @@ $as_echo "#define SCO_ELF 1" >>confdefs.h
 
 $as_echo "#define STRICTCOFF 1" >>confdefs.h
 
+	;;
+
+      i386-*-solaris2 \
+      | x86_64-*-solaris2 \
+      | i386-*-solaris2.[0-9] \
+      | i386-*-solaris2.1[01] \
+      | x86_64-*-solaris2.1[01])
+	if test ${this_target} = $target \
+	   && test ${ac_default_x86_relax_relocations} = unset; then
+	  ac_default_x86_relax_relocations=0
+	fi
 	;;
 
       i860-*-*)
@@ -12505,7 +12581,25 @@ _ACEOF
 
 done
 
-if test x$ac_default_compressed_debug_sections == xyes ; then
+if test ${ac_default_x86_relax_relocations} = unset; then
+  ac_default_x86_relax_relocations=1
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define DEFAULT_GENERATE_X86_RELAX_RELOCATIONS $ac_default_x86_relax_relocations
+_ACEOF
+
+
+if test ${ac_default_elf_stt_common} = unset; then
+  ac_default_elf_stt_common=0
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define DEFAULT_GENERATE_ELF_STT_COMMON $ac_default_elf_stt_common
+_ACEOF
+
+
+if test x$ac_default_compressed_debug_sections = xyes ; then
 
 $as_echo "#define DEFAULT_FLAG_COMPRESS_DEBUG 1" >>confdefs.h
 
@@ -12862,8 +12956,9 @@ fi
 done
 test -n "$LEX" || LEX=":"
 
-if test "x$LEX" != "x:"; then
-  cat >conftest.l <<_ACEOF
+case "$LEX" in
+  :|*"missing "*) ;;
+  *) cat >conftest.l <<_ACEOF
 %%
 a { ECHO; }
 b { REJECT; }
@@ -12974,8 +13069,8 @@ $as_echo "#define YYTEXT_POINTER 1" >>confdefs.h
 
 fi
 rm -f conftest.l $LEX_OUTPUT_ROOT.c
-
-fi
+ ;;
+esac
 if test "$LEX" = :; then
   LEX=${am_missing_run}flex
 fi

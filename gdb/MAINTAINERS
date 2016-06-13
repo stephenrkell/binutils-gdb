@@ -308,6 +308,7 @@ the native maintainer when resolving ABI issues.
 	rx		--target=rx-elf ,-Werror
 
 	s390		--target=s390-linux-gnu ,-Werror
+			Andreas Arnez		arnez@linux.vnet.ibm.com
 
 	score	--target=score-elf
 			Qinwei		qinwei@sunnorth.com.cn
@@ -353,7 +354,6 @@ resolving more generic problems.
 The host maintainer ensures that gdb can be built as a cross debugger on
 their platform.
 
-AIX			Joel Brobecker		brobecker@adacore.com
 Darwin			Tristan Gingold		gingold@adacore.com
 djgpp native		Eli Zaretskii		eliz@gnu.org
 GNU Hurd		Alfred M. Szmidt	ams@gnu.org
@@ -369,6 +369,8 @@ FreeBSD native & host	Mark Kettenis		kettenis@gnu.org
 Core: Generic components used by all of GDB
 
 threads			Mark Kettenis		kettenis@gnu.org
+
+linespec		Keith Seitz             keiths@redhat.com
 
 language support
   Ada			Joel Brobecker		brobecker@adacore.com
@@ -470,6 +472,7 @@ FSF assignment and have submitted one good patch.
 Pedro Alves					pedro_alves@portugalmail.pt
 David Anderson					davea@sgi.com
 John David Anglin				dave.anglin@nrc-cnrc.gc.ca
+Andreas Arnez					arnez@linux.vnet.ibm.com
 Shrinivas Atre					shrinivasa@kpitcummins.com
 Sterling Augustine				saugustine@google.com
 John Baldwin					jhb@freebsd.org
@@ -544,6 +547,7 @@ Matthew Gretton-Dann				matthew.gretton-dann@arm.com
 Maxim Grigoriev					maxim2405@gmail.com
 Jerome Guitton					guitton@act-europe.fr
 Ben Harris					bjh21@netbsd.org
+Bernhard Heckel					bernhard.heckel@intel.com
 Richard Henderson				rth@redhat.com
 Aldy Hernandez					aldyh@redhat.com
 Paul Hilfinger					hilfinger@gnat.com
@@ -565,6 +569,7 @@ Jeff Johnston					jjohnstn@redhat.com
 Geoff Keating					geoffk@redhat.com
 Mark Kettenis					kettenis@gnu.org
 Marc Khouzam					marc.khouzam@ericsson.com
+Toshihito Kikuchi					k.toshihito@yahoo.de
 Jim Kingdon					kingdon@panix.com
 Paul Koning					paul_koning@dell.com
 Marcin Kościelnicki				koriakin@0x04.net
@@ -576,6 +581,7 @@ Jeff Law					law@redhat.com
 Justin Lebar					justin.lebar@gmail.com
 David Lecomber					david@streamline-computing.com
 Don Lee						don.lee@sunplusct.com
+Yan-Ting Lin					currygt52@gmail.com
 Robert Lipe					rjl@sco.com
 Lei Liu						lei.liu2@windriver.com
 Sandra Loosemore				sandra@codesourcery.com

@@ -6,7 +6,7 @@
 /* libbfd.h -- Declarations used by bfd library *implementation*.
    (This include file is not for users of the library.)
 
-   Copyright (C) 1990-2015 Free Software Foundation, Inc.
+   Copyright (C) 1990-2016 Free Software Foundation, Inc.
 
    Written by Cygnus Support.
 
@@ -154,6 +154,29 @@ bfd_boolean bfd_slurp_bsd_armap_f2
   (bfd *abfd);
 #define bfd_slurp_bsd_armap bfd_slurp_armap
 #define bfd_slurp_coff_armap bfd_slurp_armap
+bfd_boolean _bfd_archive_64_bit_slurp_armap
+  (bfd *);
+bfd_boolean _bfd_archive_64_bit_write_armap
+  (bfd *, unsigned int, struct orl *, unsigned int, int);
+#define _bfd_archive_64_bit_slurp_extended_name_table \
+  _bfd_slurp_extended_name_table
+#define _bfd_archive_64_bit_construct_extended_name_table \
+  _bfd_archive_coff_construct_extended_name_table
+#define _bfd_archive_64_bit_truncate_arname \
+  bfd_dont_truncate_arname
+#define _bfd_archive_64_bit_read_ar_hdr \
+  _bfd_generic_read_ar_hdr
+#define _bfd_archive_64_bit_write_ar_hdr \
+  _bfd_generic_write_ar_hdr
+#define _bfd_archive_64_bit_openr_next_archived_file \
+  bfd_generic_openr_next_archived_file
+#define _bfd_archive_64_bit_get_elt_at_index \
+  _bfd_generic_get_elt_at_index
+#define _bfd_archive_64_bit_generic_stat_arch_elt \
+  bfd_generic_stat_arch_elt
+#define _bfd_archive_64_bit_update_armap_timestamp \
+  bfd_true
+
 bfd_boolean _bfd_slurp_extended_name_table
   (bfd *abfd);
 extern bfd_boolean _bfd_construct_extended_name_table
@@ -504,6 +527,8 @@ extern bfd_boolean _bfd_generic_set_section_contents
 #define _bfd_nolink_bfd_define_common_symbol \
   ((bfd_boolean (*) (bfd *, struct bfd_link_info *, \
 		     struct bfd_link_hash_entry *)) bfd_false)
+#define _bfd_nolink_bfd_link_check_relocs \
+  _bfd_generic_link_check_relocs
 
 /* Routines to use for BFD_JUMP_TABLE_DYNAMIC for targets which do not
    have dynamic symbols or relocs.  Use BFD_JUMP_TABLE_DYNAMIC
@@ -1418,6 +1443,7 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
   "BFD_RELOC_PPC64_ADDR16_HIGH",
   "BFD_RELOC_PPC64_ADDR16_HIGHA",
   "BFD_RELOC_PPC64_ADDR64_LOCAL",
+  "BFD_RELOC_PPC64_ENTRY",
   "BFD_RELOC_PPC_TLS",
   "BFD_RELOC_PPC_TLSGD",
   "BFD_RELOC_PPC_TLSLD",
@@ -1544,6 +1570,10 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
   "BFD_RELOC_ARM_LDC_SB_G2",
   "BFD_RELOC_ARM_V4BX",
   "BFD_RELOC_ARM_IRELATIVE",
+  "BFD_RELOC_ARM_THUMB_ALU_ABS_G0_NC",
+  "BFD_RELOC_ARM_THUMB_ALU_ABS_G1_NC",
+  "BFD_RELOC_ARM_THUMB_ALU_ABS_G2_NC",
+  "BFD_RELOC_ARM_THUMB_ALU_ABS_G3_NC",
   "BFD_RELOC_ARM_IMMEDIATE",
   "BFD_RELOC_ARM_ADRL_IMMEDIATE",
   "BFD_RELOC_ARM_T32_IMMEDIATE",
@@ -1733,6 +1763,7 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
   "BFD_RELOC_ARC_TLS_LE_32",
   "BFD_RELOC_ARC_S25W_PCREL_PLT",
   "BFD_RELOC_ARC_S21H_PCREL_PLT",
+  "BFD_RELOC_ARC_NPS_CMEM16",
   "BFD_RELOC_BFIN_16_IMM",
   "BFD_RELOC_BFIN_16_HIGH",
   "BFD_RELOC_BFIN_4_PCREL",
@@ -2784,6 +2815,7 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
   "BFD_RELOC_MICROBLAZE_64_TLSGOTTPREL",
   "BFD_RELOC_MICROBLAZE_64_TLSTPREL",
   "BFD_RELOC_AARCH64_RELOC_START",
+  "BFD_RELOC_AARCH64_NULL",
   "BFD_RELOC_AARCH64_NONE",
   "BFD_RELOC_AARCH64_64",
   "BFD_RELOC_AARCH64_32",

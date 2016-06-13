@@ -1,6 +1,6 @@
 /* Perform arithmetic and other operations on values, for GDB.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -205,6 +205,14 @@ value_subscripted_rvalue (struct value *array, LONGEST index, int lowerbound)
         error (_("no such vector element (vector not allocated)"));
       else
         error (_("no such vector element"));
+    }
+
+  if (is_dynamic_type (elt_type))
+    {
+      CORE_ADDR address;
+
+      address = value_address (array) + elt_offs;
+      elt_type = resolve_dynamic_type (elt_type, NULL, address);
     }
 
   if (VALUE_LVAL (array) == lval_memory && value_lazy (array))

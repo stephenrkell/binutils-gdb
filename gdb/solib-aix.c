@@ -1,4 +1,4 @@
-/* Copyright (C) 2013-2015 Free Software Foundation, Inc.
+/* Copyright (C) 2013-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -469,7 +469,6 @@ solib_aix_get_section_offsets (struct objfile *objfile,
 {
   struct section_offsets *offsets;
   bfd *abfd = objfile->obfd;
-  int i;
 
   offsets = XCNEWVEC (struct section_offsets, objfile->num_sections);
 

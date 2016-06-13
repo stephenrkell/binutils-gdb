@@ -1,6 +1,6 @@
 /* Process record and replay target for GDB, the GNU debugger.
 
-   Copyright (C) 2008-2015 Free Software Foundation, Inc.
+   Copyright (C) 2008-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -268,7 +268,7 @@ cmd_record_stop (char *args, int from_tty)
   printf_unfiltered (_("Process record is stopped and all execution "
 		       "logs are deleted.\n"));
 
-  observer_notify_record_changed (current_inferior (), 0);
+  observer_notify_record_changed (current_inferior (), 0, NULL, NULL);
 }
 
 /* The "set record" command.  */

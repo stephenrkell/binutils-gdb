@@ -1,6 +1,6 @@
 /* Multiple source language support for GDB.
 
-   Copyright (C) 1991-2015 Free Software Foundation, Inc.
+   Copyright (C) 1991-2016 Free Software Foundation, Inc.
 
    Contributed by the Department of Computer Science at the State University
    of New York at Buffalo.
@@ -1074,9 +1074,6 @@ language_init_primitive_type_symbols (struct language_arch_info *lai,
 				      struct gdbarch *gdbarch)
 {
   int n;
-  struct compunit_symtab *cust;
-  struct symtab *symtab;
-  struct block *static_block, *global_block;
 
   gdb_assert (lai->primitive_type_vector != NULL);
 

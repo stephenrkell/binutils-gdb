@@ -116,10 +116,10 @@ struct loop_bounds { unsigned char *start, *end; };
 /* These variables are at file scope so that functions other than
    sim_resume can use the fetch/store macros */
 
-#define target_little_endian (CURRENT_TARGET_BYTE_ORDER == LITTLE_ENDIAN)
+#define target_little_endian (CURRENT_TARGET_BYTE_ORDER == BFD_ENDIAN_LITTLE)
 static int global_endianw, endianb;
 static int target_dsp;
-#define host_little_endian (CURRENT_HOST_BYTE_ORDER == LITTLE_ENDIAN)
+#define host_little_endian (HOST_BYTE_ORDER == BFD_ENDIAN_LITTLE)
 
 static int maskw = 0;
 static int maskl = 0;
@@ -239,20 +239,6 @@ do { \
 #define FPSCR_FR  ((GET_FPSCR () & FPSCR_MASK_FR) != 0)
 #define FPSCR_SZ  ((GET_FPSCR () & FPSCR_MASK_SZ) != 0)
 #define FPSCR_PR  ((GET_FPSCR () & FPSCR_MASK_PR) != 0)
-
-/* Count the number of arguments in an argv.  */
-static int
-count_argc (char **argv)
-{
-  int i;
-
-  if (! argv)
-    return -1;
-
-  for (i = 0; argv[i] != NULL; ++i)
-    continue;
-  return i;
-}
 
 static void
 set_fpscr1 (int x)
@@ -572,7 +558,7 @@ rwat_fast (unsigned char *memory, int x, int maskw, int endianw)
 static INLINE int
 riat_fast (unsigned char *insn_ptr, int endianw)
 {
-  unsigned short *p = (unsigned short *) ((size_t) insn_ptr ^ endianw);
+  unsigned short *p = (unsigned short *) ((uintptr_t) insn_ptr ^ endianw);
 
   return *p;
 }
@@ -736,7 +722,7 @@ do { \
 #if defined(__GO32__)
 int sim_memory_size = 19;
 #else
-int sim_memory_size = 24;
+int sim_memory_size = 30;
 #endif
 
 static int sim_profile_size = 17;
@@ -1056,16 +1042,16 @@ trap (SIM_DESC sd, int i, int *regs, unsigned char *insn_ptr,
 	      break;
 	    }
 	  case SYS_argc:
-	    regs[0] = count_argc (prog_argv);
+	    regs[0] = countargv (prog_argv);
 	    break;
 	  case SYS_argnlen:
-	    if (regs[5] < count_argc (prog_argv))
+	    if (regs[5] < countargv (prog_argv))
 	      regs[0] = strlen (prog_argv[regs[5]]);
 	    else
 	      regs[0] = -1;
 	    break;
 	  case SYS_argn:
-	    if (regs[5] < count_argc (prog_argv))
+	    if (regs[5] < countargv (prog_argv))
 	      {
 		/* Include the termination byte.  */
 		int i = strlen (prog_argv[regs[5]]) + 1;
@@ -1199,41 +1185,19 @@ div1 (int *R, int iRn2, int iRn1/*, int T*/)
 }
 
 static void
-dmul (int sign, unsigned int rm, unsigned int rn)
+dmul_s (uint32_t rm, uint32_t rn)
 {
-  unsigned long RnL, RnH;
-  unsigned long RmL, RmH;
-  unsigned long temp0, temp1, temp2, temp3;
-  unsigned long Res2, Res1, Res0;
+  int64_t res = (int64_t)(int32_t)rm * (int64_t)(int32_t)rn;
+  MACH = (uint32_t)((uint64_t)res >> 32);
+  MACL = (uint32_t)res;
+}
 
-  RnL = rn & 0xffff;
-  RnH = (rn >> 16) & 0xffff;
-  RmL = rm & 0xffff;
-  RmH = (rm >> 16) & 0xffff;
-  temp0 = RmL * RnL;
-  temp1 = RmH * RnL;
-  temp2 = RmL * RnH;
-  temp3 = RmH * RnH;
-  Res2 = 0;
-  Res1 = temp1 + temp2;
-  if (Res1 < temp1)
-    Res2 += 0x00010000;
-  temp1 = (Res1 << 16) & 0xffff0000;
-  Res0 = temp0 + temp1;
-  if (Res0 < temp0)
-    Res2 += 1;
-  Res2 += ((Res1 >> 16) & 0xffff) + temp3;
-  
-  if (sign)
-    {
-      if (rn & 0x80000000)
-	Res2 -= rm;
-      if (rm & 0x80000000)
-	Res2 -= rn;
-    }
-
-  MACH = Res2;
-  MACL = Res0;
+static void
+dmul_u (uint32_t rm, uint32_t rn)
+{
+  uint64_t res = (uint64_t)(uint32_t)rm * (uint64_t)(uint32_t)rn;
+  MACH = (uint32_t)(res >> 32);
+  MACL = (uint32_t)res;
 }
 
 static void
@@ -1977,8 +1941,8 @@ enum {
   REGBANK_MACL = 19
 };
 
-int
-sim_store_register (SIM_DESC sd, int rn, unsigned char *memory, int length)
+static int
+sh_reg_store (SIM_CPU *cpu, int rn, unsigned char *memory, int length)
 {
   unsigned val;
 
@@ -2150,8 +2114,8 @@ sim_store_register (SIM_DESC sd, int rn, unsigned char *memory, int length)
   return length;
 }
 
-int
-sim_fetch_register (SIM_DESC sd, int rn, unsigned char *memory, int length)
+static int
+sh_reg_fetch (SIM_CPU *cpu, int rn, unsigned char *memory, int length)
 {
   int val;
 
@@ -2392,7 +2356,8 @@ free_state (SIM_DESC sd)
 }
 
 SIM_DESC
-sim_open (SIM_OPEN_KIND kind, host_callback *cb, struct bfd *abfd, char **argv)
+sim_open (SIM_OPEN_KIND kind, host_callback *cb,
+	  struct bfd *abfd, char * const *argv)
 {
   char **p;
   int i;
@@ -2420,9 +2385,7 @@ sim_open (SIM_OPEN_KIND kind, host_callback *cb, struct bfd *abfd, char **argv)
       return 0;
     }
 
-  /* getopt will print the error message so we just have to exit if this fails.
-     FIXME: Hmmm...  in the case of gdb we need getopt to call
-     print_filtered.  */
+  /* The parser will print an error message for us, so we silently return.  */
   if (sim_parse_args (sd, argv) != SIM_RC_OK)
     {
       free_state (sd);
@@ -2460,6 +2423,8 @@ sim_open (SIM_OPEN_KIND kind, host_callback *cb, struct bfd *abfd, char **argv)
     {
       SIM_CPU *cpu = STATE_CPU (sd, i);
 
+      CPU_REG_FETCH (cpu) = sh_reg_fetch;
+      CPU_REG_STORE (cpu) = sh_reg_store;
       CPU_PC_FETCH (cpu) = sh_pc_get;
       CPU_PC_STORE (cpu) = sh_pc_set;
     }
@@ -2490,14 +2455,15 @@ parse_and_set_memory_size (SIM_DESC sd, const char *str)
   int n;
 
   n = strtol (str, NULL, 10);
-  if (n > 0 && n <= 24)
+  if (n > 0 && n <= 31)
     sim_memory_size = n;
   else
-    sim_io_printf (sd, "Bad memory size %d; must be 1 to 24, inclusive\n", n);
+    sim_io_printf (sd, "Bad memory size %d; must be 1 to 31, inclusive\n", n);
 }
 
 SIM_RC
-sim_create_inferior (SIM_DESC sd, struct bfd *prog_bfd, char **argv, char **env)
+sim_create_inferior (SIM_DESC sd, struct bfd *prog_bfd,
+		     char * const *argv, char * const *env)
 {
   /* Clear the registers. */
   memset (&saved_state, 0,

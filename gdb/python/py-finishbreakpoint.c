@@ -1,6 +1,6 @@
 /* Python interface to finish breakpoints
 
-   Copyright (C) 2011-2015 Free Software Foundation, Inc.
+   Copyright (C) 2011-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -158,7 +158,6 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
   static char *keywords[] = { "frame", "internal", NULL };
   struct finish_breakpoint_object *self_bpfinish =
       (struct finish_breakpoint_object *) self;
-  int type = bp_breakpoint;
   PyObject *frame_obj = NULL;
   int thread;
   struct frame_info *frame = NULL; /* init for gcc -Wall */
@@ -221,7 +220,7 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
   if (PyErr_Occurred ())
     return -1;
 
-  thread = pid_to_thread_id (inferior_ptid);
+  thread = ptid_to_global_thread_id (inferior_ptid);
   if (thread == 0)
     {
       PyErr_SetString (PyExc_ValueError,
@@ -297,7 +296,7 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
       struct cleanup *back_to;
 
       /* Set a breakpoint on the return address.  */
-      location = new_address_location (get_frame_pc (prev_frame));
+      location = new_address_location (get_frame_pc (prev_frame), NULL, 0);
       back_to = make_cleanup_delete_event_location (location);
       create_breakpoint (python_gdbarch,
                          location, NULL, thread, NULL,
@@ -357,7 +356,6 @@ bpfinishpy_detect_out_scope_cb (struct breakpoint *b, void *args)
 {
   struct breakpoint *bp_stopped = (struct breakpoint *) args;
   PyObject *py_bp = (PyObject *) b->py_bp_object;
-  struct gdbarch *garch = b->gdbarch ? b->gdbarch : get_current_arch ();
 
   /* Trigger out_of_scope if this is a FinishBreakpoint and its frame is
      not anymore in the current callstack.  */

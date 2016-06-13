@@ -1,5 +1,5 @@
 /* Read AIX xcoff symbol tables and convert to internal format, for GDB.
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
    Derived from coffread.c, dbxread.c, and a lot of hacking.
    Contributed by IBM Corporation.
 
@@ -930,7 +930,6 @@ record_minimal_symbol (const char *name, CORE_ADDR address,
 		       int n_scnum,
 		       struct objfile *objfile)
 {
-  int section = secnum_to_section (n_scnum, objfile);
 
   if (name[0] == '.')
     ++name;
@@ -2186,7 +2185,6 @@ scan_xcoff_symtab (struct objfile *objfile)
   const char *filestring = NULL;
 
   const char *namestring;
-  int past_first_source_file = 0;
   bfd *abfd;
   asection *bfd_sect;
   unsigned int nsyms;
@@ -2381,13 +2379,12 @@ scan_xcoff_symtab (struct objfile *objfile)
 		    if (first_fun_line_offset == 0 && symbol.n_numaux > 1)
 		      first_fun_line_offset =
 			main_aux[0].x_sym.x_fcnary.x_fcn.x_lnnoptr;
-		      {
-			record_minimal_symbol
-			  (namestring, symbol.n_value,
-			   sclass == C_HIDEXT ? mst_file_text : mst_text,
-			   symbol.n_scnum, objfile);
-			misc_func_recorded = 1;
-		      }
+
+		    record_minimal_symbol
+		      (namestring, symbol.n_value,
+		       sclass == C_HIDEXT ? mst_file_text : mst_text,
+		       symbol.n_scnum, objfile);
+		    misc_func_recorded = 1;
 		    break;
 
 		  case XMC_GL:

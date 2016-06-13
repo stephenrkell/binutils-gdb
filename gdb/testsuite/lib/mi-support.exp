@@ -1,4 +1,4 @@
-# Copyright 1999-2015 Free Software Foundation, Inc.
+# Copyright 1999-2016 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -886,6 +886,9 @@ proc mi_run_cmd_full {use_mi_command args} {
 	# to better handle RUN.
 	send_gdb  "jump *$start\n"
 	warning "Using CLI jump command, expect run-to-main FAIL"
+	gdb_expect {
+	    -re "${run_match}&\"jump \\*${start}\\n\"\[\r\n\]+~\"Continuing at 0x\[0-9A-Fa-f\]+\\n.\"\[\r\n\]+\^running\[\r\n\]+\\*running,thread-id=\"\[^\"\]+\"\r\n${mi_gdb_prompt}" {}
+	}
 	return 0
     }
 
@@ -1952,17 +1955,19 @@ proc check_mi_and_console_threads {name} {
 
 # Download shared libraries to the target.
 proc mi_load_shlibs { args } {
-    if {![is_remote target]} {
-	return
-    }
-
     foreach file $args {
-	gdb_download [shlib_target_file $file]
+	gdb_remote_download target [shlib_target_file $file]
     }
 
-    # Even if the target supplies full paths for shared libraries,
-    # they may not be paths for this system.
-    mi_gdb_test "set solib-search-path [file dirname [lindex $args 0]]" "\^done" ""
+    if {[is_remote target]} {
+	# If the target is remote, we need to tell gdb where to find the
+	# libraries.
+	#
+	# We could set this even when not testing remotely, but a user
+	# generally won't set it unless necessary.  In order to make the tests
+	# more like the real-life scenarios, we don't set it for local testing.
+	mi_gdb_test "set solib-search-path [file dirname [lindex $args 0]]" "\^done" ""
+    }
 }
 
 proc mi_check_thread_states { states test } {
@@ -2498,4 +2503,13 @@ proc mi_make_breakpoint_table {bp_list} {
 proc mi_skip_python_tests {} {
     global mi_gdb_prompt
     return [skip_python_tests_prompt "$mi_gdb_prompt$"]
+}
+
+# Check whether we're testing with the remote or extended-remote
+# targets.
+
+proc mi_is_target_remote {} {
+    global mi_gdb_prompt
+
+    return [gdb_is_target_remote_prompt "$mi_gdb_prompt"]
 }

@@ -1,5 +1,5 @@
 /* C preprocessor macro tables for GDB.
-   Copyright (C) 2002-2015 Free Software Foundation, Inc.
+   Copyright (C) 2002-2016 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of GDB.
@@ -1102,5 +1102,5 @@ macro_source_fullname (struct macro_source_file *file)
   if (comp_dir == NULL || IS_ABSOLUTE_PATH (file->filename))
     return xstrdup (file->filename);
 
-  return concat (comp_dir, SLASH_STRING, file->filename, NULL);
+  return concat (comp_dir, SLASH_STRING, file->filename, (char *) NULL);
 }

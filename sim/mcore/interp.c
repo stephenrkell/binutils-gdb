@@ -1,5 +1,5 @@
 /* Simulator for Motorola's MCore processor
-   Copyright (C) 1999-2015 Free Software Foundation, Inc.
+   Copyright (C) 1999-2016 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions.
 
 This file is part of GDB, the GNU debugger.
@@ -1341,7 +1341,8 @@ free_state (SIM_DESC sd)
 }
 
 SIM_DESC
-sim_open (SIM_OPEN_KIND kind, host_callback *cb, struct bfd *abfd, char **argv)
+sim_open (SIM_OPEN_KIND kind, host_callback *cb,
+	  struct bfd *abfd, char * const *argv)
 {
   int i;
   SIM_DESC sd = sim_state_alloc (kind, cb);
@@ -1360,9 +1361,7 @@ sim_open (SIM_OPEN_KIND kind, host_callback *cb, struct bfd *abfd, char **argv)
       return 0;
     }
 
-  /* getopt will print the error message so we just have to exit if this fails.
-     FIXME: Hmmm...  in the case of gdb we need getopt to call
-     print_filtered.  */
+  /* The parser will print an error message for us, so we silently return.  */
   if (sim_parse_args (sd, argv) != SIM_RC_OK)
     {
       free_state (sd);
@@ -1415,7 +1414,8 @@ sim_open (SIM_OPEN_KIND kind, host_callback *cb, struct bfd *abfd, char **argv)
 }
 
 SIM_RC
-sim_create_inferior (SIM_DESC sd, struct bfd *prog_bfd, char **argv, char **env)
+sim_create_inferior (SIM_DESC sd, struct bfd *prog_bfd,
+		     char * const *argv, char * const *env)
 {
   SIM_CPU *cpu = STATE_CPU (sd, 0);
   char ** avp;

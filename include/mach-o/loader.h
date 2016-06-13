@@ -1,5 +1,5 @@
 /* Mach-O support for BFD.
-   Copyright (C) 2011-2015 Free Software Foundation, Inc.
+   Copyright (C) 2011-2016 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -125,7 +125,8 @@ typedef enum bfd_mach_o_header_flags
   BFD_MACH_O_MH_PIE			= 0x0200000,
   BFD_MACH_O_MH_DEAD_STRIPPABLE_DYLIB   = 0x0400000,
   BFD_MACH_O_MH_HAS_TLV_DESCRIPTORS     = 0x0800000,
-  BFD_MACH_O_MH_NO_HEAP_EXECUTION       = 0x1000000
+  BFD_MACH_O_MH_NO_HEAP_EXECUTION       = 0x1000000,
+  BFD_MACH_O_MH_APP_EXTENSION_SAFE      = 0x2000000
 }
 bfd_mach_o_header_flags;
 

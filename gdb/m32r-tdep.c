@@ -1,6 +1,6 @@
 /* Target-dependent code for Renesas M32R, for GDB.
 
-   Copyright (C) 1996-2015 Free Software Foundation, Inc.
+   Copyright (C) 1996-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -355,9 +355,7 @@ decode_prologue (struct gdbarch *gdbarch,
 
       if ((insn & 0xf0ff) == 0x207f)
 	{			/* st reg, @-sp */
-	  int regno;
 	  framesize += 4;
-	  regno = ((insn >> 8) & 0xf);
 	  after_prologue = 0;
 	  continue;
 	}

@@ -1,6 +1,6 @@
 /* Support for printing C values for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -124,7 +124,9 @@ static const struct generic_val_print_decorations c_decorations =
   " * I",
   "true",
   "false",
-  "void"
+  "void",
+  "{",
+  "}"
 };
 
 /* Print a pointer based on the type of its target.
@@ -611,7 +613,7 @@ c_value_print (struct value *val, struct ui_file *stream,
 	  fprintf_filtered (stream, "(");
 
 	  if (value_entirely_available (val))
- 	    {
+	    {
 	      real_type = value_rtti_indirect_type (val, &full, &top,
 						    &using_enc);
 	      if (real_type)
@@ -623,18 +625,19 @@ c_value_print (struct value *val, struct ui_file *stream,
 		  val = value_from_pointer (real_type,
 					    value_as_address (val) - top);
 
-		  if (is_ref)
-		    {
-		      val = value_ref (value_ind (val));
-		      type = value_type (val);
-		    }
-
 		  /* Note: When we look up RTTI entries, we don't get
 		     any information on const or volatile
 		     attributes.  */
 		}
 	    }
-          type_print (type, "", stream, -1);
+
+	  if (is_ref)
+	    {
+	      val = value_ref (value_ind (val));
+	      type = value_type (val);
+	    }
+
+	  type_print (type, "", stream, -1);
 	  fprintf_filtered (stream, ") ");
 	  val_type = type;
 	}

@@ -1,7 +1,7 @@
 /* *INDENT-OFF* */ /* ATTRIBUTE_PRINTF confuses indent, avoid running it
 		      for now.  */
 /* I/O, string, cleanup, and other random utilities for GDB.
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -93,6 +93,9 @@ extern struct cleanup *make_cleanup_restore_uinteger (unsigned int *variable);
 struct target_ops;
 extern struct cleanup *make_cleanup_unpush_target (struct target_ops *ops);
 
+
+extern struct cleanup *
+  make_cleanup_restore_ui_out (struct ui_out **variable);
 extern struct cleanup *
   make_cleanup_restore_ui_file (struct ui_file **variable);
 
@@ -135,6 +138,10 @@ extern void substitute_path_component (char **stringp, const char *from,
 				       const char *to);
 
 char *ldirname (const char *filename);
+
+extern int count_path_elements (const char *path);
+
+extern const char *strip_leading_path_elements (const char *path, int n);
 
 /* GDB output, ui_file utilities.  */
 

@@ -1,5 +1,5 @@
 # tls.exp -- Expect script to test thread-local storage
-# Copyright (C) 1992-2015 Free Software Foundation, Inc.
+# Copyright (C) 1992-2016 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -162,7 +162,7 @@ gdb_test "b [gdb_get_line_number "before exit"]" \
 
 send_gdb "continue\n"
 gdb_expect {
-    -re ".*Program received signal SIGSEGV.*a_thread_local = 0;.*$gdb_prompt $" {
+    -re ".* received signal SIGSEGV.*a_thread_local = 0;.*$gdb_prompt $" {
         # This is the first symptom if the gcc and binutils versions
         # in use support TLS, but the system glibc does not.
         unsupported "continue to first thread: system does not support TLS"

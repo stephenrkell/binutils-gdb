@@ -1,6 +1,6 @@
 /* Fortran language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 1993-2015 Free Software Foundation, Inc.
+   Copyright (C) 1993-2016 Free Software Foundation, Inc.
 
    Contributed by Motorola.  Adapted from the C parser by Farooq Butt
    (fmbutt@engage.sps.mot.com).
@@ -246,7 +246,7 @@ const struct language_defn f_language_defn =
   macro_expansion_no,
   &exp_descriptor_standard,
   f_parse,			/* parser */
-  f_error,			/* parser error function */
+  f_yyerror,			/* parser error function */
   null_post_parser,
   f_printchar,			/* Print character constant */
   f_printstr,			/* function to print string constant */

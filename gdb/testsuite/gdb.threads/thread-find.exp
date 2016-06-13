@@ -1,4 +1,4 @@
-# Copyright 2011-2015 Free Software Foundation, Inc.
+# Copyright 2011-2016 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -276,9 +276,9 @@ gdb_test_multiple "info threads 3-3" "info threads 3-3" {
 # Test bad input
 
 gdb_test "info thread foo" \
-    "Args must be numbers or '.' variables." \
+    "Invalid thread ID: foo" \
     "info thread foo"
 
 gdb_test "info thread foo -1" \
-    "Args must be numbers or '.' variables." \
+    "Invalid thread ID: foo -1" \
     "info thread foo -1"

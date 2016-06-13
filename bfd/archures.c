@@ -1,5 +1,5 @@
 /* BFD library support routines for architectures.
-   Copyright (C) 1990-2015 Free Software Foundation, Inc.
+   Copyright (C) 1990-2016 Free Software Foundation, Inc.
    Hacked by John Gilmore and Steve Chamberlain of Cygnus Support.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -359,6 +359,7 @@ DESCRIPTION
 .#define bfd_mach_arc_arc601    4
 .#define bfd_mach_arc_arc700    3
 .#define bfd_mach_arc_arcv2     5
+.#define bfd_mach_arc_nps400    6
 . bfd_arch_m32c,     {* Renesas M16C/M32C.  *}
 .#define bfd_mach_m16c        0x75
 .#define bfd_mach_m32c        0x78

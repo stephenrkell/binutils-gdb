@@ -1,6 +1,6 @@
 /* Target-dependent code for Morpho mt processor, for GDB.
 
-   Copyright (C) 2005-2015 Free Software Foundation, Inc.
+   Copyright (C) 2005-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -676,12 +676,11 @@ mt_registers_info (struct gdbarch *gdbarch,
 	{
 	  /* Special output handling for 38-bit context register.  */
 	  unsigned char *buff;
-	  unsigned int *bytes, i, regsize;
+	  unsigned int i, regsize;
 
 	  regsize = register_size (gdbarch, regnum);
 
 	  buff = (unsigned char *) alloca (regsize);
-	  bytes = XALLOCAVEC (unsigned int, regsize);
 
 	  deprecated_frame_register_read (frame, regnum, buff);
 

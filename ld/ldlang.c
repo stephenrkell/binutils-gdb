@@ -1,5 +1,5 @@
 /* Linker command language support.
-   Copyright (C) 1991-2015 Free Software Foundation, Inc.
+   Copyright (C) 1991-2016 Free Software Foundation, Inc.
 
    This file is part of the GNU Binutils.
 
@@ -49,7 +49,13 @@
 #define offsetof(TYPE, MEMBER) ((size_t) & (((TYPE*) 0)->MEMBER))
 #endif
 
-/* Locals variables.  */
+/* Convert between addresses in bytes and sizes in octets.
+   For currently supported targets, octets_per_byte is always a power
+   of two, so we can use shifts.  */
+#define TO_ADDR(X) ((X) >> opb_shift)
+#define TO_SIZE(X) ((X) << opb_shift)
+
+/* Local variables.  */
 static struct obstack stat_obstack;
 static struct obstack map_obstack;
 
@@ -68,6 +74,7 @@ static lang_statement_list_type *stat_save[10];
 static lang_statement_list_type **stat_save_ptr = &stat_save[0];
 static struct unique_sections *unique_section_list;
 static struct asneeded_minfo *asneeded_list_head;
+static unsigned int opb_shift = 0;
 
 /* Forward declarations.  */
 static void exp_init_os (etree_type *);
@@ -1886,7 +1893,7 @@ lang_insert_orphan (asection *s,
 	 before sizing dynamic sections.  */
       dot = os->bfd_section->vma;
       exp_fold_tree (start_assign->exp, os->bfd_section, &dot);
-      dot += s->size;
+      dot += TO_ADDR (s->size);
       exp_fold_tree (stop_assign->exp, os->bfd_section, &dot);
     }
 
@@ -2197,7 +2204,7 @@ init_os (lang_output_section_statement_type *s, flagword flags)
 							 s->name, flags);
   if (s->bfd_section == NULL)
     {
-      einfo (_("%P%F: output format %s cannot represent section called %s\n"),
+      einfo (_("%P%F: output format %s cannot represent section called %s: %E\n"),
 	     link_info.output_bfd->xvec->name, s->name);
     }
   s->bfd_section->output_section = s->bfd_section;
@@ -3208,15 +3215,6 @@ ldlang_open_output (lang_statement_union_type *statement)
     }
 }
 
-/* Convert between addresses in bytes and sizes in octets.
-   For currently supported targets, octets_per_byte is always a power
-   of two, so we can use shifts.  */
-#define TO_ADDR(X) ((X) >> opb_shift)
-#define TO_SIZE(X) ((X) << opb_shift)
-
-/* Support the above.  */
-static unsigned int opb_shift = 0;
-
 static void
 init_opb (void)
 {
@@ -4002,7 +4000,7 @@ print_output_section_statement
 	      ++len;
 	    }
 
-	  minfo ("0x%V %W", section->vma, section->size);
+	  minfo ("0x%V %W", section->vma, TO_ADDR (section->size));
 
 	  if (section->vma != section->lma)
 	    minfo (_(" load address 0x%V"), section->lma);
@@ -4224,7 +4222,7 @@ print_input_section (asection *i, bfd_boolean is_discarded)
 	size = 0;
     }
 
-  minfo ("0x%V %W %B\n", addr, TO_ADDR (size), i->owner);
+  minfo ("0x%V %W %B\n", addr, size, i->owner);
 
   if (size != i->rawsize && i->rawsize != 0)
     {
@@ -4312,7 +4310,9 @@ print_data_statement (lang_data_statement_type *data)
       break;
     }
 
-  minfo ("0x%V %W %s 0x%v", addr, size, name, data->value);
+  if (size < TO_SIZE ((unsigned) 1))
+    size = TO_SIZE ((unsigned) 1);
+  minfo ("0x%V %W %s 0x%v", addr, TO_ADDR (size), name, data->value);
 
   if (data->exp->type.node_class != etree_value)
     {
@@ -4355,7 +4355,7 @@ print_reloc_statement (lang_reloc_statement_type *reloc)
 
   size = bfd_get_reloc_size (reloc->howto);
 
-  minfo ("0x%V %W RELOC %s ", addr, size, reloc->howto->name);
+  minfo ("0x%V %W RELOC %s ", addr, TO_ADDR (size), reloc->howto->name);
 
   if (reloc->name != NULL)
     minfo ("%s+", reloc->name);
@@ -4388,7 +4388,7 @@ print_padding_statement (lang_padding_statement_type *s)
   addr = s->output_offset;
   if (s->output_section != NULL)
     addr += s->output_section->vma;
-  minfo ("0x%V %W ", addr, (bfd_vma) s->size);
+  minfo ("0x%V %W ", addr, TO_ADDR (s->size));
 
   if (s->fill->size != 0)
     {
@@ -4677,17 +4677,21 @@ size_input_section
   return dot;
 }
 
+struct check_sec
+{
+  asection *sec;
+  bfd_boolean warned;
+};
+
 static int
 sort_sections_by_lma (const void *arg1, const void *arg2)
 {
-  const asection *sec1 = *(const asection **) arg1;
-  const asection *sec2 = *(const asection **) arg2;
+  const asection *sec1 = ((const struct check_sec *) arg1)->sec;
+  const asection *sec2 = ((const struct check_sec *) arg2)->sec;
 
-  if (bfd_section_lma (sec1->owner, sec1)
-      < bfd_section_lma (sec2->owner, sec2))
+  if (sec1->lma < sec2->lma)
     return -1;
-  else if (bfd_section_lma (sec1->owner, sec1)
-	   > bfd_section_lma (sec2->owner, sec2))
+  else if (sec1->lma > sec2->lma)
     return 1;
   else if (sec1->id < sec2->id)
     return -1;
@@ -4697,10 +4701,29 @@ sort_sections_by_lma (const void *arg1, const void *arg2)
   return 0;
 }
 
+static int
+sort_sections_by_vma (const void *arg1, const void *arg2)
+{
+  const asection *sec1 = ((const struct check_sec *) arg1)->sec;
+  const asection *sec2 = ((const struct check_sec *) arg2)->sec;
+
+  if (sec1->vma < sec2->vma)
+    return -1;
+  else if (sec1->vma > sec2->vma)
+    return 1;
+  else if (sec1->id < sec2->id)
+    return -1;
+  else if (sec1->id > sec2->id)
+    return 1;
+
+  return 0;
+}
+
+#define IS_TBSS(s) \
+  ((s->flags & (SEC_LOAD | SEC_THREAD_LOCAL)) == SEC_THREAD_LOCAL)
+
 #define IGNORE_SECTION(s) \
-  ((s->flags & SEC_ALLOC) == 0				\
-   || ((s->flags & SEC_THREAD_LOCAL) != 0		\
-	&& (s->flags & SEC_LOAD) == 0))
+  ((s->flags & SEC_ALLOC) == 0 || IS_TBSS (s))
 
 /* Check to see if any allocated sections overlap with other allocated
    sections.  This can happen if a linker script specifies the output
@@ -4711,66 +4734,111 @@ static void
 lang_check_section_addresses (void)
 {
   asection *s, *p;
-  asection **sections, **spp;
-  unsigned int count;
+  struct check_sec *sections;
+  size_t i, count;
   bfd_vma s_start;
   bfd_vma s_end;
-  bfd_vma p_start;
-  bfd_vma p_end;
-  bfd_size_type amt;
+  bfd_vma p_start = 0;
+  bfd_vma p_end = 0;
   lang_memory_region_type *m;
+  bfd_boolean overlays;
 
   if (bfd_count_sections (link_info.output_bfd) <= 1)
     return;
 
-  amt = bfd_count_sections (link_info.output_bfd) * sizeof (asection *);
-  sections = (asection **) xmalloc (amt);
+  count = bfd_count_sections (link_info.output_bfd);
+  sections = XNEWVEC (struct check_sec, count);
 
   /* Scan all sections in the output list.  */
   count = 0;
   for (s = link_info.output_bfd->sections; s != NULL; s = s->next)
     {
-      /* Only consider loadable sections with real contents.  */
-      if (!(s->flags & SEC_LOAD)
-	  || !(s->flags & SEC_ALLOC)
+      if (IGNORE_SECTION (s)
 	  || s->size == 0)
 	continue;
 
-      sections[count] = s;
+      sections[count].sec = s;
+      sections[count].warned = FALSE;
       count++;
     }
 
   if (count <= 1)
-    return;
-
-  qsort (sections, (size_t) count, sizeof (asection *),
-	 sort_sections_by_lma);
-
-  spp = sections;
-  s = *spp++;
-  s_start = s->lma;
-  s_end = s_start + TO_ADDR (s->size) - 1;
-  for (count--; count; count--)
     {
-      /* We must check the sections' LMA addresses not their VMA
-	 addresses because overlay sections can have overlapping VMAs
-	 but they must have distinct LMAs.  */
-      p = s;
-      p_start = s_start;
-      p_end = s_end;
-      s = *spp++;
-      s_start = s->lma;
-      s_end = s_start + TO_ADDR (s->size) - 1;
+      free (sections);
+      return;
+    }
 
-      /* Look for an overlap.  We have sorted sections by lma, so we
-	 know that s_start >= p_start.  Besides the obvious case of
-	 overlap when the current section starts before the previous
-	 one ends, we also must have overlap if the previous section
-	 wraps around the address space.  */
-      if (s_start <= p_end
-	  || p_end < p_start)
-	einfo (_("%X%P: section %s loaded at [%V,%V] overlaps section %s loaded at [%V,%V]\n"),
-	       s->name, s_start, s_end, p->name, p_start, p_end);
+  qsort (sections, count, sizeof (*sections), sort_sections_by_lma);
+
+  /* First check section LMAs.  There should be no overlap of LMAs on
+     loadable sections, even with overlays.  */
+  for (p = NULL, i = 0; i < count; i++)
+    {
+      s = sections[i].sec;
+      if ((s->flags & SEC_LOAD) != 0)
+	{
+	  s_start = s->lma;
+	  s_end = s_start + TO_ADDR (s->size) - 1;
+
+	  /* Look for an overlap.  We have sorted sections by lma, so
+	     we know that s_start >= p_start.  Besides the obvious
+	     case of overlap when the current section starts before
+	     the previous one ends, we also must have overlap if the
+	     previous section wraps around the address space.  */
+	  if (p != NULL
+	      && (s_start <= p_end
+		  || p_end < p_start))
+	    {
+	      einfo (_("%X%P: section %s LMA [%V,%V]"
+		       " overlaps section %s LMA [%V,%V]\n"),
+		     s->name, s_start, s_end, p->name, p_start, p_end);
+	      sections[i].warned = TRUE;
+	    }
+	  p = s;
+	  p_start = s_start;
+	  p_end = s_end;
+	}
+    }
+
+  /* If any non-zero size allocated section (excluding tbss) starts at
+     exactly the same VMA as another such section, then we have
+     overlays.  Overlays generated by the OVERLAY keyword will have
+     this property.  It is possible to intentionally generate overlays
+     that fail this test, but it would be unusual.  */
+  qsort (sections, count, sizeof (*sections), sort_sections_by_vma);
+  overlays = FALSE;
+  p_start = sections[0].sec->vma;
+  for (i = 1; i < count; i++)
+    {
+      s_start = sections[i].sec->vma;
+      if (p_start == s_start)
+	{
+	  overlays = TRUE;
+	  break;
+	}
+      p_start = s_start;
+    }
+
+  /* Now check section VMAs if no overlays were detected.  */
+  if (!overlays)
+    {
+      for (p = NULL, i = 0; i < count; i++)
+	{
+	  s = sections[i].sec;
+	  s_start = s->vma;
+	  s_end = s_start + TO_ADDR (s->size) - 1;
+
+	  if (p != NULL
+	      && !sections[i].warned
+	      && (s_start <= p_end
+		  || p_end < p_start))
+	    einfo (_("%X%P: section %s VMA [%V,%V]"
+		     " overlaps section %s VMA [%V,%V]\n"),
+		   s->name, s_start, s_end, p->name, p_start, p_end);
+	  p = s;
+	  p_start = s_start;
+	  p_end = s_end;
+	}
     }
 
   free (sections);
@@ -4787,7 +4855,6 @@ lang_check_section_addresses (void)
     if (m->had_full_message)
       einfo (_("%X%P: region `%s' overflowed by %ld bytes\n"),
 	     m->name_list.name, (long)(m->current - (m->origin + m->length)));
-
 }
 
 /* Make sure the new address is within the region.  We explicitly permit the
@@ -5067,7 +5134,7 @@ lang_size_sections_1
 		   create overlapping LMAs.  */
 		if (dot < last->vma
 		    && os->bfd_section->size != 0
-		    && dot + os->bfd_section->size <= last->vma)
+		    && dot + TO_ADDR (os->bfd_section->size) <= last->vma)
 		  {
 		    /* If dot moved backwards then leave lma equal to
 		       vma.  This is the old default lma, which might
@@ -5084,7 +5151,7 @@ lang_size_sections_1
 		    /* If this is an overlay, set the current lma to that
 		       at the end of the previous section.  */
 		    if (os->sectype == overlay_section)
-		      lma = last->lma + last->size;
+		      lma = last->lma + TO_ADDR (last->size);
 
 		    /* Otherwise, keep the same lma to vma relationship
 		       as the previous section.  */
@@ -5109,9 +5176,7 @@ lang_size_sections_1
 	       To avoid warnings about dot moving backwards when using
 	       -Ttext, don't start tracking sections until we find one
 	       of non-zero size or with lma set differently to vma.  */
-	    if (((os->bfd_section->flags & SEC_HAS_CONTENTS) != 0
-		 || (os->bfd_section->flags & SEC_THREAD_LOCAL) == 0)
-		&& (os->bfd_section->flags & SEC_ALLOC) != 0
+	    if (!IGNORE_SECTION (os->bfd_section)
 		&& (os->bfd_section->size != 0
 		    || (r->last_os == NULL
 			&& os->bfd_section->vma != os->bfd_section->lma)
@@ -5123,8 +5188,7 @@ lang_size_sections_1
 	      r->last_os = s;
 
 	    /* .tbss sections effectively have zero size.  */
-	    if ((os->bfd_section->flags & SEC_HAS_CONTENTS) != 0
-		|| (os->bfd_section->flags & SEC_THREAD_LOCAL) == 0
+	    if (!IS_TBSS (os->bfd_section)
 		|| bfd_link_relocatable (&link_info))
 	      dotdelta = TO_ADDR (os->bfd_section->size);
 	    else
@@ -5466,9 +5530,8 @@ lang_size_sections (bfd_boolean *relax, bfd_boolean check_regions)
 	    bfd_vma start, end, bump;
 
 	    end = start = sec->vma;
-	    if ((sec->flags & SEC_HAS_CONTENTS) != 0
-		|| (sec->flags & SEC_THREAD_LOCAL) == 0)
-	      end += sec->size;
+	    if (!IS_TBSS (sec))
+	      end += TO_ADDR (sec->size);
 	    bump = desired_end - end;
 	    /* We'd like to increase START by BUMP, but we must heed
 	       alignment so the increase might be less than optimum.  */
@@ -5563,8 +5626,7 @@ lang_do_assignments_1 (lang_statement_union_type *s,
 				       os, os->fill, dot, found_end);
 
 		/* .tbss sections effectively have zero size.  */
-		if ((os->bfd_section->flags & SEC_HAS_CONTENTS) != 0
-		    || (os->bfd_section->flags & SEC_THREAD_LOCAL) == 0
+		if (!IS_TBSS (os->bfd_section)
 		    || bfd_link_relocatable (&link_info))
 		  dot += TO_ADDR (os->bfd_section->size);
 
@@ -6477,7 +6539,6 @@ static void
 lang_gc_sections (void)
 {
   /* Keep all sections so marked in the link script.  */
-
   lang_gc_sections_1 (statement_list.head);
 
   /* SEC_EXCLUDE is ignored when doing a relocatable link, except in
@@ -6700,6 +6761,45 @@ lang_list_remove_tail (lang_statement_list_type *destlist,
 }
 #endif /* ENABLE_PLUGINS */
 
+/* Add NAME to the list of garbage collection entry points.  */
+
+void
+lang_add_gc_name (const char * name)
+{
+  struct bfd_sym_chain *sym;
+
+  if (name == NULL)
+    return;
+
+  sym = (struct bfd_sym_chain *) stat_alloc (sizeof (*sym));
+
+  sym->next = link_info.gc_sym_list;
+  sym->name = name;
+  link_info.gc_sym_list = sym;
+}
+
+/* Check relocations.  */
+
+static void
+lang_check_relocs (void)
+{
+  if (link_info.check_relocs_after_open_input)
+    {
+      bfd *abfd;
+
+      for (abfd = link_info.input_bfds;
+	   abfd != (bfd *) NULL; abfd = abfd->link.next)
+	if (!bfd_link_check_relocs (abfd, &link_info))
+	  {
+	    /* No object output, fail return.  */
+	    config.make_executable = FALSE;
+	    /* Note: we do not abort the loop, but rather
+	       continue the scan in case there are other
+	       bad relocations to report.  */
+	  }
+    }
+}
+
 void
 lang_process (void)
 {
@@ -6782,25 +6882,28 @@ lang_process (void)
     }
 #endif /* ENABLE_PLUGINS */
 
+  /* Make sure that nobody has tried to add a symbol to this list before now.  */
+  ASSERT (link_info.gc_sym_list == NULL);
+
   link_info.gc_sym_list = &entry_symbol;
+
   if (entry_symbol.name == NULL)
-    link_info.gc_sym_list = ldlang_undef_chain_list_head;
-  if (link_info.init_function != NULL)
     {
-      struct bfd_sym_chain *sym
-	= (struct bfd_sym_chain *) stat_alloc (sizeof (*sym));
-      sym->next = link_info.gc_sym_list;
-      sym->name = link_info.init_function;
-      link_info.gc_sym_list = sym;
+      link_info.gc_sym_list = ldlang_undef_chain_list_head;
+
+      /* entry_symbol is normally initialied by a ENTRY definition in the
+	 linker script or the -e command line option.  But if neither of
+	 these have been used, the target specific backend may still have
+	 provided an entry symbol via a call to lang_default_entry().
+	 Unfortunately this value will not be processed until lang_end()
+	 is called, long after this function has finished.  So detect this
+	 case here and add the target's entry symbol to the list of starting
+	 points for garbage collection resolution.  */
+      lang_add_gc_name (entry_symbol_default);
     }
-  if (link_info.fini_function != NULL)
-    {
-      struct bfd_sym_chain *sym
-	= (struct bfd_sym_chain *) stat_alloc (sizeof (*sym));
-      sym->next = link_info.gc_sym_list;
-      sym->name = link_info.fini_function;
-      link_info.gc_sym_list = sym;
-    }
+
+  lang_add_gc_name (link_info.init_function);
+  lang_add_gc_name (link_info.fini_function);
 
   ldemul_after_open ();
   if (config.map_file != NULL)
@@ -6835,6 +6938,9 @@ lang_process (void)
 
   /* Remove unreferenced sections if asked to.  */
   lang_gc_sections ();
+
+  /* Check relocations.  */
+  lang_check_relocs ();
 
   /* Update wild statements.  */
   update_wild_statements (statement_list.head);
@@ -7405,10 +7511,20 @@ lang_add_nocrossref (lang_nocrossref_type *l)
   n = (struct lang_nocrossrefs *) xmalloc (sizeof *n);
   n->next = nocrossref_list;
   n->list = l;
+  n->onlyfirst = FALSE;
   nocrossref_list = n;
 
   /* Set notice_all so that we get informed about all symbols.  */
   link_info.notice_all = TRUE;
+}
+
+/* Record a section that cannot be referenced from a list of sections.  */
+
+void
+lang_add_nocrossref_to (lang_nocrossref_type *l)
+{
+  lang_add_nocrossref (l);
+  nocrossref_list->onlyfirst = TRUE;
 }
 
 /* Overlay handling.  We handle overlays with some static variables.  */

@@ -1,6 +1,6 @@
 /* Find a variable's value in memory, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -435,6 +435,7 @@ follow_static_link (struct frame_info *frame,
       /* If we don't know how to compute FRAME's base address, don't give up:
 	 maybe the frame we are looking for is upper in the stace frame.  */
       if (framefunc != NULL
+	  && SYMBOL_BLOCK_OPS (framefunc) != NULL
 	  && SYMBOL_BLOCK_OPS (framefunc)->get_frame_base != NULL
 	  && (SYMBOL_BLOCK_OPS (framefunc)->get_frame_base (framefunc, frame)
 	      == upper_frame_base))

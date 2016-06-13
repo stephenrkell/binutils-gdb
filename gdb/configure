@@ -731,6 +731,7 @@ MAKE
 CCDEPMODE
 DEPDIR
 am__leading_dot
+COMPILER_CFLAGS
 COMPILER
 INSTALL_STRIP_PROGRAM
 STRIP
@@ -1560,8 +1561,7 @@ Optional Packages:
                           (auto/yes/no/<python-program>)
   --with-guile[=GUILE]    include guile support
                           (auto/yes/no/<guile-version>/<pkg-config-program>)
-  --with-intel-pt         include Intel(R) Processor Trace support
-                          (auto/yes/no)
+  --with-intel-pt         include Intel Processor Trace support (auto/yes/no)
   --with-libipt-prefix[=DIR]  search for libipt in DIR/include and DIR/lib
   --without-libipt-prefix     don't search for libipt in includedir and libdir
   --without-included-regex
@@ -2401,51 +2401,6 @@ $as_echo "$ac_res" >&6; }
   eval $as_lineno_stack; test "x$as_lineno_stack" = x && { as_lineno=; unset as_lineno;}
 
 } # ac_fn_c_check_member
-
-# ac_fn_cxx_check_decl LINENO SYMBOL VAR
-# --------------------------------------
-# Tests whether SYMBOL is declared, setting cache variable VAR accordingly.
-ac_fn_cxx_check_decl ()
-{
-  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
-  as_decl_name=`echo $2|sed 's/ *(.*//'`
-  as_decl_use=`echo $2|sed -e 's/(/((/' -e 's/)/) 0&/' -e 's/,/) 0& (/g'`
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether $as_decl_name is declared" >&5
-$as_echo_n "checking whether $as_decl_name is declared... " >&6; }
-if { as_var=$3; eval "test \"\${$as_var+set}\" = set"; }; then :
-  $as_echo_n "(cached) " >&6
-else
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-$4
-int
-main ()
-{
-#ifndef $as_decl_name
-#ifdef __cplusplus
-  (void) $as_decl_use;
-#else
-  (void) $as_decl_name;
-#endif
-#endif
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
-  eval "$3=yes"
-else
-  eval "$3=no"
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-eval ac_res=\$$3
-	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-  eval $as_lineno_stack; test "x$as_lineno_stack" = x && { as_lineno=; unset as_lineno;}
-
-} # ac_fn_cxx_check_decl
 cat >config.log <<_ACEOF
 This file contains any messages produced by compilers while
 running configure, to aid debugging if configure makes a mistake.
@@ -5010,15 +4965,18 @@ if test "${enable_build_with_cxx+set}" = set; then :
 	  as_fn_error "bad value $enableval for --enable-build-with-cxx" "$LINENO" 5 ;;
     esac
 else
-  enable_build_with_cxx=no
+  enable_build_with_cxx=yes
 fi
 
 
   if test "$enable_build_with_cxx" = "yes"; then
     COMPILER='$(CXX)'
+    COMPILER_CFLAGS='$(CXXFLAGS)'
    else
     COMPILER='$(CC)'
+    COMPILER_CFLAGS='$(CFLAGS)'
   fi
+
 
 
 
@@ -7092,6 +7050,7 @@ fi
 
 
 # On FreeBSD we may need libutil for kinfo_getvmmap (used by fbsd-nat.c).
+# On GNU/kFreeBSD systems, FreeBSD libutil is renamed to libutil-freebsd.
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing kinfo_getvmmap" >&5
 $as_echo_n "checking for library containing kinfo_getvmmap... " >&6; }
 if test "${ac_cv_search_kinfo_getvmmap+set}" = set; then :
@@ -7116,7 +7075,7 @@ return kinfo_getvmmap ();
   return 0;
 }
 _ACEOF
-for ac_lib in '' util; do
+for ac_lib in '' util util-freebsd; do
   if test -z "$ac_lib"; then
     ac_res="none required"
   else
@@ -9455,6 +9414,14 @@ else
   CONFIG_SRCS="$CONFIG_SRCS python/python.c"
 fi
 
+# Work around Python http://bugs.python.org/issue10112.  See also
+# http://bugs.python.org/issue11410, otherwise -Wl,--dynamic-list has
+# no effect.  Note that the only test after this that uses Python is
+# the -rdynamic/-Wl,--dynamic-list test, and we do want that one to be
+# run without -export-dynamic too.
+PYTHON_LIBS=`echo $PYTHON_LIBS | sed -e 's/-Xlinker -export-dynamic//'`
+
+
 
 
  if test "${have_libpython}" != no; then
@@ -10111,8 +10078,8 @@ $as_echo_n "checking whether to use intel pt... " >&6; }
 $as_echo "$with_intel_pt" >&6; }
 
 if test "${with_intel_pt}" = no; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Intel(R) Processor Trace support disabled; some features may be unavailable." >&5
-$as_echo "$as_me: WARNING: Intel(R) Processor Trace support disabled; some features may be unavailable." >&2;}
+  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Intel Processor Trace support disabled; some features may be unavailable." >&5
+$as_echo "$as_me: WARNING: Intel Processor Trace support disabled; some features may be unavailable." >&2;}
   HAVE_LIBIPT=no
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -12348,7 +12315,6 @@ fi
 # Check the return and argument types of ptrace.
 
 
-
 for ac_header in sys/ptrace.h ptrace.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
@@ -12364,17 +12330,6 @@ fi
 done
 
 
-# Needs to be tested in C++ mode, to detect whether we need to cast
-# the first argument to enum __ptrace_request.
-if test "$enable_build_with_cxx" = "yes"; then
-    ac_ext=cpp
-ac_cpp='$CXXCPP $CPPFLAGS'
-ac_compile='$CXX -c $CXXFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CXX -o conftest$ac_exeext $CXXFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_cxx_compiler_gnu
-
-fi
-
 gdb_ptrace_headers='
 #include <sys/types.h>
 #if HAVE_SYS_PTRACE_H
@@ -12385,7 +12340,7 @@ gdb_ptrace_headers='
 #endif
 '
 # There is no point in checking if we don't have a prototype.
-ac_fn_cxx_check_decl "$LINENO" "ptrace" "ac_cv_have_decl_ptrace" "$gdb_ptrace_headers
+ac_fn_c_check_decl "$LINENO" "ptrace" "ac_cv_have_decl_ptrace" "$gdb_ptrace_headers
 "
 if test "x$ac_cv_have_decl_ptrace" = x""yes; then :
   ac_have_decl=1
@@ -12423,7 +12378,7 @@ extern long ptrace (enum __ptrace_request, ...);
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_ret='long'
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -12437,7 +12392,7 @@ extern int ptrace ();
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_ret='int'
 else
   gdb_cv_func_ptrace_ret='long'
@@ -12471,7 +12426,7 @@ extern long ptrace (enum __ptrace_request, ...);
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_args='enum __ptrace_request,int,long,long'
 else
 
@@ -12493,7 +12448,7 @@ extern $gdb_cv_func_ptrace_ret
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_args="$gdb_arg1,$gdb_arg2,$gdb_arg3,$gdb_arg4";
     break 4;
 fi
@@ -12513,7 +12468,7 @@ extern $gdb_cv_func_ptrace_ret
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
 
 gdb_cv_func_ptrace_args="$gdb_arg1,$gdb_arg2,$gdb_arg3,$gdb_arg4,$gdb_arg5";
     break 5;
@@ -12556,15 +12511,6 @@ if test -n "$5"; then
 cat >>confdefs.h <<_ACEOF
 #define PTRACE_TYPE_ARG5 $5
 _ACEOF
-
-fi
-
-if test "$enable_build_with_cxx" = "yes"; then
-    ac_ext=c
-ac_cpp='$CPP $CPPFLAGS'
-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 fi
 
@@ -12783,7 +12729,8 @@ fi
 
 # See if <machine/reg.h> supports the %fs and %gs i386 segment registers.
 # Older i386 BSD's don't have the r_fs and r_gs members of `struct reg'.
-ac_fn_c_check_member "$LINENO" "struct reg" "r_fs" "ac_cv_member_struct_reg_r_fs" "#include <machine/reg.h>
+ac_fn_c_check_member "$LINENO" "struct reg" "r_fs" "ac_cv_member_struct_reg_r_fs" "#include <sys/types.h>
+#include <machine/reg.h>
 "
 if test "x$ac_cv_member_struct_reg_r_fs" = x""yes; then :
 
@@ -12793,7 +12740,8 @@ _ACEOF
 
 
 fi
-ac_fn_c_check_member "$LINENO" "struct reg" "r_gs" "ac_cv_member_struct_reg_r_gs" "#include <machine/reg.h>
+ac_fn_c_check_member "$LINENO" "struct reg" "r_gs" "ac_cv_member_struct_reg_r_gs" "#include <sys/types.h>
+#include <machine/reg.h>
 "
 if test "x$ac_cv_member_struct_reg_r_gs" = x""yes; then :
 
@@ -12963,6 +12911,22 @@ if test $gdb_cv_have_pt_getxmmregs = yes; then
 $as_echo "#define HAVE_PT_GETXMMREGS 1" >>confdefs.h
 
 fi
+
+# See if <sys/ptrace.h> supports LWP names on FreeBSD
+# Older FreeBSD versions don't have the pl_tdname member of
+# `struct ptrace_lwpinfo'.
+ac_fn_c_check_member "$LINENO" "struct ptrace_lwpinfo" "pl_tdname" "ac_cv_member_struct_ptrace_lwpinfo_pl_tdname" "#include <sys/ptrace.h>
+"
+if test "x$ac_cv_member_struct_ptrace_lwpinfo_pl_tdname" = x""yes; then :
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_STRUCT_PTRACE_LWPINFO_PL_TDNAME 1
+_ACEOF
+
+
+fi
+
+
 
 # Detect which type of /proc is in use, such as for Solaris.
 
@@ -13750,16 +13714,24 @@ rm -f core conftest.err conftest.$ac_objext \
      # libpythonX.Y.a would get its symbols required for
      # pythonX.Y/lib-dynload/*.so modules hidden by -Wl,--dynamic-list.
      # Problem does not happen for the recommended libpythonX.Y.so linkage.
+
+     # Note the workaround for Python
+     # http://bugs.python.org/issue10112 earlier has removed
+     # -export-dynamic from PYTHON_LIBS.  That's exactly what we want
+     # here too, as otherwise it'd make this -Wl,--dynamic-list test
+     # always pass.
      old_CFLAGS="$CFLAGS"
      CFLAGS="$CFLAGS $PYTHON_CFLAGS"
      old_LIBS="$LIBS"
      LIBS="$LIBS $PYTHON_LIBS"
+     old_CPPFLAGS="$CPPFLAGS"
+     CPPFLAGS="$CPPFLAGS $PYTHON_CPPFLAGS"
      if test "$cross_compiling" = yes; then :
   true
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#include "${have_libpython}/Python.h"
+#include "Python.h"
 int
 main ()
 {
@@ -13781,6 +13753,7 @@ fi
 
      LIBS="$old_LIBS"
      CFLAGS="$old_CFLAGS"
+     CPPFLAGS="$old_CPPFLAGS"
    fi
    LDFLAGS="$old_LDFLAGS"
 fi
@@ -14057,46 +14030,6 @@ $as_echo "#define THREAD_DB_HAS_TD_NOTLS 1" >>confdefs.h
 
 fi
 
-if test "x$ac_cv_header_sys_syscall_h" = "xyes"; then
-   { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether <sys/syscall.h> has __NR_tkill" >&5
-$as_echo_n "checking whether <sys/syscall.h> has __NR_tkill... " >&6; }
-if test "${gdb_cv_sys_syscall_h_has_tkill+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include <sys/syscall.h>
-int
-main ()
-{
-int i = __NR_tkill;
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"; then :
-  gdb_cv_sys_syscall_h_has_tkill=yes
-else
-  gdb_cv_sys_syscall_h_has_tkill=no
-
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gdb_cv_sys_syscall_h_has_tkill" >&5
-$as_echo "$gdb_cv_sys_syscall_h_has_tkill" >&6; }
-fi
-if test "x$gdb_cv_sys_syscall_h_has_tkill" = "xyes"; then
-  ac_fn_c_check_func "$LINENO" "syscall" "ac_cv_func_syscall"
-if test "x$ac_cv_func_syscall" = x""yes; then :
-
-$as_echo "#define HAVE_TKILL_SYSCALL 1" >>confdefs.h
-
-
-fi
-
-fi
-
 ac_fn_c_check_decl "$LINENO" "ADDR_NO_RANDOMIZE" "ac_cv_have_decl_ADDR_NO_RANDOMIZE" "#include <sys/personality.h>
 "
 if test "x$ac_cv_have_decl_ADDR_NO_RANDOMIZE" = x""yes; then :
@@ -14283,6 +14216,8 @@ _ACEOF
 
 
 
+
+
 # Check whether --enable-werror was given.
 if test "${enable_werror+set}" = set; then :
   enableval=$enable_werror; case "${enableval}" in
@@ -14376,14 +14311,23 @@ $as_echo_n "checking compiler warning flags... " >&6; }
     # Separate out the -Werror flag as some files just cannot be
     # compiled with it enabled.
     for w in ${build_warnings}; do
+	# GCC does not complain about -Wno-unknown-warning.  Invert
+	# and test -Wunknown-warning instead.
+	case $w in
+	-Wno-*)
+		wtest=`echo $w | sed 's/-Wno-/-W/g'` ;;
+	*)
+		wtest=$w ;;
+	esac
+
 	case $w in
 	-Werr*) WERROR_CFLAGS=-Werror ;;
 	*)
 	    # Check whether GCC accepts it.
 	    saved_CFLAGS="$CFLAGS"
-	    CFLAGS="$CFLAGS $w"
+	    CFLAGS="$CFLAGS $wtest"
 	    saved_CXXFLAGS="$CXXFLAGS"
-	    CXXFLAGS="$CXXFLAGS $w"
+	    CXXFLAGS="$CXXFLAGS $wtest"
 	    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -14417,6 +14361,7 @@ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 fi
+
 
 # In the Cygwin environment, we need some additional flags.
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for cygwin" >&5
@@ -15877,6 +15822,16 @@ if test "${ignore_sim}" = "false"; then
 
 $as_echo "#define WITH_SIM 1" >>confdefs.h
 
+
+    # Some tdep code should only be compiled in when the ppc sim is
+    # built.  PR sim/13418.
+    case $target in
+      powerpc*-*-*)
+
+$as_echo "#define WITH_PPC_SIM 1" >>confdefs.h
+
+	;;
+    esac
   fi
 fi
 
@@ -16453,6 +16408,7 @@ struct bt_iter_pos *pos = bt_iter_get_pos (bt_ctf_get_iter (NULL));
 			struct bt_ctf_event *event = NULL;
 			const struct bt_definition *scope;
 
+			pos.type = BT_SEEK_BEGIN;
 			bt_iter_set_pos (bt_ctf_get_iter (NULL), pos);
 			scope = bt_ctf_get_top_level_scope (event,
 			      				   BT_STREAM_EVENT_HEADER);
@@ -16545,6 +16501,12 @@ ac_config_links="$ac_config_links $ac_config_links_1"
 $as_echo "#define GDB_DEFAULT_HOST_CHARSET \"UTF-8\"" >>confdefs.h
 
 
+if $development; then
+
+$as_echo "#define GDB_SELF_TEST 1" >>confdefs.h
+
+fi
+
 
   gdb_ac_transform=`echo "$program_transform_name" | sed -e 's/\\$\\$/\\$/g'`
   GDB_TRANSFORM_NAME=`echo gdb | sed -e "$gdb_ac_transform"`
@@ -16563,10 +16525,8 @@ $as_echo "#define GDB_DEFAULT_HOST_CHARSET \"UTF-8\"" >>confdefs.h
 
 ac_config_files="$ac_config_files gcore"
 
-
 ac_config_files="$ac_config_files Makefile gdb-gdb.gdb doc/Makefile data-directory/Makefile"
 
-ac_config_commands="$ac_config_commands default"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -17287,7 +17247,6 @@ do
     "gdb-gdb.gdb") CONFIG_FILES="$CONFIG_FILES gdb-gdb.gdb" ;;
     "doc/Makefile") CONFIG_FILES="$CONFIG_FILES doc/Makefile" ;;
     "data-directory/Makefile") CONFIG_FILES="$CONFIG_FILES data-directory/Makefile" ;;
-    "default") CONFIG_COMMANDS="$CONFIG_COMMANDS default" ;;
 
   *) as_fn_error "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac
@@ -17905,7 +17864,25 @@ $as_echo "$as_me: executing $ac_file commands" >&6;}
   case $ac_file$ac_mode in
     "depdir":C) $SHELL $ac_aux_dir/mkinstalldirs $DEPDIR ;;
     "gcore":F) chmod +x gcore ;;
-    "default":C)
+    "Makefile":F)
+case x$CONFIG_HEADERS in
+xconfig.h:config.in)
+echo > stamp-h ;;
+esac
+ ;;
+    "gdb-gdb.gdb":F)
+case x$CONFIG_HEADERS in
+xconfig.h:config.in)
+echo > stamp-h ;;
+esac
+ ;;
+    "doc/Makefile":F)
+case x$CONFIG_HEADERS in
+xconfig.h:config.in)
+echo > stamp-h ;;
+esac
+ ;;
+    "data-directory/Makefile":F)
 case x$CONFIG_HEADERS in
 xconfig.h:config.in)
 echo > stamp-h ;;
@@ -18094,5 +18071,3 @@ if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
 $as_echo "$as_me: WARNING: unrecognized options: $ac_unrecognized_opts" >&2;}
 fi
 
-
-exit 0

@@ -1,5 +1,5 @@
 /* as.c - GAS main program.
-   Copyright (C) 1987-2015 Free Software Foundation, Inc.
+   Copyright (C) 1987-2016 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -96,6 +96,10 @@ int debug_memory = 0;
 /* Enable verbose mode.  */
 int verbose = 0;
 
+#if defined OBJ_ELF || defined OBJ_MAYBE_ELF
+int flag_use_elf_stt_common = DEFAULT_GENERATE_ELF_STT_COMMON;
+#endif
+
 /* Keep the output file.  */
 static int keep_it = 0;
 
@@ -142,7 +146,8 @@ static void
 select_emulation_mode (int argc, char **argv)
 {
   int i;
-  char *p, *em = 0;
+  char *p;
+  const char *em = NULL;
 
   for (i = 1; i < argc; i++)
     if (!strncmp ("--em", argv[i], 4))
@@ -275,7 +280,7 @@ Options:\n\
 #ifdef USE_EMULATIONS
   {
     int i;
-    char *def_em;
+    const char *def_em;
 
     fprintf (stream, "\
   --em=[");
@@ -298,6 +303,9 @@ Options:\n\
   fprintf (stream, _("\
   --size-check=[error|warning]\n\
 			  ELF .size directive check (default --size-check=error)\n"));
+  fprintf (stream, _("\
+  --elf-stt-common=[no|yes]\n\
+                          generate ELF common symbols with STT_COMMON type\n"));
   fprintf (stream, _("\
   --sectname-subst        enable section name substitution sequences\n"));
 #endif
@@ -463,6 +471,7 @@ parse_args (int * pargc, char *** pargv)
       OPTION_EXECSTACK,
       OPTION_NOEXECSTACK,
       OPTION_SIZE_CHECK,
+      OPTION_ELF_STT_COMMON,
       OPTION_SECTNAME_SUBST,
       OPTION_ALTERNATE,
       OPTION_AL,
@@ -498,6 +507,7 @@ parse_args (int * pargc, char *** pargv)
     ,{"execstack", no_argument, NULL, OPTION_EXECSTACK}
     ,{"noexecstack", no_argument, NULL, OPTION_NOEXECSTACK}
     ,{"size-check", required_argument, NULL, OPTION_SIZE_CHECK}
+    ,{"elf-stt-common", required_argument, NULL, OPTION_ELF_STT_COMMON}
     ,{"sectname-subst", no_argument, NULL, OPTION_SECTNAME_SUBST}
 #endif
     ,{"fatal-warnings", no_argument, NULL, OPTION_WARN_FATAL}
@@ -559,7 +569,7 @@ parse_args (int * pargc, char *** pargv)
   old_argv = *pargv;
 
   /* Initialize a new argv that contains no options.  */
-  new_argv = (char **) xmalloc (sizeof (char *) * (old_argc + 1));
+  new_argv = XNEWVEC (char *, old_argc + 1);
   new_argv[0] = old_argv[0];
   new_argc = 1;
   new_argv[new_argc] = NULL;
@@ -611,7 +621,7 @@ parse_args (int * pargc, char *** pargv)
 
 	case 1:			/* File name.  */
 	  if (!strcmp (optarg, "-"))
-	    optarg = "";
+	    optarg = (char *) "";
 	  new_argv[new_argc++] = optarg;
 	  new_argv[new_argc] = NULL;
 	  break;
@@ -642,7 +652,7 @@ parse_args (int * pargc, char *** pargv)
 	case OPTION_VERSION:
 	  /* This output is intended to follow the GNU standards document.  */
 	  printf (_("GNU assembler %s\n"), BFD_VERSION_STRING);
-	  printf (_("Copyright (C) 2015 Free Software Foundation, Inc.\n"));
+	  printf (_("Copyright (C) 2016 Free Software Foundation, Inc.\n"));
 	  printf (_("\
 This program is free software; you may redistribute it under the terms of\n\
 the GNU General Public License version 3 or later.\n\
@@ -716,7 +726,7 @@ This program has absolutely no warranty.\n"));
 	      as_fatal (_("bad defsym; format is --defsym name=value"));
 	    *s++ = '\0';
 	    i = bfd_scan_vma (s, (const char **) NULL, 0);
-	    n = (struct defsym_list *) xmalloc (sizeof *n);
+	    n = XNEW (struct defsym_list);
 	    n->next = defsyms;
 	    n->name = optarg;
 	    n->value = i;
@@ -737,7 +747,7 @@ This program has absolutely no warranty.\n"));
 		break;
 	      }
 
-	    n = xmalloc (sizeof * n);
+	    n = XNEW (struct itbl_file_list);
 	    n->next = itbl_files;
 	    n->name = optarg;
 	    itbl_files = n;
@@ -860,11 +870,21 @@ This program has absolutely no warranty.\n"));
 
 	case OPTION_SIZE_CHECK:
 	  if (strcasecmp (optarg, "error") == 0)
-	    flag_size_check = size_check_error;
+	    flag_allow_nonconst_size = FALSE;
 	  else if (strcasecmp (optarg, "warning") == 0)
-	    flag_size_check = size_check_warning;
+	    flag_allow_nonconst_size = TRUE;
 	  else
 	    as_fatal (_("Invalid --size-check= option: `%s'"), optarg);
+	  break;
+
+	case OPTION_ELF_STT_COMMON:
+	  if (strcasecmp (optarg, "no") == 0)
+	    flag_use_elf_stt_common = 0;
+	  else if (strcasecmp (optarg, "yes") == 0)
+	    flag_use_elf_stt_common = 1;
+	  else
+	    as_fatal (_("Invalid --elf-stt-common= option: `%s'"),
+		      optarg);
 	  break;
 
 	case OPTION_SECTNAME_SUBST:

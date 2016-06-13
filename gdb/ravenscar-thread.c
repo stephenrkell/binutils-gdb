@@ -1,6 +1,6 @@
 /* Ada Ravenscar thread support.
 
-   Copyright (C) 2004-2015 Free Software Foundation, Inc.
+   Copyright (C) 2004-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -338,7 +338,6 @@ ravenscar_mourn_inferior (struct target_ops *ops)
 static void
 ravenscar_inferior_created (struct target_ops *target, int from_tty)
 {
-  struct ravenscar_arch_ops *ops;
 
   if (!ravenscar_task_support
       || gdbarch_ravenscar_ops (target_gdbarch ()) == NULL

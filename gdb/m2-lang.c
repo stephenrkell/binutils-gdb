@@ -1,6 +1,6 @@
 /* Modula 2 language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -365,7 +365,7 @@ const struct language_defn m2_language_defn =
   macro_expansion_no,
   &exp_descriptor_modula2,
   m2_parse,			/* parser */
-  m2_error,			/* parser error function */
+  m2_yyerror,			/* parser error function */
   null_post_parser,
   m2_printchar,			/* Print character constant */
   m2_printstr,			/* function to print string constant */

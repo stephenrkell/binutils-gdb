@@ -1,5 +1,5 @@
 /* Table of opcodes for the sparc.
-   Copyright (C) 1989-2015 Free Software Foundation, Inc.
+   Copyright (C) 1989-2016 Free Software Foundation, Inc.
 
    This file is part of the GNU opcodes library.
 
@@ -933,12 +933,6 @@ const struct sparc_opcode sparc_opcodes[] = {
 
 { "pause", F3(2, 0x30, 1)|RD(27)|RS1(0), F3(~2, ~0x30, ~1)|RD(~27)|RS1(~0), "i", 0, HWCAP_PAUSE, 0, v9b }, /* wr %g0,i,%pause */
 
-{ "rd",	F3(2, 0x28, 0),			F3(~2, ~0x28, ~0)|SIMM13(~0),		"M,d", 0, 0, 0, v8 }, /* rd %asrX,r */
-{ "rd",	F3(2, 0x28, 0),			F3(~2, ~0x28, ~0)|RS1_G0|SIMM13(~0),	"y,d", 0, 0, 0, v6 }, /* rd %y,r */
-{ "rd",	F3(2, 0x29, 0),			F3(~2, ~0x29, ~0)|RS1_G0|SIMM13(~0),	"p,d", 0, 0, 0, v6notv9 }, /* rd %psr,r */
-{ "rd",	F3(2, 0x2a, 0),			F3(~2, ~0x2a, ~0)|RS1_G0|SIMM13(~0),	"w,d", 0, 0, 0, v6notv9 }, /* rd %wim,r */
-{ "rd",	F3(2, 0x2b, 0),			F3(~2, ~0x2b, ~0)|RS1_G0|SIMM13(~0),	"t,d", 0, 0, 0, v6notv9 }, /* rd %tbr,r */
-
 { "rd",	F3(2, 0x28, 0)|RS1(2),		F3(~2, ~0x28, ~0)|RS1(~2)|SIMM13(~0),	"E,d", 0, 0, 0, v9 }, /* rd %ccr,r */
 { "rd",	F3(2, 0x28, 0)|RS1(3),		F3(~2, ~0x28, ~0)|RS1(~3)|SIMM13(~0),	"o,d", 0, 0, 0, v9 }, /* rd %asi,r */
 { "rd",	F3(2, 0x28, 0)|RS1(4),		F3(~2, ~0x28, ~0)|RS1(~4)|SIMM13(~0),	"W,d", 0, 0, 0, v9 }, /* rd %tick,r */
@@ -956,6 +950,12 @@ const struct sparc_opcode sparc_opcodes[] = {
 { "rd",	F3(2, 0x28, 0)|RS1(25),		F3(~2, ~0x28, ~0)|RS1(~25)|SIMM13(~0),	"/,d", 0, HWCAP_VIS2, 0, v9b }, /* rd %sys_tick_cmpr,r */
 { "rd",	F3(2, 0x28, 0)|RS1(26),		F3(~2, ~0x28, ~0)|RS1(~26)|SIMM13(~0),	"/,d", 0, HWCAP_CBCOND, 0, v9b }, /* rd %cfr,r */
 { "rd",	F3(2, 0x28, 0)|RS1(28),		F3(~2, ~0x28, ~0)|RS1(~28)|SIMM13(~0),	"/,d", 0, 0, HWCAP2_MWAIT, v9b }, /* rd %mwait,r */
+
+{ "rd",	F3(2, 0x28, 0),			F3(~2, ~0x28, ~0)|SIMM13(~0),		"M,d", 0, 0, 0, v8 }, /* rd %asrX,r */
+{ "rd",	F3(2, 0x28, 0),			F3(~2, ~0x28, ~0)|RS1_G0|SIMM13(~0),	"y,d", 0, 0, 0, v6 }, /* rd %y,r */
+{ "rd",	F3(2, 0x29, 0),			F3(~2, ~0x29, ~0)|RS1_G0|SIMM13(~0),	"p,d", 0, 0, 0, v6notv9 }, /* rd %psr,r */
+{ "rd",	F3(2, 0x2a, 0),			F3(~2, ~0x2a, ~0)|RS1_G0|SIMM13(~0),	"w,d", 0, 0, 0, v6notv9 }, /* rd %wim,r */
+{ "rd",	F3(2, 0x2b, 0),			F3(~2, ~0x2b, ~0)|RS1_G0|SIMM13(~0),	"t,d", 0, 0, 0, v6notv9 }, /* rd %tbr,r */
 
 { "rdpr",	F3(2, 0x2a, 0),		F3(~2, ~0x2a, ~0)|SIMM13(~0),	"?,d", 0, 0, 0, v9 },   /* rdpr %priv,r */
 { "wrpr",	F3(2, 0x32, 0),		F3(~2, ~0x32, ~0),		"1,2,!", 0, 0, 0, v9 }, /* wrpr r1,r2,%priv */
@@ -1834,7 +1834,8 @@ SLCBCC("cbnefr", 15),
 
 { "alignaddr",	F3F(2, 0x36, 0x018), F3F(~2, ~0x36, ~0x018), "1,2,d", 0, HWCAP_VIS, 0, v9a },
 { "alignaddrl",	F3F(2, 0x36, 0x01a), F3F(~2, ~0x36, ~0x01a), "1,2,d", 0, HWCAP_VIS, 0, v9a },
-{ "faligndata",	F3F(2, 0x36, 0x048), F3F(~2, ~0x36, ~0x048), "v,B,H", 0, HWCAP_VIS, 0, v9a },
+{ "faligndata",	F3F(2, 0x36, 0x048), F3F(~2, ~0x36, ~0x048), "v,B,H", 0, HWCAP_VIS, 0, v9a }, /* faligndatag */
+{ "faligndata", F3F(2, 0x36, 0x049), F3F(~2, ~0x36, ~0x049), "v,B,5,}", 0, 0, HWCAP2_SPARC5, v9b }, /* faligndatai  */
 
 { "fzerod",	F3F(2, 0x36, 0x060), F3F(~2, ~0x36, ~0x060), "H", 0, HWCAP_VIS, 0, v9a },
 { "fzero",	F3F(2, 0x36, 0x060), F3F(~2, ~0x36, ~0x060), "H", F_ALIAS, HWCAP_VIS, 0, v9a },
@@ -2058,12 +2059,10 @@ SLCBCC("cbnefr", 15),
 { "mwait", F3(2, 0x30, 0)|RD(28), F3(~2, ~0x30, ~0)|RD(~28)|RS1_G0|ASI(~0),  "2", 0, 0, HWCAP2_MWAIT, v9b }, /* mwait r */
 { "mwait", F3(2, 0x30, 1)|RD(28), F3(~2, ~0x30, ~1)|RD(~28)|RS1_G0, "i", 0, 0, HWCAP2_MWAIT, v9b }, /* mwait imm */
 
-/* SPARC5 and VIS4.0 instructions.  */
+/* Other SPARC5 and VIS4.0 instructions.  */
 
 { "subxc",      F3(2, 0x36, 0)|OPF(0x41), F3(~2, ~0x36, ~0)|OPF(~0x41), "1,2,d", 0, 0, HWCAP2_SPARC5, v9b },
 { "subxccc",    F3(2, 0x36, 0)|OPF(0x43), F3(~2, ~0x36, ~0)|OPF(~0x43), "1,2,d", 0, 0, HWCAP2_SPARC5, v9b },
-
-{ "faligndatai", F3F(2, 0x36, 0x049), F3F(~2, ~0x36, ~0x049), "v,B,5,}", 0, 0, HWCAP2_SPARC5, v9b },
 
 { "fpadd8",     F3F(2, 0x36, 0x124), F3F(~2, ~0x36, ~0x124), "v,B,H", 0, 0, HWCAP2_SPARC5, v9b },
 { "fpadds8",    F3F(2, 0x36, 0x126), F3F(~2, ~0x36, ~0x126), "v,B,H", 0, 0, HWCAP2_SPARC5, v9b },

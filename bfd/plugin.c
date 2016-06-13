@@ -1,5 +1,5 @@
 /* Plugin support for BFD.
-   Copyright (C) 2009-2015 Free Software Foundation, Inc.
+   Copyright (C) 2009-2016 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -106,6 +106,7 @@ dlerror (void)
 #define bfd_plugin_section_already_linked             _bfd_generic_section_already_linked
 #define bfd_plugin_bfd_define_common_symbol           bfd_generic_define_common_symbol
 #define bfd_plugin_bfd_copy_link_hash_symbol_type     _bfd_generic_copy_link_hash_symbol_type
+#define bfd_plugin_bfd_link_check_relocs              _bfd_generic_link_check_relocs
 
 static enum ld_plugin_status
 message (int level ATTRIBUTE_UNUSED,
@@ -206,8 +207,7 @@ static int
 try_load_plugin (const char *pname, bfd *abfd, int *has_plugin_p)
 {
   void *plugin_handle;
-  int tv_size = 4;
-  struct ld_plugin_tv tv[tv_size];
+  struct ld_plugin_tv tv[4];
   int i;
   ld_plugin_onload onload;
   enum ld_plugin_status status;
@@ -566,7 +566,7 @@ const bfd_target plugin_vec =
   0,				/* symbol_leading_char.  */
   '/',				/* ar_pad_char.  */
   15,				/* ar_max_namelen.  */
-  0,				/* match priority.  */
+  255,				/* match priority.  */
 
   bfd_getl64, bfd_getl_signed_64, bfd_putl64,
   bfd_getl32, bfd_getl_signed_32, bfd_putl32,
@@ -597,7 +597,11 @@ const bfd_target plugin_vec =
   BFD_JUMP_TABLE_GENERIC (bfd_plugin),
   BFD_JUMP_TABLE_COPY (bfd_plugin),
   BFD_JUMP_TABLE_CORE (bfd_plugin),
+#ifdef USE_64_BIT_ARCHIVE
+  BFD_JUMP_TABLE_ARCHIVE (_bfd_archive_64_bit),
+#else
   BFD_JUMP_TABLE_ARCHIVE (_bfd_archive_coff),
+#endif
   BFD_JUMP_TABLE_SYMBOLS (bfd_plugin),
   BFD_JUMP_TABLE_RELOCS (_bfd_norelocs),
   BFD_JUMP_TABLE_WRITE (bfd_plugin),

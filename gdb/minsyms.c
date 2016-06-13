@@ -1,5 +1,5 @@
 /* GDB routines for manipulating the minimal symbol tables.
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
    Contributed by Cygnus Support, using pieces from other GDB modules.
 
    This file is part of GDB.
@@ -974,7 +974,6 @@ prim_record_minimal_symbol_full (const char *name, int name_len, int copy_name,
 				 int section,
 				 struct objfile *objfile)
 {
-  struct obj_section *obj_section;
   struct msym_bunch *newobj;
   struct minimal_symbol *msymbol;
 

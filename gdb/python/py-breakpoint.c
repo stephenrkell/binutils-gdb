@@ -1,6 +1,6 @@
 /* Python interface to breakpoints
 
-   Copyright (C) 2008-2015 Free Software Foundation, Inc.
+   Copyright (C) 2008-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -203,7 +203,7 @@ bppy_set_thread (PyObject *self, PyObject *newvalue, void *closure)
       if (! gdb_py_int_as_long (newvalue, &id))
 	return -1;
 
-      if (! valid_thread_id (id))
+      if (!valid_global_thread_id (id))
 	{
 	  PyErr_SetString (PyExc_RuntimeError,
 			   _("Invalid thread ID."));
@@ -392,7 +392,7 @@ bppy_get_location (PyObject *self, void *closure)
   str = event_location_to_string (obj->bp->location);
   if (! str)
     str = "";
-  return PyString_Decode (str, strlen (str), host_charset (), NULL);
+  return host_string_to_python_string (str);
 }
 
 /* Python function to get the breakpoint expression.  */
@@ -414,7 +414,7 @@ bppy_get_expression (PyObject *self, void *closure)
   if (! str)
     str = "";
 
-  return PyString_Decode (str, strlen (str), host_charset (), NULL);
+  return host_string_to_python_string (str);
 }
 
 /* Python function to get the condition expression of a breakpoint.  */
@@ -430,7 +430,7 @@ bppy_get_condition (PyObject *self, void *closure)
   if (! str)
     Py_RETURN_NONE;
 
-  return PyString_Decode (str, strlen (str), host_charset (), NULL);
+  return host_string_to_python_string (str);
 }
 
 /* Returns 0 on success.  Returns -1 on error, with a python exception set.
@@ -515,7 +515,7 @@ bppy_get_commands (PyObject *self, void *closure)
   ui_out_redirect (current_uiout, NULL);
   cmdstr = ui_file_xstrdup (string_file, &length);
   make_cleanup (xfree, cmdstr);
-  result = PyString_Decode (cmdstr, strlen (cmdstr), host_charset (), NULL);
+  result = host_string_to_python_string (cmdstr);
   do_cleanups (chain);
   return result;
 }
@@ -663,7 +663,7 @@ bppy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 
   TRY
     {
-      char *copy = xstrdup (spec);
+      char *copy = xstrdup (skip_spaces_const (spec));
       struct cleanup *cleanup = make_cleanup (xfree, copy);
 
       switch (type)
@@ -672,7 +672,8 @@ bppy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 	  {
 	    struct event_location *location;
 
-	    location = new_linespec_location (&copy);
+	    location
+	      = string_to_event_location_basic (&copy, current_language);
 	    make_cleanup_delete_event_location (location);
 	    create_breakpoint (python_gdbarch,
 			       location, NULL, -1, NULL,
@@ -745,13 +746,13 @@ gdbpy_breakpoints (PyObject *self, PyObject *args)
   PyObject *list, *tuple;
 
   if (bppy_live == 0)
-    Py_RETURN_NONE;
+    return PyTuple_New (0);
 
   list = PyList_New (0);
   if (!list)
     return NULL;
 
-  /* If iteratre_over_breakpoints returns non NULL it signals an error
+  /* If iterate_over_breakpoints returns non NULL it signals an error
      condition.  In that case abandon building the list and return
      NULL.  */
   if (iterate_over_breakpoints (build_bp_list, list) != NULL)

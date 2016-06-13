@@ -1,7 +1,7 @@
 /* Machine independent support for QNX Neutrino /proc (process file system)
    for GDB.  Written by Colin Burgess at QNX Software Systems Limited.
 
-   Copyright (C) 2003-2015 Free Software Foundation, Inc.
+   Copyright (C) 2003-2016 Free Software Foundation, Inc.
 
    Contributed by QNX Software Systems Ltd.
 
@@ -723,16 +723,12 @@ do_attach (ptid_t ptid)
 static void
 interrupt_query (void)
 {
-  target_terminal_ours ();
-
   if (query (_("Interrupted while waiting for the program.\n\
 Give up (and stop debugging it)? ")))
     {
       target_mourn_inferior ();
       quit ();
     }
-
-  target_terminal_inferior ();
 }
 
 /* The user typed ^C twice.  */

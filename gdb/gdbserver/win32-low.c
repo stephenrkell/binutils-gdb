@@ -1,5 +1,5 @@
 /* Low level interface to Windows debugging, for gdbserver.
-   Copyright (C) 2006-2015 Free Software Foundation, Inc.
+   Copyright (C) 2006-2016 Free Software Foundation, Inc.
 
    Contributed by Leo Zayas.  Based on "win32-nat.c" from GDB.
 
@@ -642,8 +642,8 @@ win32_create_inferior (char *program, char **program_args)
   if (path_ptr)
     {
       int size = cygwin_conv_path_list (CCP_POSIX_TO_WIN_A, path_ptr, NULL, 0);
-      orig_path = alloca (strlen (path_ptr) + 1);
-      new_path = alloca (size);
+      orig_path = (char *) alloca (strlen (path_ptr) + 1);
+      new_path = (char *) alloca (size);
       strcpy (orig_path, path_ptr);
       cygwin_conv_path_list (CCP_POSIX_TO_WIN_A, path_ptr, new_path, size);
       setenv ("PATH", new_path, 1);
@@ -1794,7 +1794,7 @@ win32_sw_breakpoint_from_kind (int kind, int *size)
 
 static struct target_ops win32_target_ops = {
   win32_create_inferior,
-  NULL,  /* arch_setup */
+  NULL,  /* post_create_inferior */
   win32_attach,
   win32_kill,
   win32_detach,

@@ -1,6 +1,6 @@
 /* Branch trace support for GDB, the GNU debugger.
 
-   Copyright (C) 2013-2015 Free Software Foundation, Inc.
+   Copyright (C) 2013-2016 Free Software Foundation, Inc.
 
    Contributed by Intel Corp. <markus.t.metzger@intel.com>.
 
@@ -114,7 +114,7 @@ enum btrace_bts_error
   BDE_BTS_INSN_SIZE
 };
 
-/* Decode errors for the Intel(R) Processor Trace recording format.  */
+/* Decode errors for the Intel Processor Trace recording format.  */
 enum btrace_pt_error
 {
   /* The user cancelled trace processing.  */

@@ -1,6 +1,6 @@
 /* UI_FILE - a generic STDIO like output stream.
 
-   Copyright (C) 1999-2015 Free Software Foundation, Inc.
+   Copyright (C) 1999-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -567,14 +567,14 @@ stdio_file_read (struct ui_file *file, char *buf, long length_buf)
     internal_error (__FILE__, __LINE__,
 		    _("stdio_file_read: bad magic number"));
 
-  /* For the benefit of Windows, call gdb_select before reading from
-     the file.  Wait until at least one byte of data is available.
-     Control-C can interrupt gdb_select, but not read.  */
+  /* Wait until at least one byte of data is available, or we get
+     interrupted with Control-C.  */
   {
     fd_set readfds;
+
     FD_ZERO (&readfds);
     FD_SET (stdio->fd, &readfds);
-    if (gdb_select (stdio->fd + 1, &readfds, NULL, NULL, NULL) == -1)
+    if (interruptible_select (stdio->fd + 1, &readfds, NULL, NULL, NULL) == -1)
       return -1;
   }
 

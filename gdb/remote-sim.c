@@ -1,6 +1,6 @@
 /* Generic remote debugging interface for simulators.
 
-   Copyright (C) 1993-2015 Free Software Foundation, Inc.
+   Copyright (C) 1993-2016 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
    Steve Chamberlain (sac@cygnus.com).
@@ -955,10 +955,7 @@ gdb_os_poll_quit (host_callback *p)
     deprecated_ui_loop_hook (0);
 
   if (check_quit_flag ())	/* gdb's idea of quit */
-    {
-      clear_quit_flag ();	/* we've stolen it */
-      return 1;
-    }
+    return 1;
   return 0;
 }
 

@@ -1,5 +1,5 @@
 /* Plugin control for the GNU linker.
-   Copyright (C) 2010-2015 Free Software Foundation, Inc.
+   Copyright (C) 2010-2016 Free Software Foundation, Inc.
 
    This file is part of the GNU Binutils.
 
@@ -295,16 +295,18 @@ static bfd *
 plugin_get_ir_dummy_bfd (const char *name, bfd *srctemplate)
 {
   bfd *abfd;
+  bfd_boolean bfd_plugin_target;
 
   bfd_use_reserved_id = 1;
+  bfd_plugin_target = bfd_plugin_target_p (srctemplate->xvec);
   abfd = bfd_create (concat (name, IRONLY_SUFFIX, (const char *) NULL),
-		     link_info.output_bfd);
+		     bfd_plugin_target ? link_info.output_bfd : srctemplate);
   if (abfd != NULL)
     {
       abfd->flags |= BFD_LINKER_CREATED | BFD_PLUGIN;
       if (!bfd_make_writable (abfd))
 	goto report_error;
-      if (! bfd_plugin_target_p (srctemplate->xvec))
+      if (!bfd_plugin_target)
 	{
 	  bfd_set_arch_info (abfd, bfd_get_arch_info (srctemplate));
 	  bfd_set_gp_size (abfd, bfd_get_gp_size (srctemplate));
@@ -672,7 +674,24 @@ get_symbols (const void *handle, int nsyms, struct ld_plugin_symbol *syms,
 					     syms[n].name, FALSE, FALSE, TRUE);
       if (!blhe)
 	{
-	  res = LDPR_UNKNOWN;
+	  /* The plugin is called to claim symbols in an archive element
+	     from plugin_object_p.  But those symbols aren't needed to
+	     create output.  They are defined and referenced only within
+	     IR.  */
+	  switch (syms[n].def)
+	    {
+	    default:
+	      abort ();
+	    case LDPK_UNDEF:
+	    case LDPK_WEAKUNDEF:
+	      res = LDPR_UNDEF;
+	      break;
+	    case LDPK_DEF:
+	    case LDPK_WEAKDEF:
+	    case LDPK_COMMON:
+	      res = LDPR_PREVAILING_DEF_IRONLY;
+	      break;
+	    }
 	  goto report_symbol;
 	}
 
@@ -823,21 +842,23 @@ message (int level, const char *format, ...)
       break;
     case LDPL_WARNING:
       {
-	char *newfmt = ACONCAT (("%P: warning: ", format, "\n",
-				 (const char *) NULL));
+	char *newfmt = concat ("%P: warning: ", format, "\n",
+			       (const char *) NULL);
 	vfinfo (stdout, newfmt, args, TRUE);
+	free (newfmt);
       }
       break;
     case LDPL_FATAL:
     case LDPL_ERROR:
     default:
       {
-	char *newfmt = ACONCAT ((level == LDPL_FATAL ? "%P%F" : "%P%X",
-				 ": error: ", format, "\n",
-				 (const char *) NULL));
+	char *newfmt = concat (level == LDPL_FATAL ? "%P%F" : "%P%X",
+			       ": error: ", format, "\n",
+			       (const char *) NULL);
 	fflush (stdout);
 	vfinfo (stderr, newfmt, args, TRUE);
 	fflush (stderr);
+	free (newfmt);
       }
       break;
     }
@@ -1012,8 +1033,6 @@ plugin_call_claim_file (const struct ld_plugin_input_file *file, int *claimed)
 {
   plugin_t *curplug = plugins_list;
   *claimed = FALSE;
-  if (no_more_claiming)
-    return 0;
   while (curplug && !*claimed)
     {
       if (curplug->claim_file_handler)

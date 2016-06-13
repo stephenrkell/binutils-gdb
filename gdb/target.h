@@ -1,6 +1,6 @@
 /* Interface between GDB and target environments, including files and processes
 
-   Copyright (C) 1990-2015 Free Software Foundation, Inc.
+   Copyright (C) 1990-2016 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.  Written by John Gilmore.
 
@@ -639,14 +639,14 @@ struct target_ops
       TARGET_DEFAULT_FUNC (default_pid_to_str);
     char *(*to_extra_thread_info) (struct target_ops *, struct thread_info *)
       TARGET_DEFAULT_RETURN (NULL);
-    char *(*to_thread_name) (struct target_ops *, struct thread_info *)
+    const char *(*to_thread_name) (struct target_ops *, struct thread_info *)
       TARGET_DEFAULT_RETURN (NULL);
     void (*to_stop) (struct target_ops *, ptid_t)
       TARGET_DEFAULT_IGNORE ();
     void (*to_interrupt) (struct target_ops *, ptid_t)
       TARGET_DEFAULT_IGNORE ();
-    void (*to_check_pending_interrupt) (struct target_ops *)
-      TARGET_DEFAULT_IGNORE ();
+    void (*to_pass_ctrlc) (struct target_ops *)
+      TARGET_DEFAULT_FUNC (default_target_pass_ctrlc);
     void (*to_rcmd) (struct target_ops *,
 		     const char *command, struct ui_file *output)
       TARGET_DEFAULT_FUNC (default_rcmd);
@@ -672,6 +672,8 @@ struct target_ops
       TARGET_DEFAULT_RETURN (0);
     void (*to_async) (struct target_ops *, int)
       TARGET_DEFAULT_NORETURN (tcomplain ());
+    void (*to_thread_events) (struct target_ops *, int)
+      TARGET_DEFAULT_IGNORE ();
     /* This method must be implemented in some situations.  See the
        comment on 'to_can_run'.  */
     int (*to_supports_non_stop) (struct target_ops *)
@@ -1501,6 +1503,10 @@ extern int target_remove_breakpoint (struct gdbarch *gdbarch,
 
 extern int target_terminal_is_inferior (void);
 
+/* Returns true if our terminal settings are in effect.  */
+
+extern int target_terminal_is_ours (void);
+
 /* Initialize the terminal settings we record for the inferior,
    before we actually run the inferior.  */
 
@@ -1710,13 +1716,16 @@ extern void target_stop (ptid_t ptid);
 
 extern void target_interrupt (ptid_t ptid);
 
-/* Some targets install their own SIGINT handler while the target is
-   running.  This method is called from the QUIT macro to give such
-   targets a chance to process a Ctrl-C.  The target may e.g., choose
-   to interrupt the (potentially) long running operation, or give up
-   waiting and disconnect.  */
+/* Pass a ^C, as determined to have been pressed by checking the quit
+   flag, to the target.  Normally calls target_interrupt, but remote
+   targets may take the opportunity to detect the remote side is not
+   responding and offer to disconnect.  */
 
-extern void target_check_pending_interrupt (void);
+extern void target_pass_ctrlc (void);
+
+/* The default target_ops::to_pass_ctrlc implementation.  Simply calls
+   target_interrupt.  */
+extern void default_target_pass_ctrlc (struct target_ops *ops);
 
 /* Send the specified COMMAND to the target's monitor
    (shell,interpreter) for execution.  The result of the query is
@@ -1793,6 +1802,9 @@ extern int target_async_permitted;
 /* Enables/disabled async target events.  */
 extern void target_async (int enable);
 
+/* Enables/disables thread create and exit events.  */
+extern void target_thread_events (int enable);
+
 /* Whether support for controlling the target backends always in
    non-stop mode is enabled.  */
 extern enum auto_boolean target_non_stop_enabled;
@@ -1820,10 +1832,10 @@ extern char *normal_pid_to_str (ptid_t ptid);
 #define target_extra_thread_info(TP) \
      (current_target.to_extra_thread_info (&current_target, TP))
 
-/* Return the thread's name.  A NULL result means that the target
-   could not determine this thread's name.  */
+/* Return the thread's name, or NULL if the target is unable to determine it.
+   The returned value must not be freed by the caller.  */
 
-extern char *target_thread_name (struct thread_info *);
+extern const char *target_thread_name (struct thread_info *);
 
 /* Attempts to find the pathname of the executable file
    that was run to create a specified process.
@@ -1913,7 +1925,8 @@ extern char *target_thread_name (struct thread_info *);
    TYPE isn't supported.  TYPE is one of bp_hardware_watchpoint,
    bp_read_watchpoint, bp_write_watchpoint, or bp_hardware_breakpoint.
    CNT is the number of such watchpoints used so far, including this
-   one.  OTHERTYPE is who knows what...  */
+   one.  OTHERTYPE is the number of watchpoints of other types than
+   this one used so far.  */
 
 #define target_can_use_hardware_watchpoint(TYPE,CNT,OTHERTYPE) \
  (*current_target.to_can_use_hw_breakpoint) (&current_target,  \

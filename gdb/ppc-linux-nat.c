@@ -1,6 +1,6 @@
 /* PPC GNU/Linux native support.
 
-   Copyright (C) 1988-2015 Free Software Foundation, Inc.
+   Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -2419,7 +2419,8 @@ ppc_linux_read_description (struct target_ops *ops)
 	perror_with_name (_("Unable to fetch SPE registers"));
     }
 
-  if (have_ptrace_getsetvsxregs)
+  if (have_ptrace_getsetvsxregs
+      && (ppc_linux_get_hwcap () & PPC_FEATURE_HAS_VSX))
     {
       gdb_vsxregset_t vsxregset;
 
@@ -2432,7 +2433,8 @@ ppc_linux_read_description (struct target_ops *ops)
 	perror_with_name (_("Unable to fetch VSX registers"));
     }
 
-  if (have_ptrace_getvrregs)
+  if (have_ptrace_getvrregs
+      && (ppc_linux_get_hwcap () & PPC_FEATURE_HAS_ALTIVEC))
     {
       gdb_vrregset_t vrregset;
 

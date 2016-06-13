@@ -1,7 +1,7 @@
 /* Private implementation details of interface between gdb and its
    extension languages.
 
-   Copyright (C) 2014-2015 Free Software Foundation, Inc.
+   Copyright (C) 2014-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -232,7 +232,7 @@ struct extension_language_ops
   enum ext_lang_bp_stop (*breakpoint_cond_says_stop)
     (const struct extension_language_defn *, struct breakpoint *);
 
-  /* The next three are used to connect GDB's SIGINT handling with the
+  /* The next two are used to connect GDB's SIGINT handling with the
      extension language's.
 
      Terminology: If an extension language can use GDB's SIGINT handling then
@@ -241,9 +241,6 @@ struct extension_language_ops
 
      These need not be implemented, but if one of them is implemented
      then they all must be.  */
-
-  /* Clear the SIGINT indicator.  */
-  void (*clear_quit_flag) (const struct extension_language_defn *);
 
   /* Set the SIGINT indicator.
      This is called by GDB's SIGINT handler and must be async-safe.  */

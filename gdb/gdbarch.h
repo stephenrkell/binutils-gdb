@@ -3,7 +3,7 @@
 
 /* Dynamic architecture support for GDB, the GNU debugger.
 
-   Copyright (C) 1998-2015 Free Software Foundation, Inc.
+   Copyright (C) 1998-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -11,12 +11,12 @@
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation; either version 3 of the License, or
    (at your option) any later version.
-  
+
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-  
+
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
@@ -63,6 +63,8 @@ struct ravenscar_arch_ops;
 struct elf_internal_linux_prpsinfo;
 struct mem_range;
 struct syscalls_info;
+struct thread_info;
+struct ui_out;
 
 #include "regcache.h"
 
@@ -299,6 +301,17 @@ typedef int (gdbarch_ax_pseudo_register_push_stack_ftype) (struct gdbarch *gdbar
 extern int gdbarch_ax_pseudo_register_push_stack (struct gdbarch *gdbarch, struct agent_expr *ax, int reg);
 extern void set_gdbarch_ax_pseudo_register_push_stack (struct gdbarch *gdbarch, gdbarch_ax_pseudo_register_push_stack_ftype *ax_pseudo_register_push_stack);
 
+/* Some targets/architectures can do extra processing/display of
+   segmentation faults.  E.g., Intel MPX boundary faults.
+   Call the architecture dependent function to handle the fault.
+   UIOUT is the output stream where the handler will place information. */
+
+extern int gdbarch_handle_segmentation_fault_p (struct gdbarch *gdbarch);
+
+typedef void (gdbarch_handle_segmentation_fault_ftype) (struct gdbarch *gdbarch, struct ui_out *uiout);
+extern void gdbarch_handle_segmentation_fault (struct gdbarch *gdbarch, struct ui_out *uiout);
+extern void set_gdbarch_handle_segmentation_fault (struct gdbarch *gdbarch, gdbarch_handle_segmentation_fault_ftype *handle_segmentation_fault);
+
 /* GDB's standard (or well known) register numbers.  These can map onto
    a real register or a pseudo (computed) register or not be defined at
    all (-1).
@@ -381,6 +394,12 @@ extern int gdbarch_push_dummy_code_p (struct gdbarch *gdbarch);
 typedef CORE_ADDR (gdbarch_push_dummy_code_ftype) (struct gdbarch *gdbarch, CORE_ADDR sp, CORE_ADDR funaddr, struct value **args, int nargs, struct type *value_type, CORE_ADDR *real_pc, CORE_ADDR *bp_addr, struct regcache *regcache);
 extern CORE_ADDR gdbarch_push_dummy_code (struct gdbarch *gdbarch, CORE_ADDR sp, CORE_ADDR funaddr, struct value **args, int nargs, struct type *value_type, CORE_ADDR *real_pc, CORE_ADDR *bp_addr, struct regcache *regcache);
 extern void set_gdbarch_push_dummy_code (struct gdbarch *gdbarch, gdbarch_push_dummy_code_ftype *push_dummy_code);
+
+/* Return true if the code of FRAME is writable. */
+
+typedef int (gdbarch_code_of_frame_writable_ftype) (struct gdbarch *gdbarch, struct frame_info *frame);
+extern int gdbarch_code_of_frame_writable (struct gdbarch *gdbarch, struct frame_info *frame);
+extern void set_gdbarch_code_of_frame_writable (struct gdbarch *gdbarch, gdbarch_code_of_frame_writable_ftype *code_of_frame_writable);
 
 typedef void (gdbarch_print_registers_info_ftype) (struct gdbarch *gdbarch, struct ui_file *file, struct frame_info *frame, int regnum, int all);
 extern void gdbarch_print_registers_info (struct gdbarch *gdbarch, struct ui_file *file, struct frame_info *frame, int regnum, int all);
@@ -633,15 +652,16 @@ extern void set_gdbarch_addr_bits_remove (struct gdbarch *gdbarch, gdbarch_addr_
    indicates if the target needs software single step.  An ISA method to
    implement it.
   
-   FIXME/cagney/2001-01-18: This should be replaced with something that inserts
-   breakpoints using the breakpoint system instead of blatting memory directly
-   (as with rs6000).
-  
    FIXME/cagney/2001-01-18: The logic is backwards.  It should be asking if the
    target can single step.  If not, then implement single step using breakpoints.
   
    A return value of 1 means that the software_single_step breakpoints
-   were inserted; 0 means they were not. */
+   were inserted; 0 means they were not.  Multiple breakpoints may be
+   inserted for some instructions such as conditional branch.  However,
+   each implementation must always evaluate the condition and only put
+   the breakpoint at the branch destination if the condition is true, so
+   that we ensure forward progress when stepping past a conditional
+   branch to self. */
 
 extern int gdbarch_software_single_step_p (struct gdbarch *gdbarch);
 
@@ -865,6 +885,14 @@ extern int gdbarch_core_pid_to_str_p (struct gdbarch *gdbarch);
 typedef char * (gdbarch_core_pid_to_str_ftype) (struct gdbarch *gdbarch, ptid_t ptid);
 extern char * gdbarch_core_pid_to_str (struct gdbarch *gdbarch, ptid_t ptid);
 extern void set_gdbarch_core_pid_to_str (struct gdbarch *gdbarch, gdbarch_core_pid_to_str_ftype *core_pid_to_str);
+
+/* How the core target extracts the name of a thread from a core file. */
+
+extern int gdbarch_core_thread_name_p (struct gdbarch *gdbarch);
+
+typedef const char * (gdbarch_core_thread_name_ftype) (struct gdbarch *gdbarch, struct thread_info *thr);
+extern const char * gdbarch_core_thread_name (struct gdbarch *gdbarch, struct thread_info *thr);
+extern void set_gdbarch_core_thread_name (struct gdbarch *gdbarch, gdbarch_core_thread_name_ftype *core_thread_name);
 
 /* BFD target to use when generating a core file. */
 
@@ -1317,6 +1345,15 @@ extern void set_gdbarch_has_shared_address_space (struct gdbarch *gdbarch, gdbar
 typedef int (gdbarch_fast_tracepoint_valid_at_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr, char **msg);
 extern int gdbarch_fast_tracepoint_valid_at (struct gdbarch *gdbarch, CORE_ADDR addr, char **msg);
 extern void set_gdbarch_fast_tracepoint_valid_at (struct gdbarch *gdbarch, gdbarch_fast_tracepoint_valid_at_ftype *fast_tracepoint_valid_at);
+
+/* Guess register state based on tracepoint location.  Used for tracepoints
+   where no registers have been collected, but there's only one location,
+   allowing us to guess the PC value, and perhaps some other registers.
+   On entry, regcache has all registers marked as unavailable. */
+
+typedef void (gdbarch_guess_tracepoint_registers_ftype) (struct gdbarch *gdbarch, struct regcache *regcache, CORE_ADDR addr);
+extern void gdbarch_guess_tracepoint_registers (struct gdbarch *gdbarch, struct regcache *regcache, CORE_ADDR addr);
+extern void set_gdbarch_guess_tracepoint_registers (struct gdbarch *gdbarch, gdbarch_guess_tracepoint_registers_ftype *guess_tracepoint_registers);
 
 /* Return the "auto" target charset. */
 

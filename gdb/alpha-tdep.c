@@ -1,6 +1,6 @@
 /* Target-dependent code for the ALPHA architecture, for GDB, the GNU Debugger.
 
-   Copyright (C) 1993-2015 Free Software Foundation, Inc.
+   Copyright (C) 1993-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -1857,7 +1857,6 @@ extern initialize_file_ftype _initialize_alpha_tdep; /* -Wmissing-prototypes */
 void
 _initialize_alpha_tdep (void)
 {
-  struct cmd_list_element *c;
 
   gdbarch_register (bfd_arch_alpha, alpha_gdbarch_init, NULL);
 

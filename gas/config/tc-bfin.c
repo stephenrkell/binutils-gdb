@@ -1,5 +1,5 @@
 /* tc-bfin.c -- Assembler for the ADI Blackfin.
-   Copyright (C) 2005-2015 Free Software Foundation, Inc.
+   Copyright (C) 2005-2016 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -348,7 +348,7 @@ size_t md_longopts_size = sizeof (md_longopts);
 
 
 int
-md_parse_option (int c ATTRIBUTE_UNUSED, char *arg ATTRIBUTE_UNUSED)
+md_parse_option (int c ATTRIBUTE_UNUSED, const char *arg ATTRIBUTE_UNUSED)
 {
   switch (c)
     {
@@ -446,7 +446,7 @@ md_show_usage (FILE * stream)
 
 /* Perform machine-specific initializations.  */
 void
-md_begin ()
+md_begin (void)
 {
   /* Set the ELF flags if desired. */
   if (bfin_flags)
@@ -485,20 +485,18 @@ void
 md_assemble (char *line)
 {
   char *toP = 0;
-  extern char *current_inputline;
   int size, insn_size;
   struct bfin_insn *tmp_insn;
   size_t len;
   static size_t buffer_len = 0;
+  static char *current_inputline;
   parse_state state;
 
   len = strlen (line);
   if (len + 2 > buffer_len)
     {
-      if (buffer_len > 0)
-	free (current_inputline);
       buffer_len = len + 40;
-      current_inputline = xmalloc (buffer_len);
+      current_inputline = XRESIZEVEC (char, current_inputline, buffer_len);
     }
   memcpy (current_inputline, line, len);
   current_inputline[len] = ';';
@@ -791,16 +789,14 @@ md_apply_fix (fixS *fixP, valueT *valueP, segT seg ATTRIBUTE_UNUSED)
 
 /* Round up a section size to the appropriate boundary.  */
 valueT
-md_section_align (segment, size)
-     segT segment;
-     valueT size;
+md_section_align (segT segment, valueT size)
 {
   int boundary = bfd_get_section_alignment (stdoutput, segment);
   return ((size + (1 << boundary) - 1) & -(1 << boundary));
 }
 
 
-char *
+const char *
 md_atof (int type, char * litP, int * sizeP)
 {
   return ieee_md_atof (type, litP, sizeP, FALSE);
@@ -811,14 +807,12 @@ md_atof (int type, char * litP, int * sizeP)
    then it is done here.  */
 
 arelent *
-tc_gen_reloc (seg, fixp)
-     asection *seg ATTRIBUTE_UNUSED;
-     fixS *fixp;
+tc_gen_reloc (asection *seg ATTRIBUTE_UNUSED, fixS *fixp)
 {
   arelent *reloc;
 
-  reloc		      = (arelent *) xmalloc (sizeof (arelent));
-  reloc->sym_ptr_ptr  = (asymbol **) xmalloc (sizeof (asymbol *));
+  reloc		      = XNEW (arelent);
+  reloc->sym_ptr_ptr  = XNEW (asymbol *);
   *reloc->sym_ptr_ptr = symbol_get_bfdsym (fixp->fx_addsy);
   reloc->address      = fixp->fx_frag->fr_address + fixp->fx_where;
 
@@ -844,9 +838,7 @@ tc_gen_reloc (seg, fixp)
     given a PC relative reloc.  */
 
 long
-md_pcrel_from_section (fixP, sec)
-     fixS *fixP;
-     segT sec;
+md_pcrel_from_section (fixS *fixP, segT sec)
 {
   if (fixP->fx_addsy != (symbolS *) NULL
       && (!S_IS_DEFINED (fixP->fx_addsy)
@@ -937,7 +929,7 @@ note_reloc2 (INSTR_T code, const char *symbol, int reloc, int value, int pcrel)
 INSTR_T
 gencode (unsigned long x)
 {
-  INSTR_T cell = obstack_alloc (&mempool, sizeof (struct bfin_insn));
+  INSTR_T cell = XOBNEW (&mempool, struct bfin_insn);
   memset (cell, 0, sizeof (struct bfin_insn));
   cell->value = (x);
   return cell;

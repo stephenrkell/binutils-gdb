@@ -1,5 +1,5 @@
 /* AVR-specific support for 32-bit ELF
-   Copyright (C) 1999-2015 Free Software Foundation, Inc.
+   Copyright (C) 1999-2016 Free Software Foundation, Inc.
    Contributed by Denis Chertykov <denisc@overta.ru>
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -1487,14 +1487,13 @@ elf32_avr_relocate_section (bfd *output_bfd ATTRIBUTE_UNUSED,
 	  switch (r)
 	    {
 	    case bfd_reloc_overflow:
-	      r = info->callbacks->reloc_overflow
-		(info, (h ? &h->root : NULL),
-		 name, howto->name, (bfd_vma) 0,
-		 input_bfd, input_section, rel->r_offset);
+	      (*info->callbacks->reloc_overflow)
+		(info, (h ? &h->root : NULL), name, howto->name,
+		 (bfd_vma) 0, input_bfd, input_section, rel->r_offset);
 	      break;
 
 	    case bfd_reloc_undefined:
-	      r = info->callbacks->undefined_symbol
+	      (*info->callbacks->undefined_symbol)
 		(info, name, input_bfd, input_section, rel->r_offset, TRUE);
 	      break;
 
@@ -1516,11 +1515,8 @@ elf32_avr_relocate_section (bfd *output_bfd ATTRIBUTE_UNUSED,
 	    }
 
 	  if (msg)
-	    r = info->callbacks->warning
-	      (info, msg, name, input_bfd, input_section, rel->r_offset);
-
-	  if (! r)
-	    return FALSE;
+	    (*info->callbacks->warning) (info, msg, name, input_bfd,
+					 input_section, rel->r_offset);
 	}
     }
 
@@ -1832,6 +1828,7 @@ elf32_avr_relax_delete_bytes (bfd *abfd,
   unsigned int symcount;
   struct avr_relax_info *relax_info;
   struct avr_property_record *prop_record = NULL;
+  bfd_boolean did_shrink = FALSE;
 
   symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
   sec_shndx = _bfd_elf_section_from_bfd_section (abfd, sec);
@@ -1867,10 +1864,16 @@ elf32_avr_relax_delete_bytes (bfd *abfd,
 
   /* Actually delete the bytes.  */
   if (toaddr - addr - count > 0)
-    memmove (contents + addr, contents + addr + count,
-             (size_t) (toaddr - addr - count));
+    {
+      memmove (contents + addr, contents + addr + count,
+               (size_t) (toaddr - addr - count));
+      did_shrink = TRUE;
+    }
   if (prop_record == NULL)
-    sec->size -= count;
+    {
+      sec->size -= count;
+      did_shrink = TRUE;
+    }
   else
     {
       /* Use the property record to fill in the bytes we've opened up.  */
@@ -1889,12 +1892,20 @@ elf32_avr_relax_delete_bytes (bfd *abfd,
           prop_record->data.align.preceding_deleted += count;
           break;
         };
+      /* If toaddr == (addr + count), then we didn't delete anything, yet
+         we fill count bytes backwards from toaddr. This is still ok - we
+         end up overwriting the bytes we would have deleted. We just need
+         to remember we didn't delete anything i.e. don't set did_shrink,
+         so that we don't corrupt reloc offsets or symbol values.*/
       memset (contents + toaddr - count, fill, count);
 
       /* Adjust the TOADDR to avoid moving symbols located at the address
          of the property record, which has not moved.  */
       toaddr -= count;
     }
+
+  if (!did_shrink)
+    return TRUE;
 
   /* Adjust all the reloc addresses.  */
   for (irel = elf_section_data (sec)->relocs; irel < irelend; irel++)
@@ -4068,11 +4079,13 @@ avr_elf32_load_records_from_section (bfd *abfd, asection *sec)
     }
 
   free (contents);
-  free (internal_relocs);
+  if (elf_section_data (sec)->relocs != internal_relocs)
+    free (internal_relocs);
   return r_list;
 
  load_failed:
-  free (internal_relocs);
+  if (elf_section_data (sec)->relocs != internal_relocs)
+    free (internal_relocs);
   free (contents);
   free (r_list);
   return NULL;
