@@ -561,7 +561,7 @@ static const char *get_sym_unbound_ref_name (const char *);
 static const char *get_sym_unbound_def_name (const char *);
 static const char *set_unbound_def_ref_sym_pair (const char *, asymbol *, asymbol *);
 static void add_expanded_symbols (bfd *, sec_ptr, void *);
-static void redirect_unbound_debug_relocs (bfd *, sec_ptr, void *);
+static void redirect_unbound_self_relocs (bfd *, sec_ptr, void *);
 static void expand_relocs (bfd *, sec_ptr, void *);
 static void rewrite_section_relocs (bfd *, sec_ptr, void *);
 
@@ -2682,7 +2682,7 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
 	    p.osyms = osympp;
 
 	    bfd_map_over_sections (ibfd,
-	      redirect_unbound_debug_relocs,
+	      redirect_unbound_self_relocs,
 	      &p); /* expand_relocs needs both isyms and osyms */
 	  }
 
@@ -3970,7 +3970,7 @@ rewrite_section_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
     free (relpp);
 }
 static void
-redirect_unbound_debug_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
+redirect_unbound_self_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
 {
   struct symbols_in_out_pair *pp = symbolsarg;
   asymbol **isyms = pp->isyms;
@@ -3983,10 +3983,13 @@ redirect_unbound_debug_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
   if (isection->output_section == NULL)
     return;
 
-  /* Ignore a non-debug (non-eh_frame) input section. HACK: eh_frame... */
-  if (!(bfd_get_section_flags (ibfd, isection) & SEC_DEBUGGING)
-	  && 0 != strcmp(bfd_get_section_name (ibfd, isection), ".eh_frame") )
-    return;
+  /* What is a self reloc? It's either
+   * - in a debug section;
+   * - in .eh_frame (HACK);
+   * - within the dynamic extent of the symbol to which it refers. */
+  bfd_boolean is_debug_or_eh_sect =
+    (bfd_get_section_flags (ibfd, isection) & SEC_DEBUGGING)
+	  || 0 == strcmp(bfd_get_section_name (ibfd, isection), ".eh_frame");
 
   relsize = bfd_get_reloc_upper_bound (ibfd, isection);
   if (relsize < 0)
@@ -4006,8 +4009,9 @@ redirect_unbound_debug_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
     bfd_fatal (bfd_get_filename (ibfd));
 
   /* Examine the symbol used in each relocation.  If it's not one of the
-     special bfd section symbols, and *is* a symbol we've unbound, then
-     updated the reloc to point to the "def" not "ref" symbol in the osympp. */
+     special bfd section symbols, and *is* a symbol we've unbound,
+     and is supposed to be a self-reference, then update the reloc to point
+     to the "def" not "ref" symbol in the osympp. */
   for (i = 0; i < relcount; i++)
     {
       if (*relpp[i]->sym_ptr_ptr != bfd_com_section_ptr->symbol
@@ -4015,25 +4019,34 @@ redirect_unbound_debug_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
 	  && *relpp[i]->sym_ptr_ptr != bfd_und_section_ptr->symbol)
       {
 	/* It's not one of the special bfd section symbols; is it one
-	 * that we're expanding with --unbind-sym ?  Use linear search,
-	 * for now. */
+	 * that we're expanding with --unbind-sym? (NOTE: such a symbol
+	 * may still be undefined. Indeed, the relocs we're looking for
+	 * will be pointing at undefined __ref_ symbols.)
+	 *
+	 * Use linear search, for now. */
 	const char *reloc_sym_name = bfd_asymbol_name(*relpp[i]->sym_ptr_ptr);
 	struct unbind_node *nu;
 	for (nu = unbind_sym_list; nu != NULL; nu = nu->next)
 	{
 	  if (strcmp(get_sym_unbound_ref_name(nu->sym), reloc_sym_name) == 0)
 	  {
-	     /* We have previously created a __def_ symbol.
-	      * Search for that symbol in the osyms,
-		and set the reloc's sym_ptr_ptr to point to its table entry. */
-	     asymbol **s;
-	     for (s = osyms; *s != NULL && *s != nu->def_sym; s++);
-	     if (*s == nu->def_sym)
-	     {
-		/* s is def_sym in osympp */
-		relpp[i]->sym_ptr_ptr = s;
-	     }
-	     else non_fatal(_("Failed to find osym matching expected unbound __def_ sym."));
+	    /* We have previously created a __def_ symbol.
+	     * Search for that symbol in the osyms,
+	       and set the reloc's sym_ptr_ptr to point to its table entry. */
+	    asymbol **s;
+	    for (s = osyms; *s != NULL && *s != nu->def_sym; s++);
+	    if (*s == nu->def_sym)
+	    {
+	      /* Okay, the reloc refers to the __ref_ symbol. Is the relocation site
+	       * in the same section as the __def_ symbol? */
+	      bfd_boolean is_self_section = nu->def_sym->section == isection;
+	      bfd_boolean is_self = is_debug_or_eh_sect || is_self_section;
+	      if (!is_self) continue;
+
+	      /* s is def_sym in osympp */
+	      relpp[i]->sym_ptr_ptr = s;
+	    }
+	    else non_fatal(_("Failed to find osym matching expected unbound __def_ sym."));
 	  }
 	}
       }
