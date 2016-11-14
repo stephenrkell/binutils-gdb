@@ -4039,7 +4039,7 @@ redirect_unbound_self_relocs (bfd *ibfd, sec_ptr isection, void *symbolsarg)
 	    {
 	      /* Okay, the reloc refers to the __ref_ symbol. Is the relocation site
 	       * in the same section as the __def_ symbol? */
-	      bfd_boolean is_self_section = nu->def_sym->section == isection;
+	      bfd_boolean is_self_section = nu->def_sym && nu->def_sym->section == isection;
 	      bfd_boolean is_self = is_debug_or_eh_sect || is_self_section;
 	      if (!is_self) continue;
 
