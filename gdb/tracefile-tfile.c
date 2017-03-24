@@ -1,6 +1,6 @@
 /* Trace file TFILE format support in GDB.
 
-   Copyright (C) 1997-2016 Free Software Foundation, Inc.
+   Copyright (C) 1997-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -32,6 +32,7 @@
 #include "xml-tdesc.h"
 #include "target-descriptions.h"
 #include "buffer.h"
+#include <algorithm>
 
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0
@@ -137,7 +138,7 @@ tfile_write_status (struct trace_file_writer *self,
   fprintf (writer->fp, "status %c;%s",
 	   (ts->running ? '1' : '0'), stop_reason_names[ts->stop_reason]);
   if (ts->stop_reason == tracepoint_error
-      || ts->stop_reason == tstop_command)
+      || ts->stop_reason == trace_stop_command)
     {
       char *buf = (char *) alloca (strlen (ts->stop_desc) * 2 + 1);
 
@@ -987,7 +988,7 @@ tfile_xfer_partial (struct target_ops *ops, enum target_object object,
 	 and this address falls within a read-only section, fallback
 	 to reading from executable, up to LOW_ADDR_AVAILABLE.  */
       if (offset < low_addr_available)
-	len = min (len, low_addr_available - offset);
+	len = std::min (len, low_addr_available - offset);
       res = exec_read_partial_read_only (readbuf, offset, len, xfered_len);
 
       if (res == TARGET_XFER_OK)

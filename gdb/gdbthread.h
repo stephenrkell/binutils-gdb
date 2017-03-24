@@ -1,5 +1,5 @@
 /* Multi-process/thread control defs for GDB, the GNU debugger.
-   Copyright (C) 1987-2016 Free Software Foundation, Inc.
+   Copyright (C) 1987-2017 Free Software Foundation, Inc.
    Contributed by Lynx Real-Time Systems, Inc.  Los Gatos, CA.
    
 
@@ -135,11 +135,6 @@ struct thread_control_state
   /* Chain containing status of breakpoint(s) the thread stopped
      at.  */
   bpstat stop_bpstat;
-
-  /* The interpreter that issued the execution command.  NULL if the
-     thread was resumed as a result of a command applied to some other
-     thread (e.g., "next" with scheduler-locking off).  */
-  struct interp *command_interp;
 
   /* Whether the command that started the thread was a stepping
      command.  This is used to decide whether "set scheduler-locking
@@ -630,10 +625,18 @@ extern void thread_cancel_execution_command (struct thread_info *thr);
    executing).  */
 extern void validate_registers_access (void);
 
+/* Check whether it makes sense to access a register of PTID at this point.
+   Returns true if registers may be accessed; false otherwise.  */
+extern bool can_access_registers_ptid (ptid_t ptid);
+
 /* Returns whether to show which thread hit the breakpoint, received a
    signal, etc. and ended up causing a user-visible stop.  This is
    true iff we ever detected multiple threads.  */
 extern int show_thread_that_caused_stop (void);
+
+/* Print the message for a thread or/and frame selected.  */
+extern void print_selected_thread_frame (struct ui_out *uiout,
+					 user_selected_what selection);
 
 extern struct thread_info *thread_list;
 

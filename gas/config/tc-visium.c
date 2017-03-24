@@ -1,6 +1,6 @@
 /* This is the machine dependent code of the Visium Assembler.
 
-   Copyright (C) 2005-2016 Free Software Foundation, Inc.
+   Copyright (C) 2005-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -275,7 +275,6 @@ static struct visium_arch_option_table visium_archs[] =
   {"mcm",   VISIUM_ARCH_MCM},
   {"gr5",   VISIUM_ARCH_MCM},
   {"gr6",   VISIUM_ARCH_GR6},
-  {NULL, 0}
 };
 
 struct visium_long_option_table
@@ -289,7 +288,7 @@ struct visium_long_option_table
 static int
 visium_parse_arch (const char *str)
 {
-  struct visium_arch_option_table *opt;
+  unsigned int i;
 
   if (strlen (str) == 0)
     {
@@ -297,11 +296,10 @@ visium_parse_arch (const char *str)
       return 0;
     }
 
-
-  for (opt = visium_archs; opt->name != NULL; opt++)
-    if (strcmp (opt->name, str) == 0)
+  for (i = 0; i < ARRAY_SIZE (visium_archs); i++)
+    if (strcmp (visium_archs[i].name, str) == 0)
       {
-	visium_arch = opt->value;
+	visium_arch = visium_archs[i].value;
 	return 1;
       }
 
@@ -1068,10 +1066,10 @@ md_assemble (char *str0)
 
   /* Look up mnemonic in opcode table, and get the code,
      the instruction format, and the flags that indicate
-     which family members support this mnenonic.  */
+     which family members support this mnemonic.  */
   if (get_opcode (&opcode, &amode, &arch_flags, mnem) < 0)
     {
-      as_bad ("Unknown instruction mnenonic `%s'", mnem);
+      as_bad ("Unknown instruction mnemonic `%s'", mnem);
       return;
     }
 
@@ -1375,7 +1373,7 @@ md_assemble (char *str0)
       break;
 
     case mode_das:
-      /* register := register * 5-bit imediate/register shift count
+      /* register := register * 5-bit immediate/register shift count
          Example:
          asl.l  r1,r2,4  */
       ans = parse_gen_reg (&str, &r1);
@@ -1522,8 +1520,7 @@ md_assemble (char *str0)
 	  return;
 	}
       this_dest = r1;
-
-      /* fall through...  */
+      /* Fall through.  */
 
     case mode_i:
       /* MOVIL/WRTL traditionally get an implicit "%l" applied

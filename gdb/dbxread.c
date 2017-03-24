@@ -1,5 +1,5 @@
 /* Read dbx symbol tables and convert to internal format, for GDB.
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -144,10 +144,6 @@ static unsigned int next_file_string_table_offset;
 
 static int symfile_relocatable = 0;
 
-/* If this is nonzero, N_LBRAC, N_RBRAC, and N_SLINE entries are
-   relative to the function start address.  */
-
-static int block_address_function_relative = 0;
 
 /* The lowest text address we have yet encountered.  This is needed
    because in an a.out file, there is no header field which tells us
@@ -262,9 +258,7 @@ static void dbx_read_symtab (struct partial_symtab *self,
 
 static void dbx_psymtab_to_symtab_1 (struct objfile *, struct partial_symtab *);
 
-static void read_dbx_dynamic_symtab (struct objfile *objfile);
-
-static void read_dbx_symtab (struct objfile *);
+static void read_dbx_symtab (minimal_symbol_reader &, struct objfile *);
 
 static void free_bincl_list (struct objfile *);
 
@@ -282,11 +276,12 @@ static void dbx_symfile_init (struct objfile *);
 
 static void dbx_new_init (struct objfile *);
 
-static void dbx_symfile_read (struct objfile *, int);
+static void dbx_symfile_read (struct objfile *, symfile_add_flags);
 
 static void dbx_symfile_finish (struct objfile *);
 
-static void record_minimal_symbol (const char *, CORE_ADDR, int,
+static void record_minimal_symbol (minimal_symbol_reader &,
+				   const char *, CORE_ADDR, int,
 				   struct objfile *);
 
 static void add_new_header_file (char *, int);
@@ -429,7 +424,8 @@ explicit_lookup_type (int real_filenum, int index)
 #endif
 
 static void
-record_minimal_symbol (const char *name, CORE_ADDR address, int type,
+record_minimal_symbol (minimal_symbol_reader &reader,
+		       const char *name, CORE_ADDR address, int type,
 		       struct objfile *objfile)
 {
   enum minimal_symbol_type ms_type;
@@ -508,8 +504,7 @@ record_minimal_symbol (const char *name, CORE_ADDR address, int type,
       && address < lowest_text_address)
     lowest_text_address = address;
 
-  prim_record_minimal_symbol_and_info
-    (name, address, ms_type, section, objfile);
+  reader.record_with_info (name, address, ms_type, section);
 }
 
 /* Scan and build partial symbols for a symbol file.
@@ -518,7 +513,7 @@ record_minimal_symbol (const char *name, CORE_ADDR address, int type,
    hung off the objfile structure.  */
 
 static void
-dbx_symfile_read (struct objfile *objfile, int symfile_flags)
+dbx_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
 {
   bfd *sym_bfd;
   int val;
@@ -531,18 +526,6 @@ dbx_symfile_read (struct objfile *objfile, int symfile_flags)
      symbols with a value of 0.  */
 
   symfile_relocatable = bfd_get_file_flags (sym_bfd) & HAS_RELOC;
-
-  /* This is true for Solaris (and all other systems which put stabs
-     in sections, hopefully, since it would be silly to do things
-     differently from Solaris), and false for SunOS4 and other a.out
-     file formats.  */
-  block_address_function_relative =
-    ((startswith (bfd_get_target (sym_bfd), "elf"))
-     || (startswith (bfd_get_target (sym_bfd), "som"))
-     || (startswith (bfd_get_target (sym_bfd), "coff"))
-     || (startswith (bfd_get_target (sym_bfd), "pe"))
-     || (startswith (bfd_get_target (sym_bfd), "epoc-pe"))
-     || (startswith (bfd_get_target (sym_bfd), "nlm")));
 
   val = bfd_seek (sym_bfd, DBX_SYMTAB_OFFSET (objfile), SEEK_SET);
   if (val < 0)
@@ -558,21 +541,16 @@ dbx_symfile_read (struct objfile *objfile, int symfile_flags)
   free_pending_blocks ();
   back_to = make_cleanup (really_free_pendings, 0);
 
-  init_minimal_symbol_collection ();
-  make_cleanup_discard_minimal_symbols ();
+  minimal_symbol_reader reader (objfile);
 
   /* Read stabs data from executable file and define symbols.  */
 
-  read_dbx_symtab (objfile);
-
-  /* Add the dynamic symbols.  */
-
-  read_dbx_dynamic_symtab (objfile);
+  read_dbx_symtab (reader, objfile);
 
   /* Install any minimal symbols that have been collected as the current
      minimal symbols for this objfile.  */
 
-  install_minimal_symbols (objfile);
+  reader.install ();
 
   do_cleanups (back_to);
 }
@@ -975,144 +953,6 @@ set_namestring (struct objfile *objfile, const struct internal_nlist *nlist)
   return namestring;
 }
 
-/* Scan a SunOs dynamic symbol table for symbols of interest and
-   add them to the minimal symbol table.  */
-
-static void
-read_dbx_dynamic_symtab (struct objfile *objfile)
-{
-  bfd *abfd = objfile->obfd;
-  struct cleanup *back_to;
-  int counter;
-  long dynsym_size;
-  long dynsym_count;
-  asymbol **dynsyms;
-  asymbol **symptr;
-  arelent **relptr;
-  long dynrel_size;
-  long dynrel_count;
-  arelent **dynrels;
-  CORE_ADDR sym_value;
-  const char *name;
-
-  /* Check that the symbol file has dynamic symbols that we know about.
-     bfd_arch_unknown can happen if we are reading a sun3 symbol file
-     on a sun4 host (and vice versa) and bfd is not configured
-     --with-target=all.  This would trigger an assertion in bfd/sunos.c,
-     so we ignore the dynamic symbols in this case.  */
-  if (bfd_get_flavour (abfd) != bfd_target_aout_flavour
-      || (bfd_get_file_flags (abfd) & DYNAMIC) == 0
-      || bfd_get_arch (abfd) == bfd_arch_unknown)
-    return;
-
-  dynsym_size = bfd_get_dynamic_symtab_upper_bound (abfd);
-  if (dynsym_size < 0)
-    return;
-
-  dynsyms = (asymbol **) xmalloc (dynsym_size);
-  back_to = make_cleanup (xfree, dynsyms);
-
-  dynsym_count = bfd_canonicalize_dynamic_symtab (abfd, dynsyms);
-  if (dynsym_count < 0)
-    {
-      do_cleanups (back_to);
-      return;
-    }
-
-  /* Enter dynamic symbols into the minimal symbol table
-     if this is a stripped executable.  */
-  if (bfd_get_symcount (abfd) <= 0)
-    {
-      symptr = dynsyms;
-      for (counter = 0; counter < dynsym_count; counter++, symptr++)
-	{
-	  asymbol *sym = *symptr;
-	  asection *sec;
-	  int type;
-
-	  sec = bfd_get_section (sym);
-
-	  /* BFD symbols are section relative.  */
-	  sym_value = sym->value + sec->vma;
-
-	  if (bfd_get_section_flags (abfd, sec) & SEC_CODE)
-	    {
-	      type = N_TEXT;
-	    }
-	  else if (bfd_get_section_flags (abfd, sec) & SEC_DATA)
-	    {
-	      type = N_DATA;
-	    }
-	  else if (bfd_get_section_flags (abfd, sec) & SEC_ALLOC)
-	    {
-	      type = N_BSS;
-	    }
-	  else
-	    continue;
-
-	  if (sym->flags & BSF_GLOBAL)
-	    type |= N_EXT;
-
-	  record_minimal_symbol (bfd_asymbol_name (sym), sym_value,
-				 type, objfile);
-	}
-    }
-
-  /* Symbols from shared libraries have a dynamic relocation entry
-     that points to the associated slot in the procedure linkage table.
-     We make a mininal symbol table entry with type mst_solib_trampoline
-     at the address in the procedure linkage table.  */
-  dynrel_size = bfd_get_dynamic_reloc_upper_bound (abfd);
-  if (dynrel_size < 0)
-    {
-      do_cleanups (back_to);
-      return;
-    }
-
-  dynrels = (arelent **) xmalloc (dynrel_size);
-  make_cleanup (xfree, dynrels);
-
-  dynrel_count = bfd_canonicalize_dynamic_reloc (abfd, dynrels, dynsyms);
-  if (dynrel_count < 0)
-    {
-      do_cleanups (back_to);
-      return;
-    }
-
-  for (counter = 0, relptr = dynrels;
-       counter < dynrel_count;
-       counter++, relptr++)
-    {
-      arelent *rel = *relptr;
-      CORE_ADDR address = rel->address;
-
-      switch (bfd_get_arch (abfd))
-	{
-	case bfd_arch_sparc:
-	  if (rel->howto->type != RELOC_JMP_SLOT)
-	    continue;
-	  break;
-	case bfd_arch_m68k:
-	  /* `16' is the type BFD produces for a jump table relocation.  */
-	  if (rel->howto->type != 16)
-	    continue;
-
-	  /* Adjust address in the jump table to point to
-	     the start of the bsr instruction.  */
-	  address -= 2;
-	  break;
-	default:
-	  continue;
-	}
-
-      name = bfd_asymbol_name (*rel->sym_ptr_ptr);
-      prim_record_minimal_symbol (name, address, mst_solib_trampoline,
-				  objfile);
-    }
-
-  do_cleanups (back_to);
-}
-
 static CORE_ADDR
 find_stab_function_addr (char *namestring, const char *filename,
 			 struct objfile *objfile)
@@ -1170,7 +1010,7 @@ function_outside_compilation_unit_complaint (const char *arg1)
    debugging information is available.  */
 
 static void
-read_dbx_symtab (struct objfile *objfile)
+read_dbx_symtab (minimal_symbol_reader &reader, struct objfile *objfile)
 {
   struct gdbarch *gdbarch = get_objfile_arch (objfile);
   struct external_nlist *bufp = 0;	/* =0 avoids gcc -Wall glitch.  */
@@ -1326,7 +1166,7 @@ read_dbx_symtab (struct objfile *objfile)
 	  record_it:
 	  namestring = set_namestring (objfile, &nlist);
 
-	  record_minimal_symbol (namestring, nlist.n_value,
+	  record_minimal_symbol (reader, namestring, nlist.n_value,
 				 nlist.n_type, objfile);	/* Always */
 	  continue;
 
@@ -1663,20 +1503,16 @@ read_dbx_symtab (struct objfile *objfile)
 	  sym_name = NULL;	/* pacify "gcc -Werror" */
  	  if (psymtab_language == language_cplus)
  	    {
-	      char *new_name, *name = (char *) xmalloc (p - namestring + 1);
- 	      memcpy (name, namestring, p - namestring);
-
- 	      name[p - namestring] = '\0';
- 	      new_name = cp_canonicalize_string (name);
- 	      if (new_name != NULL)
- 		{
- 		  sym_len = strlen (new_name);
+	      std::string name (namestring, p - namestring);
+	      std::string new_name = cp_canonicalize_string (name.c_str ());
+	      if (!new_name.empty ())
+		{
+		  sym_len = new_name.length ();
 		  sym_name = (char *) obstack_copy0 (&objfile->objfile_obstack,
-						     new_name, sym_len);
- 		  xfree (new_name);
- 		}
-              xfree (name);
- 	    }
+						     new_name.c_str (),
+						     sym_len);
+		}
+	    }
 
  	  if (sym_len == 0)
  	    {
@@ -2691,14 +2527,6 @@ process_one_symbol (int type, int desc, CORE_ADDR valu, char *name,
      source file.  Used to detect the SunPRO solaris compiler.  */
   static int n_opt_found;
 
-  if (!block_address_function_relative)
-    {
-      /* N_LBRAC, N_RBRAC and N_SLINE entries are not relative to the
-	 function start address, so just use the text offset.  */
-      function_start_offset =
-	ANOFFSET (section_offsets, SECT_OFF_TEXT (objfile));
-    }
-
   /* Something is wrong if we see real data before seeing a source
      file name.  */
 
@@ -2754,8 +2582,7 @@ process_one_symbol (int type, int desc, CORE_ADDR valu, char *name,
 
 	  /* May be switching to an assembler file which may not be using
 	     block relative stabs, so reset the offset.  */
-	  if (block_address_function_relative)
-	    function_start_offset = 0;
+	  function_start_offset = 0;
 
 	  break;
 	}
@@ -2777,13 +2604,7 @@ process_one_symbol (int type, int desc, CORE_ADDR valu, char *name,
       if (n_opt_found && desc == 1)
 	break;
 
-      if (block_address_function_relative)
-	/* Relocate for Sun ELF acc fn-relative syms.  */
-	valu += function_start_offset;
-      else
-	/* On most machines, the block addresses are relative to the
-	   N_SO, the linker did not relocate them (sigh).  */
-	valu += last_source_start_addr;
+      valu += function_start_offset;
 
       push_context (desc, valu);
       break;
@@ -2796,13 +2617,7 @@ process_one_symbol (int type, int desc, CORE_ADDR valu, char *name,
       if (n_opt_found && desc == 1)
 	break;
 
-      if (block_address_function_relative)
-	/* Relocate for Sun ELF acc fn-relative syms.  */
-	valu += function_start_offset;
-      else
-	/* On most machines, the block addresses are relative to the
-	   N_SO, the linker did not relocate them (sigh).  */
-	valu += last_source_start_addr;
+      valu += function_start_offset;
 
       if (context_stack_depth <= 0)
 	{
@@ -2897,8 +2712,7 @@ process_one_symbol (int type, int desc, CORE_ADDR valu, char *name,
       if (*name == '\000')
 	break;
 
-      if (block_address_function_relative)
-	function_start_offset = 0;
+      function_start_offset = 0;
 
       start_stabs ();
       start_symtab (objfile, name, NULL, valu);
@@ -3116,14 +2930,8 @@ process_one_symbol (int type, int desc, CORE_ADDR valu, char *name,
 		    valu = minsym_valu;
 		}
 
-	      if (block_address_function_relative)
-		/* For Solaris 2 compilers, the block addresses and
-		   N_SLINE's are relative to the start of the
-		   function.  On normal systems, and when using GCC on
-		   Solaris 2, these addresses are just absolute, or
-		   relative to the N_SO, depending on
-		   BLOCK_ADDRESS_ABSOLUTE.  */
-		function_start_offset = valu;
+	      /* These addresses are absolute.  */
+	      function_start_offset = valu;
 
 	      within_function = 1;
 

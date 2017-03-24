@@ -1,6 +1,6 @@
 /* GNU/Linux native-dependent code common to multiple platforms.
 
-   Copyright (C) 2001-2016 Free Software Foundation, Inc.
+   Copyright (C) 2001-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -353,6 +353,14 @@ enum target_stop_reason
 lwp_stop_reason (struct lwp_info *lwp)
 {
   return lwp->stop_reason;
+}
+
+/* See nat/linux-nat.h.  */
+
+int
+lwp_is_stepping (struct lwp_info *lwp)
+{
+  return lwp->step;
 }
 
 
@@ -820,6 +828,7 @@ linux_nat_pass_signals (struct target_ops *self,
 static int stop_wait_callback (struct lwp_info *lp, void *data);
 static char *linux_child_pid_to_exec_file (struct target_ops *self, int pid);
 static int resume_stopped_resumed_lwps (struct lwp_info *lp, void *data);
+static int check_ptrace_stopped_lwp_gone (struct lwp_info *lp);
 
 
 
@@ -1244,7 +1253,7 @@ linux_nat_attach (struct target_ops *ops, const char *args, int from_tty)
 	  int exit_code = WEXITSTATUS (status);
 
 	  target_terminal_ours ();
-	  target_mourn_inferior ();
+	  target_mourn_inferior (inferior_ptid);
 	  if (exit_code == 0)
 	    error (_("Unable to attach: program exited normally."));
 	  else
@@ -1256,7 +1265,7 @@ linux_nat_attach (struct target_ops *ops, const char *args, int from_tty)
 	  enum gdb_signal signo;
 
 	  target_terminal_ours ();
-	  target_mourn_inferior ();
+	  target_mourn_inferior (inferior_ptid);
 
 	  signo = gdb_signal_from_host (WTERMSIG (status));
 	  error (_("Unable to attach: program terminated with signal "
@@ -1295,9 +1304,13 @@ linux_nat_attach (struct target_ops *ops, const char *args, int from_tty)
     target_async (1);
 }
 
-/* Get pending status of LP.  */
+/* Get pending signal of THREAD as a host signal number, for detaching
+   purposes.  This is the signal the thread last stopped for, which we
+   need to deliver to the thread when detaching, otherwise, it'd be
+   suppressed/lost.  */
+
 static int
-get_pending_status (struct lwp_info *lp, int *status)
+get_detach_signal (struct lwp_info *lp)
 {
   enum gdb_signal signo = GDB_SIGNAL_0;
 
@@ -1350,8 +1363,6 @@ get_pending_status (struct lwp_info *lp, int *status)
 	}
     }
 
-  *status = 0;
-
   if (signo == GDB_SIGNAL_0)
     {
       if (debug_linux_nat)
@@ -1370,21 +1381,28 @@ get_pending_status (struct lwp_info *lp, int *status)
     }
   else
     {
-      *status = W_STOPCODE (gdb_signal_to_host (signo));
-
       if (debug_linux_nat)
 	fprintf_unfiltered (gdb_stdlog,
 			    "GPT: lwp %s has pending signal %s\n",
 			    target_pid_to_str (lp->ptid),
 			    gdb_signal_to_string (signo));
+
+      return gdb_signal_to_host (signo);
     }
 
   return 0;
 }
 
-static int
-detach_callback (struct lwp_info *lp, void *data)
+/* Detach from LP.  If SIGNO_P is non-NULL, then it points to the
+   signal number that should be passed to the LWP when detaching.
+   Otherwise pass any pending signal the LWP may have, if any.  */
+
+static void
+detach_one_lwp (struct lwp_info *lp, int *signo_p)
 {
+  int lwpid = ptid_get_lwp (lp->ptid);
+  int signo;
+
   gdb_assert (lp->status == 0 || WIFSTOPPED (lp->status));
 
   if (debug_linux_nat && lp->status)
@@ -1400,36 +1418,83 @@ detach_callback (struct lwp_info *lp, void *data)
 			    "DC: Sending SIGCONT to %s\n",
 			    target_pid_to_str (lp->ptid));
 
-      kill_lwp (ptid_get_lwp (lp->ptid), SIGCONT);
+      kill_lwp (lwpid, SIGCONT);
       lp->signalled = 0;
     }
 
-  /* We don't actually detach from the LWP that has an id equal to the
-     overall process id just yet.  */
-  if (ptid_get_lwp (lp->ptid) != ptid_get_pid (lp->ptid))
+  if (signo_p == NULL)
     {
-      int status = 0;
-
       /* Pass on any pending signal for this LWP.  */
-      get_pending_status (lp, &status);
+      signo = get_detach_signal (lp);
+    }
+  else
+    signo = *signo_p;
 
+  /* Preparing to resume may try to write registers, and fail if the
+     lwp is zombie.  If that happens, ignore the error.  We'll handle
+     it below, when detach fails with ESRCH.  */
+  TRY
+    {
       if (linux_nat_prepare_to_resume != NULL)
 	linux_nat_prepare_to_resume (lp);
-      errno = 0;
-      if (ptrace (PTRACE_DETACH, ptid_get_lwp (lp->ptid), 0,
-		  WSTOPSIG (status)) < 0)
-	error (_("Can't detach %s: %s"), target_pid_to_str (lp->ptid),
-	       safe_strerror (errno));
+    }
+  CATCH (ex, RETURN_MASK_ERROR)
+    {
+      if (!check_ptrace_stopped_lwp_gone (lp))
+	throw_exception (ex);
+    }
+  END_CATCH
 
-      if (debug_linux_nat)
-	fprintf_unfiltered (gdb_stdlog,
-			    "PTRACE_DETACH (%s, %s, 0) (OK)\n",
-			    target_pid_to_str (lp->ptid),
-			    strsignal (WSTOPSIG (status)));
+  if (ptrace (PTRACE_DETACH, lwpid, 0, signo) < 0)
+    {
+      int save_errno = errno;
 
-      delete_lwp (lp->ptid);
+      /* We know the thread exists, so ESRCH must mean the lwp is
+	 zombie.  This can happen if one of the already-detached
+	 threads exits the whole thread group.  In that case we're
+	 still attached, and must reap the lwp.  */
+      if (save_errno == ESRCH)
+	{
+	  int ret, status;
+
+	  ret = my_waitpid (lwpid, &status, __WALL);
+	  if (ret == -1)
+	    {
+	      warning (_("Couldn't reap LWP %d while detaching: %s"),
+		       lwpid, strerror (errno));
+	    }
+	  else if (!WIFEXITED (status) && !WIFSIGNALED (status))
+	    {
+	      warning (_("Reaping LWP %d while detaching "
+			 "returned unexpected status 0x%x"),
+		       lwpid, status);
+	    }
+	}
+      else
+	{
+	  error (_("Can't detach %s: %s"), target_pid_to_str (lp->ptid),
+		 safe_strerror (save_errno));
+	}
+    }
+  else if (debug_linux_nat)
+    {
+      fprintf_unfiltered (gdb_stdlog,
+			  "PTRACE_DETACH (%s, %s, 0) (OK)\n",
+			  target_pid_to_str (lp->ptid),
+			  strsignal (signo));
     }
 
+  delete_lwp (lp->ptid);
+}
+
+static int
+detach_callback (struct lwp_info *lp, void *data)
+{
+  /* We don't actually detach from the thread group leader just yet.
+     If the thread group exits, we must reap the zombie clone lwps
+     before we're able to reap the leader.  */
+  if (ptid_get_lwp (lp->ptid) != ptid_get_pid (lp->ptid))
+    detach_one_lwp (lp, NULL);
   return 0;
 }
 
@@ -1437,7 +1502,6 @@ static void
 linux_nat_detach (struct target_ops *ops, const char *args, int from_tty)
 {
   int pid;
-  int status;
   struct lwp_info *main_lwp;
 
   pid = ptid_get_pid (inferior_ptid);
@@ -1459,29 +1523,6 @@ linux_nat_detach (struct target_ops *ops, const char *args, int from_tty)
 
   main_lwp = find_lwp_pid (pid_to_ptid (pid));
 
-  /* Pass on any pending signal for the last LWP.  */
-  if ((args == NULL || *args == '\0')
-      && get_pending_status (main_lwp, &status) != -1
-      && WIFSTOPPED (status))
-    {
-      char *tem;
-
-      /* Put the signal number in ARGS so that inf_ptrace_detach will
-	 pass it along with PTRACE_DETACH.  */
-      tem = (char *) alloca (8);
-      xsnprintf (tem, 8, "%d", (int) WSTOPSIG (status));
-      args = tem;
-      if (debug_linux_nat)
-	fprintf_unfiltered (gdb_stdlog,
-			    "LND: Sending signal %s to %s\n",
-			    args,
-			    target_pid_to_str (main_lwp->ptid));
-    }
-
-  if (linux_nat_prepare_to_resume != NULL)
-    linux_nat_prepare_to_resume (main_lwp);
-  delete_lwp (main_lwp->ptid);
-
   if (forks_exist_p ())
     {
       /* Multi-fork case.  The current inferior_ptid is being detached
@@ -1491,7 +1532,24 @@ linux_nat_detach (struct target_ops *ops, const char *args, int from_tty)
       linux_fork_detach (args, from_tty);
     }
   else
-    linux_ops->to_detach (ops, args, from_tty);
+    {
+      int signo;
+
+      target_announce_detach (from_tty);
+
+      /* Pass on any pending signal for the last LWP, unless the user
+	 requested detaching with a different signal (most likely 0,
+	 meaning, discard the signal).  */
+      if (args != NULL)
+	signo = atoi (args);
+      else
+	signo = get_detach_signal (main_lwp);
+
+      detach_one_lwp (main_lwp, &signo);
+
+      inf_ptrace_detach_success (ops);
+    }
+  delete_lwp (main_lwp->ptid);
 }
 
 /* Resume execution of the inferior process.  If STEP is nonzero,
@@ -3726,7 +3784,7 @@ linux_nat_kill (struct target_ops *ops)
       iterate_over_lwps (ptid, kill_wait_callback, NULL);
     }
 
-  target_mourn_inferior ();
+  target_mourn_inferior (inferior_ptid);
 }
 
 static void
@@ -3832,7 +3890,6 @@ linux_nat_xfer_partial (struct target_ops *ops, enum target_object object,
 			const gdb_byte *writebuf,
 			ULONGEST offset, ULONGEST len, ULONGEST *xfered_len)
 {
-  struct cleanup *old_chain;
   enum target_xfer_status xfer;
 
   if (object == TARGET_OBJECT_SIGNAL_INFO)
@@ -3845,15 +3902,9 @@ linux_nat_xfer_partial (struct target_ops *ops, enum target_object object,
   if (object == TARGET_OBJECT_MEMORY && ptid_equal (inferior_ptid, null_ptid))
     return TARGET_XFER_EOF;
 
-  old_chain = save_inferior_ptid ();
-
-  if (ptid_lwp_p (inferior_ptid))
-    inferior_ptid = pid_to_ptid (ptid_get_lwp (inferior_ptid));
-
   xfer = linux_ops->to_xfer_partial (ops, object, annex, readbuf, writebuf,
 				     offset, len, xfered_len);
 
-  do_cleanups (old_chain);
   return xfer;
 }
 
@@ -3920,10 +3971,9 @@ linux_child_pid_to_exec_file (struct target_ops *self, int pid)
   return linux_proc_pid_to_exec_file (pid);
 }
 
-/* Implement the to_xfer_partial interface for memory reads using the /proc
-   filesystem.  Because we can use a single read() call for /proc, this
-   can be much more efficient than banging away at PTRACE_PEEKTEXT,
-   but it doesn't support writes.  */
+/* Implement the to_xfer_partial target method using /proc/<pid>/mem.
+   Because we can use a single read/write call, this can be much more
+   efficient than banging away at PTRACE_PEEKTEXT.  */
 
 static enum target_xfer_status
 linux_proc_xfer_partial (struct target_ops *ops, enum target_object object,
@@ -3935,7 +3985,7 @@ linux_proc_xfer_partial (struct target_ops *ops, enum target_object object,
   int fd;
   char filename[64];
 
-  if (object != TARGET_OBJECT_MEMORY || !readbuf)
+  if (object != TARGET_OBJECT_MEMORY)
     return TARGET_XFER_EOF;
 
   /* Don't bother for one word.  */
@@ -3944,28 +3994,29 @@ linux_proc_xfer_partial (struct target_ops *ops, enum target_object object,
 
   /* We could keep this file open and cache it - possibly one per
      thread.  That requires some juggling, but is even faster.  */
-  xsnprintf (filename, sizeof filename, "/proc/%d/mem",
-	     ptid_get_pid (inferior_ptid));
-  fd = gdb_open_cloexec (filename, O_RDONLY | O_LARGEFILE, 0);
+  xsnprintf (filename, sizeof filename, "/proc/%ld/mem",
+	     ptid_get_lwp (inferior_ptid));
+  fd = gdb_open_cloexec (filename, ((readbuf ? O_RDONLY : O_WRONLY)
+				    | O_LARGEFILE), 0);
   if (fd == -1)
     return TARGET_XFER_EOF;
 
-  /* If pread64 is available, use it.  It's faster if the kernel
-     supports it (only one syscall), and it's 64-bit safe even on
-     32-bit platforms (for instance, SPARC debugging a SPARC64
-     application).  */
+  /* Use pread64/pwrite64 if available, since they save a syscall and can
+     handle 64-bit offsets even on 32-bit platforms (for instance, SPARC
+     debugging a SPARC64 application).  */
 #ifdef HAVE_PREAD64
-  if (pread64 (fd, readbuf, len, offset) != len)
+  ret = (readbuf ? pread64 (fd, readbuf, len, offset)
+	 : pwrite64 (fd, writebuf, len, offset));
 #else
-  if (lseek (fd, offset, SEEK_SET) == -1 || read (fd, readbuf, len) != len)
+  ret = lseek (fd, offset, SEEK_SET);
+  if (ret != -1)
+    ret = (readbuf ? read (fd, readbuf, len)
+	   : write (fd, writebuf, len));
 #endif
-    ret = 0;
-  else
-    ret = len;
 
   close (fd);
 
-  if (ret == 0)
+  if (ret == -1 || ret == 0)
     return TARGET_XFER_EOF;
   else
     {
@@ -4037,7 +4088,7 @@ linux_proc_xfer_spu (struct target_ops *ops, enum target_object object,
   char buf[128];
   int fd = 0;
   int ret = -1;
-  int pid = ptid_get_pid (inferior_ptid);
+  int pid = ptid_get_lwp (inferior_ptid);
 
   if (!annex)
     {
@@ -4239,7 +4290,7 @@ cleanup_target_stop (void *arg)
   gdb_assert (arg != NULL);
 
   /* Unpause all */
-  target_resume (*ptid, 0, GDB_SIGNAL_0);
+  target_continue_no_signal (*ptid);
 }
 
 static VEC(static_tracepoint_marker_p) *
@@ -4359,9 +4410,8 @@ linux_nat_is_async_p (struct target_ops *ops)
 static int
 linux_nat_can_async_p (struct target_ops *ops)
 {
-  /* NOTE: palves 2008-03-21: We're only async when the user requests
-     it explicitly with the "set target-async" command.
-     Someday, linux will always be async.  */
+  /* We're always async, unless the user explicitly prevented it with the
+     "maint set target-async" command.  */
   return target_async_permitted;
 }
 
@@ -4415,7 +4465,6 @@ linux_nat_terminal_inferior (struct target_ops *self)
   if (!async_terminal_is_ours)
     return;
 
-  delete_file_handler (input_fd);
   async_terminal_is_ours = 0;
   set_sigint_trap ();
 }
@@ -4441,7 +4490,6 @@ linux_nat_terminal_ours (struct target_ops *self)
     return;
 
   clear_sigint_trap ();
-  add_file_handler (input_fd, stdin_event_handler, 0);
   async_terminal_is_ours = 1;
 }
 

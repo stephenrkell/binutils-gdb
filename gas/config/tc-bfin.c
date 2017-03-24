@@ -1,5 +1,5 @@
 /* tc-bfin.c -- Assembler for the ADI Blackfin.
-   Copyright (C) 2005-2016 Free Software Foundation, Inc.
+   Copyright (C) 2005-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -26,7 +26,6 @@
 #ifdef OBJ_ELF
 #include "dwarf2dbg.h"
 #endif
-#include "libbfd.h"
 #include "elf/common.h"
 #include "elf/bfin.h"
 
@@ -324,8 +323,6 @@ struct bfin_cpu bfin_cpus[] =
 
   {"bf592", BFIN_CPU_BF592, 0x0001, AC_05000074},
   {"bf592", BFIN_CPU_BF592, 0x0000, AC_05000074},
-
-  {NULL, 0, 0, 0}
 };
 
 /* Define bfin-specific command-line options (there are none). */
@@ -357,23 +354,22 @@ md_parse_option (int c ATTRIBUTE_UNUSED, const char *arg ATTRIBUTE_UNUSED)
 
     case OPTION_MCPU:
       {
-	const char *p, *q;
-	int i;
+	const char *q;
+	unsigned int i;
 
-	i = 0;
-	while ((p = bfin_cpus[i].name) != NULL)
+	for (i = 0; i < ARRAY_SIZE (bfin_cpus); i++)
 	  {
+	    const char *p = bfin_cpus[i].name;
 	    if (strncmp (arg, p, strlen (p)) == 0)
 	      break;
-	    i++;
 	  }
 
-	if (p == NULL)
+	if (i == ARRAY_SIZE (bfin_cpus))
 	  as_fatal ("-mcpu=%s is not valid", arg);
 
 	bfin_cpu_type = bfin_cpus[i].type;
 
-	q = arg + strlen (p);
+	q = arg + strlen (bfin_cpus[i].name);
 
 	if (*q == '\0')
 	  {
@@ -385,7 +381,8 @@ md_parse_option (int c ATTRIBUTE_UNUSED, const char *arg ATTRIBUTE_UNUSED)
       	else if (strcmp (q, "-any") == 0)
 	  {
 	    bfin_si_revision = 0xffff;
-	    while (bfin_cpus[i].type == bfin_cpu_type)
+	    while (i < ARRAY_SIZE (bfin_cpus)
+		   && bfin_cpus[i].type == bfin_cpu_type)
 	      {
 		bfin_anomaly_checks |= bfin_cpus[i].anomaly_checks;
 		i++;
@@ -408,11 +405,13 @@ md_parse_option (int c ATTRIBUTE_UNUSED, const char *arg ATTRIBUTE_UNUSED)
 
 	    bfin_si_revision = (si_major << 8) | si_minor;
 
-	    while (bfin_cpus[i].type == bfin_cpu_type
+	    while (i < ARRAY_SIZE (bfin_cpus)
+		   && bfin_cpus[i].type == bfin_cpu_type
 		   && bfin_cpus[i].si_revision != bfin_si_revision)
 	      i++;
 
-	    if (bfin_cpus[i].type != bfin_cpu_type)
+	    if (i == ARRAY_SIZE (bfin_cpus)
+	       	|| bfin_cpus[i].type != bfin_cpu_type)
 	      goto invalid_silicon_revision;
 
 	    bfin_anomaly_checks |= bfin_cpus[i].anomaly_checks;
@@ -969,13 +968,13 @@ INSTR_T Expr_Node_Gen_Reloc (Expr_Node *head, int parent_reloc);
 INSTR_T
 Expr_Node_Gen_Reloc (Expr_Node * head, int parent_reloc)
 {
-  /* Top level reloction expression generator VDSP style.
+  /* Top level relocation expression generator VDSP style.
    If the relocation is just by itself, generate one item
    else generate this convoluted expression.  */
 
   INSTR_T note = NULL_CODE;
   INSTR_T note1 = NULL_CODE;
-  int pcrel = 1;  /* Is the parent reloc pcrelative?
+  int pcrel = 1;  /* Is the parent reloc pc-relative?
 		  This calculation here and HOWTO should match.  */
 
   if (parent_reloc)

@@ -1,6 +1,6 @@
 /* Xtensa GNU/Linux native support.
 
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -174,8 +174,8 @@ supply_fpregset (struct regcache *regcache,
 static void
 fetch_gregs (struct regcache *regcache, int regnum)
 {
-  int tid = ptid_get_lwp (inferior_ptid);
-  const gdb_gregset_t regs;
+  int tid = ptid_get_lwp (regcache_get_ptid (regcache));
+  gdb_gregset_t regs;
   int areg;
   
   if (ptrace (PTRACE_GETREGS, tid, 0, (long) &regs) < 0)
@@ -193,7 +193,7 @@ fetch_gregs (struct regcache *regcache, int regnum)
 static void
 store_gregs (struct regcache *regcache, int regnum)
 {
-  int tid = ptid_get_lwp (inferior_ptid);
+  int tid = ptid_get_lwp (regcache_get_ptid (regcache));
   gdb_gregset_t regs;
   int areg;
 
@@ -221,7 +221,7 @@ static int xtreg_high;
 static void
 fetch_xtregs (struct regcache *regcache, int regnum)
 {
-  int tid = ptid_get_lwp (inferior_ptid);
+  int tid = ptid_get_lwp (regcache_get_ptid (regcache));
   const xtensa_regtable_t *ptr;
   char xtregs [XTENSA_ELF_XTREG_SIZE];
 
@@ -237,7 +237,7 @@ fetch_xtregs (struct regcache *regcache, int regnum)
 static void
 store_xtregs (struct regcache *regcache, int regnum)
 {
-  int tid = ptid_get_lwp (inferior_ptid);
+  int tid = ptid_get_lwp (regcache_get_ptid (regcache));
   const xtensa_regtable_t *ptr;
   char xtregs [XTENSA_ELF_XTREG_SIZE];
 
@@ -286,7 +286,7 @@ xtensa_linux_store_inferior_registers (struct target_ops *ops,
 /* Called by libthread_db.  */
 
 ps_err_e
-ps_get_thread_area (const struct ps_prochandle *ph,
+ps_get_thread_area (struct ps_prochandle *ph,
                     lwpid_t lwpid, int idx, void **base)
 {
   xtensa_elf_gregset_t regs;

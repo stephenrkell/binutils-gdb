@@ -1,5 +1,5 @@
 /* tc-xtensa.c -- Assemble Xtensa instructions.
-   Copyright (C) 2003-2016 Free Software Foundation, Inc.
+   Copyright (C) 2003-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -29,6 +29,7 @@
 #include "xtensa-istack.h"
 #include "struc-symbol.h"
 #include "xtensa-config.h"
+#include "elf/xtensa.h"
 
 /* Provide default values for new configuration settings.  */
 #ifndef XSHAL_ABI
@@ -213,8 +214,6 @@ int generating_literals = 0;
 /* Required branch target alignment.  */
 #define XTENSA_PROP_BT_ALIGN_REQUIRE    0x3
 
-#define GET_XTENSA_PROP_BT_ALIGN(flag) \
-  (((unsigned) ((flag) & (XTENSA_PROP_BT_ALIGN_MASK))) >> 9)
 #define SET_XTENSA_PROP_BT_ALIGN(flag, align) \
   (((flag) & (~XTENSA_PROP_BT_ALIGN_MASK)) | \
     (((align) << 9) & XTENSA_PROP_BT_ALIGN_MASK))
@@ -235,8 +234,6 @@ int generating_literals = 0;
 
 #define XTENSA_PROP_ALIGNMENT_MASK      0x0001f000
 
-#define GET_XTENSA_PROP_ALIGNMENT(flag) \
-  (((unsigned) ((flag) & (XTENSA_PROP_ALIGNMENT_MASK))) >> 12)
 #define SET_XTENSA_PROP_ALIGNMENT(flag, align) \
   (((flag) & (~XTENSA_PROP_ALIGNMENT_MASK)) | \
     (((align) << 12) & XTENSA_PROP_ALIGNMENT_MASK))
@@ -380,7 +377,6 @@ static struct suffix_reloc_map suffix_relocs[] =
   SUFFIX_MAP ("tlscall", BFD_RELOC_XTENSA_TLS_CALL,	O_tlscall),
   SUFFIX_MAP ("tpoff",	BFD_RELOC_XTENSA_TLS_TPOFF,	O_tpoff),
   SUFFIX_MAP ("dtpoff",	BFD_RELOC_XTENSA_TLS_DTPOFF,	O_dtpoff),
-  { (char *) 0, 0,	BFD_RELOC_UNUSED,		0 }
 };
 
 
@@ -528,10 +524,6 @@ static void xtensa_switch_to_non_abs_literal_fragment (emit_state *);
 static void xtensa_switch_section_emit_state (emit_state *, segT, subsegT);
 static void xtensa_restore_emit_state (emit_state *);
 static segT cache_literal_section (bfd_boolean);
-
-/* Import from elf32-xtensa.c in BFD library.  */
-
-extern asection *xtensa_make_property_section (asection *, const char *);
 
 /* op_placement_info functions.  */
 
@@ -1195,7 +1187,7 @@ directive_pop (directiveE *directive,
 
   if (!directive_state_stack)
     {
-      as_bad (_("unmatched end directive"));
+      as_bad (_("unmatched .end directive"));
       *directive = directive_none;
       return;
     }
@@ -1724,7 +1716,7 @@ xtensa_elf_suffix (char **str_p, expressionS *exp_p)
   char *str2;
   int ch;
   int len;
-  struct suffix_reloc_map *ptr;
+  unsigned int i;
 
   if (*str++ != '@')
     return BFD_RELOC_NONE;
@@ -1741,10 +1733,10 @@ xtensa_elf_suffix (char **str_p, expressionS *exp_p)
   len = str2 - ident;
 
   ch = ident[0];
-  for (ptr = &suffix_relocs[0]; ptr->length > 0; ptr++)
-    if (ch == ptr->suffix[0]
-	&& len == ptr->length
-	&& memcmp (ident, ptr->suffix, ptr->length) == 0)
+  for (i = 0; i < ARRAY_SIZE (suffix_relocs); i++)
+    if (ch == suffix_relocs[i].suffix[0]
+	&& len == suffix_relocs[i].length
+	&& memcmp (ident, suffix_relocs[i].suffix, suffix_relocs[i].length) == 0)
       {
 	/* Now check for "identifier@suffix+constant".  */
 	if (*str == '-' || *str == '+')
@@ -1765,7 +1757,7 @@ xtensa_elf_suffix (char **str_p, expressionS *exp_p)
 	  }
 
 	*str_p = str;
-	return ptr->reloc;
+	return suffix_relocs[i].reloc;
       }
 
   return BFD_RELOC_UNUSED;
@@ -1776,14 +1768,14 @@ xtensa_elf_suffix (char **str_p, expressionS *exp_p)
 static operatorT
 map_suffix_reloc_to_operator (bfd_reloc_code_real_type reloc)
 {
-  struct suffix_reloc_map *sfx;
   operatorT operator = O_illegal;
+  unsigned int i;
 
-  for (sfx = &suffix_relocs[0]; sfx->suffix; sfx++)
+  for (i = 0; i < ARRAY_SIZE (suffix_relocs); i++)
     {
-      if (sfx->reloc == reloc)
+      if (suffix_relocs[i].reloc == reloc)
 	{
-	  operator = sfx->operator;
+	  operator = suffix_relocs[i].operator;
 	  break;
 	}
     }
@@ -1796,14 +1788,14 @@ map_suffix_reloc_to_operator (bfd_reloc_code_real_type reloc)
 static bfd_reloc_code_real_type
 map_operator_to_reloc (unsigned char operator, bfd_boolean is_literal)
 {
-  struct suffix_reloc_map *sfx;
+  unsigned int i;
   bfd_reloc_code_real_type reloc = BFD_RELOC_UNUSED;
 
-  for (sfx = &suffix_relocs[0]; sfx->suffix; sfx++)
+  for (i = 0; i < ARRAY_SIZE (suffix_relocs); i++)
     {
-      if (sfx->operator == operator)
+      if (suffix_relocs[i].operator == operator)
 	{
-	  reloc = sfx->reloc;
+	  reloc = suffix_relocs[i].reloc;
 	  break;
 	}
     }
@@ -2236,7 +2228,7 @@ xg_reverse_shift_count (char **cnt_argp)
   cnt_arg = *cnt_argp;
 
   /* replace the argument with "31-(argument)" */
-  new_arg = concat ("31-(", cnt_argp, ")", (char *) NULL);
+  new_arg = concat ("31-(", cnt_arg, ")", (char *) NULL);
 
   free (cnt_arg);
   *cnt_argp = new_arg;
@@ -5515,7 +5507,7 @@ md_assemble (char *str)
   orig_insn.is_specific_opcode = (has_underbar || !use_transform ());
   orig_insn.opcode = xtensa_opcode_lookup (isa, opname);
 
-  /* Special case: Check for "CALLXn.TLS" psuedo op.  If found, grab its
+  /* Special case: Check for "CALLXn.TLS" pseudo op.  If found, grab its
      extra argument and set the opcode to "CALLXn".  */
   if (orig_insn.opcode == XTENSA_UNDEFINED
       && strncasecmp (opname, "callx", 5) == 0)
@@ -5564,7 +5556,7 @@ md_assemble (char *str)
 	}
     }
 
-  /* Special case: Check for "j.l" psuedo op.  */
+  /* Special case: Check for "j.l" pseudo op.  */
   if (orig_insn.opcode == XTENSA_UNDEFINED
       && strncasecmp (opname, "j.l", 3) == 0)
     {
@@ -9422,7 +9414,9 @@ xtensa_relax_frag (fragS *fragP, long stretch, int *stretched_p)
 			  /* Move the fix-up from the original j insn to this one.  */
 			  fixP->fx_frag = fragP;
 			  fixP->fx_where = fragP->fr_fix - 3;
+			  fixP->fx_size = 3;
 			  fixP->tc_fix_data.slot = 0;
+			  fixP->fx_r_type = BFD_RELOC_XTENSA_SLOT0_OP;
 
 			  xtensa_add_cached_fixup (&fixup_cache, fixP);
 
@@ -10053,11 +10047,21 @@ add_jump_to_trampoline (struct trampoline_frag *trampP, fragS *origfrag)
   xtensa_format fmt;
   xtensa_isa isa = xtensa_default_isa;
   int growth = 0;
+  int i, slot = -1;
+
+  for (i = 0; i < MAX_SLOTS; ++i)
+    if (origfrag->tc_frag_data.slot_symbols[i])
+      {
+	gas_assert (slot == -1);
+	slot = i;
+      }
+
+  gas_assert (slot >= 0 && slot < MAX_SLOTS);
 
   lsym = tramp->fr_symbol;
   /* Assemble a jump to the target label in the trampoline frag.  */
-  tsym = origfrag->tc_frag_data.slot_symbols[0];
-  toffset = origfrag-> tc_frag_data.slot_offsets[0];
+  tsym = origfrag->tc_frag_data.slot_symbols[slot];
+  toffset = origfrag-> tc_frag_data.slot_offsets[slot];
   tinsn_init (&insn);
   insn.insn_type = ITYPE_INSN;
   insn.opcode = xtensa_j_opcode;
@@ -10077,8 +10081,8 @@ add_jump_to_trampoline (struct trampoline_frag *trampP, fragS *origfrag)
   if (fixP)
     fixP->fx_offset += 3;
   /* Modify the original j to point here.  */
-  origfrag->tc_frag_data.slot_symbols[0] = lsym;
-  origfrag->tc_frag_data.slot_offsets[0] = tramp->fr_fix - 3;
+  origfrag->tc_frag_data.slot_symbols[slot] = lsym;
+  origfrag->tc_frag_data.slot_offsets[slot] = tramp->fr_fix - 3;
   /* If trampoline is full, remove it from the list.  */
   check_and_update_trampolines ();
 
@@ -11231,7 +11235,7 @@ xtensa_move_literals (void)
 	  /* First, move the frag out of the literal section and
 	     to the appropriate place.  */
 
-	  /* Insert an aligmnent frag at start of pool.  */
+	  /* Insert an alignment frag at start of pool.  */
 	  if (literal_pool->fr_next->fr_type == rs_machine_dependent &&
 	      literal_pool->fr_next->fr_subtype == RELAX_LITERAL_POOL_END)
 	    {

@@ -1,6 +1,6 @@
 /* Exception (throw catch) mechanism, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -88,4 +88,7 @@ extern int catch_exceptions_with_msg (struct ui_out *uiout,
 typedef int (catch_errors_ftype) (void *);
 extern int catch_errors (catch_errors_ftype *, void *, char *, return_mask);
 
+/* Compare two exception objects for print equality.  */
+extern int exception_print_same (struct gdb_exception e1,
+				 struct gdb_exception e2);
 #endif

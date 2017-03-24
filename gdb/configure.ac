@@ -1,5 +1,5 @@
 dnl Autoconf configure script for GDB, the GNU debugger.
-dnl Copyright (C) 1995-2016 Free Software Foundation, Inc.
+dnl Copyright (C) 1995-2017 Free Software Foundation, Inc.
 dnl
 dnl This file is part of GDB.
 dnl
@@ -38,23 +38,13 @@ AC_CONFIG_AUX_DIR(..)
 AC_CANONICAL_SYSTEM
 AC_ARG_PROGRAM
 
-# See if we are building with C++, and substitute COMPILER.
-GDB_AC_BUILD_WITH_CXX
+# We require a C++11 compiler.  Check if one is available, and if
+# necessary, set CXX_DIALECT to some -std=xxx switch.
+AX_CXX_COMPILE_STDCXX(11, , mandatory)
 
 # Dependency checking.
 ZW_CREATE_DEPDIR
 ZW_PROG_COMPILER_DEPENDENCIES([CC])
-
-# Check for the 'make' the user wants to use.
-AC_CHECK_PROGS(MAKE, make)
-MAKE_IS_GNU=
-case "`$MAKE --version 2>&1 | sed 1q`" in
-  *GNU*)
-    MAKE_IS_GNU=yes
-    ;;
-esac
-AM_CONDITIONAL(GMAKE, test "$MAKE_IS_GNU" = yes)
-AC_PROG_MAKE_SET
 
 gnulib_extra_configure_args=
 # If large-file support is disabled, make sure gnulib does the same.
@@ -607,7 +597,7 @@ fi
 
 # Since GDB uses Readline, we need termcap functionality.  In many
 # cases this will be provided by the curses library, but some systems
-# have a seperate termcap library, or no curses library at all.
+# have a separate termcap library, or no curses library at all.
 
 case $host_os in
   cygwin*)
@@ -1526,6 +1516,11 @@ fi
 AC_CHECK_MEMBERS([struct ptrace_lwpinfo.pl_tdname], [], [],
                  [#include <sys/ptrace.h>])
 
+# See if <sys/ptrace.h> supports syscall fields on FreeBSD.  The
+# pl_syscall_code member of `struct ptrace_lwpinfo' was added in
+# FreeBSD 10.3.
+AC_CHECK_MEMBERS([struct ptrace_lwpinfo.pl_syscall_code], [], [],
+                 [#include <sys/ptrace.h>])
 
 # Detect which type of /proc is in use, such as for Solaris.
 
@@ -1538,12 +1533,6 @@ if test "${target}" = "${host}"; then
   *-*-solaris2.[[6789]] | *-*-solaris2.1[[0-9]]*)
       AC_DEFINE(NEW_PROC_API, 1,
       [Define if you want to use new multi-fd /proc interface.])
-      ;;
-  mips-sgi-irix5*)
-      # Work around <sys/proc.h> needing _KMEMUSER problem on IRIX 5.
-      AC_DEFINE([_KMEMUSER], 1,
-      [Define to 1 so <sys/proc.h> gets a definition of anon_hdl.  Works
-       around a <sys/proc.h> problem on IRIX 5.])
       ;;
   esac
 fi
@@ -2304,7 +2293,7 @@ else
 			struct bt_ctf_event *event = NULL;
 			const struct bt_definition *scope;
 
-			pos.type = BT_SEEK_BEGIN;
+			pos->type = BT_SEEK_BEGIN;
 			bt_iter_set_pos (bt_ctf_get_iter (NULL), pos);
 			scope = bt_ctf_get_top_level_scope (event,
 			      				   BT_STREAM_EVENT_HEADER);
@@ -2339,6 +2328,15 @@ if test "${nativefile}" != ""; then
 fi
 AC_SUBST(GDB_NM_FILE)
 
+dnl Add dependency for xsltproc if building with maintainer-mode enabled.
+AC_PATH_PROGS(XSLTPROC, xsltproc, missing)
+if test "x$USE_MAINTAINER_MODE" = xyes; then
+  if test "${XSLTPROC}" = missing; then
+    AC_ERROR(unable to find xsltproc.  maintainer-mode requires xsltproc.)
+  fi
+fi
+AC_SUBST(XSLTPROC)
+
 AC_LINK_FILES($files, $links)
 
 dnl Check for exe extension set on certain hosts (e.g. Win32)
@@ -2352,6 +2350,8 @@ AC_DEFINE(GDB_DEFAULT_HOST_CHARSET, "UTF-8",
 if $development; then
   AC_DEFINE(GDB_SELF_TEST, 1,
             [Define if self-testing features should be enabled])
+  CONFIG_OBS="$CONFIG_OBS \$(SUBDIR_UNITTESTS_OBS)"
+  CONFIG_SRCS="$CONFIG_SRCS \$(SUBDIR_UNITTESTS_SRCS)"
 fi
 
 GDB_AC_TRANSFORM([gdb], [GDB_TRANSFORM_NAME])

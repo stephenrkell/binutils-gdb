@@ -1,7 +1,7 @@
 /* Machine independent support for QNX Neutrino /proc (process file system)
    for GDB.  Written by Colin Burgess at QNX Software Systems Limited.
 
-   Copyright (C) 2003-2016 Free Software Foundation, Inc.
+   Copyright (C) 2003-2017 Free Software Foundation, Inc.
 
    Contributed by QNX Software Systems Ltd.
 
@@ -516,7 +516,7 @@ procfs_meminfo (char *args, int from_tty)
       return;
     }
 
-  num = min (num, num_mapinfos);
+  num = std::min (num, num_mapinfos);
 
   /* Run through the list of mapinfos, and store the data and text info
      so we can print it at the bottom of the loop.  */
@@ -726,7 +726,7 @@ interrupt_query (void)
   if (query (_("Interrupted while waiting for the program.\n\
 Give up (and stop debugging it)? ")))
     {
-      target_mourn_inferior ();
+      target_mourn_inferior (inferior_ptid);
       quit ();
     }
 }
@@ -868,7 +868,7 @@ procfs_fetch_registers (struct target_ops *ops,
   reg;
   int regsize;
 
-  procfs_set_thread (inferior_ptid);
+  procfs_set_thread (regcache_get_ptid (regcache));
   if (devctl (ctl_fd, DCMD_PROC_GETGREG, &reg, sizeof (reg), &regsize) == EOK)
     nto_supply_gregset (regcache, (char *) &reg.greg);
   if (devctl (ctl_fd, DCMD_PROC_GETFPREG, &reg, sizeof (reg), &regsize)
@@ -939,7 +939,7 @@ procfs_xfer_partial (struct target_ops *ops, enum target_object object,
 	  tempread = nto_read_auxv_from_initial_stack (initial_stack, tempbuf,
 						       sizeof_tempbuf,
 						       sizeof (auxv_t));
-	  tempread = min (tempread, len) - offset;
+	  tempread = std::min (tempread, len) - offset;
 	  memcpy (readbuf, tempbuf + offset, tempread);
 	  *xfered_len = tempread;
 	  return tempread ? TARGET_XFER_OK : TARGET_XFER_EOF;
@@ -962,15 +962,8 @@ procfs_detach (struct target_ops *ops, const char *args, int from_tty)
   int siggnal = 0;
   int pid;
 
-  if (from_tty)
-    {
-      char *exec_file = get_exec_file (0);
-      if (exec_file == 0)
-	exec_file = "";
-      printf_unfiltered ("Detaching from program: %s %s\n",
-			 exec_file, target_pid_to_str (inferior_ptid));
-      gdb_flush (gdb_stdout);
-    }
+  target_announce_detach ();
+
   if (args)
     siggnal = atoi (args);
 
@@ -1011,7 +1004,8 @@ procfs_insert_breakpoint (struct target_ops *ops, struct gdbarch *gdbarch,
 
 static int
 procfs_remove_breakpoint (struct target_ops *ops, struct gdbarch *gdbarch,
-			  struct bp_target_info *bp_tgt)
+			  struct bp_target_info *bp_tgt,
+			  enum remove_bp_reason reason)
 {
   return procfs_breakpoint (bp_tgt->placed_address, _DEBUG_BREAK_EXEC, -1);
 }
@@ -1306,7 +1300,7 @@ procfs_interrupt (struct target_ops *self, ptid_t ptid)
 static void
 procfs_kill_inferior (struct target_ops *ops)
 {
-  target_mourn_inferior ();
+  target_mourn_inferior (inferior_ptid);
 }
 
 /* Fill buf with regset and return devctl cmd to do the setting.  Return
@@ -1356,10 +1350,11 @@ procfs_store_registers (struct target_ops *ops,
   unsigned off;
   int len, regset, regsize, dev_set, err;
   char *data;
+  ptid_t ptid = regcache_get_ptid (regcache);
 
-  if (ptid_equal (inferior_ptid, null_ptid))
+  if (ptid_equal (ptid, null_ptid))
     return;
-  procfs_set_thread (inferior_ptid);
+  procfs_set_thread (ptid);
 
   if (regno == -1)
     {

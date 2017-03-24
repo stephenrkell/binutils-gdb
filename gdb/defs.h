@@ -1,7 +1,7 @@
 /* *INDENT-OFF* */ /* ATTRIBUTE_PRINTF confuses indent, avoid running it
 		      for now.  */
 /* Basic, host-specific, and target-specific definitions for GDB.
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -53,6 +53,7 @@
 #include "ui-file.h"
 
 #include "host-defs.h"
+#include "common/enum-flags.h"
 
 /* Scope types enumerator.  List the types of scopes the compiler will
    accept.  */
@@ -101,13 +102,6 @@ enum compile_i_scope_types
 #endif
 
 #include "hashtab.h"
-
-#ifndef min
-#define min(a, b) ((a) < (b) ? (a) : (b))
-#endif
-#ifndef max
-#define max(a, b) ((a) > (b) ? (a) : (b))
-#endif
 
 /* * Enable dbx commands if set.  */
 extern int dbx_commands;
@@ -194,26 +188,35 @@ extern void quit_serial_event_clear (void);
 /* * Languages represented in the symbol table and elsewhere.
    This should probably be in language.h, but since enum's can't
    be forward declared to satisfy opaque references before their
-   actual definition, needs to be here.  */
+   actual definition, needs to be here.
+
+   The constants here are in priority order.  In particular,
+   demangling is attempted according to this order.
+
+   Note that there's ambiguity between the mangling schemes of some of
+   these languages, so some symbols could be successfully demangled by
+   several languages.  For that reason, the constants here are sorted
+   in the order we'll attempt demangling them.  For example: Rust uses
+   C++ mangling, so must come after C++; Ada must come last (see
+   ada_sniff_from_mangled_name).  */
 
 enum language
   {
     language_unknown,		/* Language not known */
     language_auto,		/* Placeholder for automatic setting */
     language_c,			/* C */
+    language_objc,		/* Objective-C */
     language_cplus,		/* C++ */
     language_d,			/* D */
     language_go,		/* Go */
-    language_objc,		/* Objective-C */
-    language_java,		/* Java */
     language_fortran,		/* Fortran */
     language_m2,		/* Modula-2 */
     language_asm,		/* Assembly language */
     language_pascal,		/* Pascal */
-    language_ada,		/* Ada */
     language_opencl,		/* OpenCL */
     language_rust,		/* Rust */
     language_minimal,		/* All other languages, minimal support only */
+    language_ada,		/* Ada */
     nr_languages
   };
 
@@ -300,20 +303,6 @@ extern void symbol_file_command (char *, int);
 /* * Remote targets may wish to use this as their load function.  */
 extern void generic_load (const char *name, int from_tty);
 
-/* * Report on STREAM the performance of memory transfer operation,
-   such as 'load'.
-   @param DATA_COUNT is the number of bytes transferred.
-   @param WRITE_COUNT is the number of separate write operations, or 0,
-   if that information is not available.
-   @param START_TIME is the time at which an operation was started.
-   @param END_TIME is the time at which an operation ended.  */
-struct timeval;
-extern void print_transfer_performance (struct ui_file *stream,
-					unsigned long data_count,
-					unsigned long write_count,
-					const struct timeval *start_time,
-					const struct timeval *end_time);
-
 /* From top.c */
 
 typedef void initialize_file_ftype (void);
@@ -324,7 +313,9 @@ extern char *command_line_input (const char *, int, char *);
 
 extern void print_prompt (void);
 
-extern int input_from_terminal_p (void);
+struct ui;
+
+extern int input_interactive_p (struct ui *);
 
 extern int info_verbose;
 
@@ -583,16 +574,11 @@ enum gdb_osabi
   GDB_OSABI_HURD,
   GDB_OSABI_SOLARIS,
   GDB_OSABI_LINUX,
-  GDB_OSABI_FREEBSD_AOUT,
-  GDB_OSABI_FREEBSD_ELF,
-  GDB_OSABI_NETBSD_AOUT,
-  GDB_OSABI_NETBSD_ELF,
-  GDB_OSABI_OPENBSD_ELF,
+  GDB_OSABI_FREEBSD,
+  GDB_OSABI_NETBSD,
+  GDB_OSABI_OPENBSD,
   GDB_OSABI_WINCE,
   GDB_OSABI_GO32,
-  GDB_OSABI_IRIX,
-  GDB_OSABI_HPUX_ELF,
-  GDB_OSABI_HPUX_SOM,
   GDB_OSABI_QNXNTO,
   GDB_OSABI_CYGWIN,
   GDB_OSABI_AIX,
@@ -607,15 +593,24 @@ enum gdb_osabi
   GDB_OSABI_INVALID		/* keep this last */
 };
 
-/* Global functions from other, non-gdb GNU thingies.
-   Libiberty thingies are no longer declared here.  We include libiberty.h
-   above, instead.  */
+/* Enumerate the requirements a symbol has in order to be evaluated.
+   These are listed in order of "strength" -- a later entry subsumes
+   earlier ones.  This fine-grained distinction is important because
+   it allows for the evaluation of a TLS symbol during unwinding --
+   when unwinding one has access to registers, but not the frame
+   itself, because that is being constructed.  */
 
-/* From other system libraries */
+enum symbol_needs_kind
+{
+  /* No special requirements -- just memory.  */
+  SYMBOL_NEEDS_NONE,
 
-#ifndef atof
-extern double atof (const char *);	/* X3.159-1989  4.10.1.1 */
-#endif
+  /* The symbol needs registers.  */
+  SYMBOL_NEEDS_REGISTERS,
+
+  /* The symbol needs a frame.  */
+  SYMBOL_NEEDS_FRAME
+};
 
 /* Dynamic target-system-dependent parameters for GDB.  */
 #include "gdbarch.h"
@@ -652,6 +647,10 @@ extern void store_typed_address (gdb_byte *buf, struct type *type,
 /* From valops.c */
 
 extern int watchdog;
+
+/* From dwarf2read.c */
+
+ULONGEST read_unsigned_leb128 (bfd *, const gdb_byte *, unsigned int *);
 
 /* Hooks for alternate command interfaces.  */
 
@@ -718,6 +717,21 @@ enum block_enum
   STATIC_BLOCK = 1,
   FIRST_LOCAL_BLOCK = 2
 };
+
+/* User selection used in observer.h and multiple print functions.  */
+
+enum user_selected_what_flag
+  {
+    /* Inferior selected.  */
+    USER_SELECTED_INFERIOR = 1 << 1,
+
+    /* Thread selected.  */
+    USER_SELECTED_THREAD = 1 << 2,
+
+    /* Frame selected.  */
+    USER_SELECTED_FRAME = 1 << 3
+  };
+DEF_ENUM_FLAGS_TYPE (enum user_selected_what_flag, user_selected_what);
 
 #include "utils.h"
 

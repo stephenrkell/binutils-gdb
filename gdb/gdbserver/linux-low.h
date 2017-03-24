@@ -1,5 +1,5 @@
 /* Internal interfaces for the GNU/Linux specific target code for gdbserver.
-   Copyright (C) 2002-2016 Free Software Foundation, Inc.
+   Copyright (C) 2002-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -241,11 +241,9 @@ struct linux_target_ops
   /* See target.h.  */
   int (*supports_hardware_single_step) (void);
 
-  /* Fill *SYSNO with the syscall nr trapped.  Fill *SYSRET with the
-     return code.  Only to be called when inferior is stopped
-     due to SYSCALL_SIGTRAP.  */
-  void (*get_syscall_trapinfo) (struct regcache *regcache,
-				int *sysno, int *sysret);
+  /* Fill *SYSNO with the syscall nr trapped.  Only to be called when
+     inferior is stopped due to SYSCALL_SIGTRAP.  */
+  void (*get_syscall_trapinfo) (struct regcache *regcache, int *sysno);
 
   /* See target.h.  */
   int (*get_ipa_tdesc_idx) (void);
@@ -302,6 +300,12 @@ struct lwp_info
      processing.  This is used to store extended ptrace event
      information or exit status until it can be reported to GDB.  */
   struct target_waitstatus waitstatus;
+
+  /* A pointer to the fork child/parent relative.  Valid only while
+     the parent fork event is not reported to higher layers.  Used to
+     avoid wildcard vCont actions resuming a fork child before GDB is
+     notified about the parent's fork event.  */
+  struct lwp_info *fork_relative;
 
   /* When stopped is set, this is where the lwp last stopped, with
      decr_pc_after_break already accounted for.  If the LWP is

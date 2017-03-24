@@ -1,6 +1,6 @@
 /* General GDB/Guile code.
 
-   Copyright (C) 2014-2016 Free Software Foundation, Inc.
+   Copyright (C) 2014-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,7 +27,7 @@
 #include "cli/cli-utils.h"
 #include "command.h"
 #include "gdbcmd.h"
-#include "interps.h"
+#include "top.h"
 #include "extension-priv.h"
 #include "utils.h"
 #include "version.h"
@@ -77,7 +77,7 @@ extern const struct extension_language_ops guile_extension_ops;
 
 /* The main struct describing GDB's interface to the Guile
    extension language.  */
-EXPORTED_CONST struct extension_language_defn extension_language_guile =
+extern const struct extension_language_defn extension_language_guile =
 {
   EXT_LANG_GUILE,
   "guile",
@@ -165,8 +165,8 @@ guile_repl_command (char *arg, int from_tty)
 {
   struct cleanup *cleanup;
 
-  cleanup = make_cleanup_restore_integer (&interpreter_async);
-  interpreter_async = 0;
+  cleanup = make_cleanup_restore_integer (&current_ui->async);
+  current_ui->async = 0;
 
   arg = skip_spaces (arg);
 
@@ -198,8 +198,8 @@ guile_command (char *arg, int from_tty)
 {
   struct cleanup *cleanup;
 
-  cleanup = make_cleanup_restore_integer (&interpreter_async);
-  interpreter_async = 0;
+  cleanup = make_cleanup_restore_integer (&current_ui->async);
+  current_ui->async = 0;
 
   arg = skip_spaces (arg);
 
@@ -311,7 +311,6 @@ gdbscm_execute_gdb_command (SCM command_scm, SCM rest)
   int from_tty = 0, to_string = 0;
   const SCM keywords[] = { from_tty_keyword, to_string_keyword, SCM_BOOL_F };
   char *command;
-  char *result = NULL;
   struct cleanup *cleanups;
   struct gdb_exception except = exception_none;
 
@@ -324,21 +323,20 @@ gdbscm_execute_gdb_command (SCM command_scm, SCM rest)
      executed.  */
   cleanups = make_cleanup (xfree, command);
 
+  std::string to_string_res;
+
   TRY
     {
       struct cleanup *inner_cleanups;
 
-      inner_cleanups = make_cleanup_restore_integer (&interpreter_async);
-      interpreter_async = 0;
+      inner_cleanups = make_cleanup_restore_integer (&current_ui->async);
+      current_ui->async = 0;
 
-      prevent_dont_repeat ();
+      scoped_restore preventer = prevent_dont_repeat ();
       if (to_string)
-	result = execute_command_to_string (command, from_tty);
+	to_string_res = execute_command_to_string (command, from_tty);
       else
-	{
-	  execute_command (command, from_tty);
-	  result = NULL;
-	}
+	execute_command (command, from_tty);
 
       /* Do any commands attached to breakpoint we stopped at.  */
       bpstat_do_actions ();
@@ -354,12 +352,8 @@ gdbscm_execute_gdb_command (SCM command_scm, SCM rest)
   do_cleanups (cleanups);
   GDBSCM_HANDLE_GDB_EXCEPTION (except);
 
-  if (result)
-    {
-      SCM r = gdbscm_scm_from_c_string (result);
-      xfree (result);
-      return r;
-    }
+  if (to_string)
+    return gdbscm_scm_from_c_string (to_string_res.c_str ());
   return SCM_UNSPECIFIED;
 }
 

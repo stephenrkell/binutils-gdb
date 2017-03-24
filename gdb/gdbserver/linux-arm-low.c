@@ -1,5 +1,5 @@
 /* GNU/Linux/ARM specific low level interface, for the remote server for GDB.
-   Copyright (C) 1995-2016 Free Software Foundation, Inc.
+   Copyright (C) 1995-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -263,14 +263,15 @@ get_next_pcs_read_memory_unsigned_integer (CORE_ADDR memaddr,
   ULONGEST res;
 
   res = 0;
-  (*the_target->read_memory) (memaddr, (unsigned char *) &res, len);
+  target_read_memory (memaddr, (unsigned char *) &res, len);
+
   return res;
 }
 
 /* Fetch the thread-local storage pointer for libthread_db.  */
 
 ps_err_e
-ps_get_thread_area (const struct ps_prochandle *ph,
+ps_get_thread_area (struct ps_prochandle *ph,
 		    lwpid_t lwpid, int idx, void **base)
 {
   if (ptrace (PTRACE_GET_THREAD_AREA, lwpid, NULL, base) != 0)
@@ -804,7 +805,7 @@ get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self)
       unsigned long this_instr;
       unsigned long svc_operand;
 
-      (*the_target->read_memory) (pc, (unsigned char *) &this_instr, 4);
+      target_read_memory (pc, (unsigned char *) &this_instr, 4);
       svc_operand = (0x00ffffff & this_instr);
 
       if (svc_operand)  /* OABI.  */
@@ -951,6 +952,40 @@ arm_supports_hardware_single_step (void)
   return 0;
 }
 
+/* Implementation of linux_target_ops method "get_syscall_trapinfo".  */
+
+static void
+arm_get_syscall_trapinfo (struct regcache *regcache, int *sysno)
+{
+  if (arm_is_thumb_mode ())
+    collect_register_by_name (regcache, "r7", sysno);
+  else
+    {
+      unsigned long pc;
+      unsigned long insn;
+
+      collect_register_by_name (regcache, "pc", &pc);
+
+      if ((*the_target->read_memory) (pc - 4, (unsigned char *) &insn, 4))
+	*sysno = UNKNOWN_SYSCALL;
+      else
+	{
+	  unsigned long svc_operand = (0x00ffffff & insn);
+
+	  if (svc_operand)
+	    {
+	      /* OABI */
+	      *sysno = svc_operand - 0x900000;
+	    }
+	  else
+	    {
+	      /* EABI */
+	      collect_register_by_name (regcache, "r7", sysno);
+	    }
+	}
+    }
+}
+
 /* Register sets without using PTRACE_GETREGSET.  */
 
 static struct regset_info arm_regsets[] = {
@@ -1031,7 +1066,8 @@ struct linux_target_ops the_low_target = {
   NULL, /* get_min_fast_tracepoint_insn_len */
   NULL, /* supports_range_stepping */
   arm_breakpoint_kind_from_current_state,
-  arm_supports_hardware_single_step
+  arm_supports_hardware_single_step,
+  arm_get_syscall_trapinfo,
 };
 
 void

@@ -1,5 +1,5 @@
 /* Support for the generic parts of COFF, for BFD.
-   Copyright (C) 1990-2016 Free Software Foundation, Inc.
+   Copyright (C) 1990-2017 Free Software Foundation, Inc.
    Written by Cygnus Support.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -173,7 +173,8 @@ make_a_section_from_file (bfd *abfd,
 	case compress:
 	  if (!bfd_init_section_compress_status (abfd, return_section))
 	    {
-	      (*_bfd_error_handler)
+	      _bfd_error_handler
+		/* xgettext: c-format */
 		(_("%B: unable to initialize compress status for section %s"),
 		 abfd, name);
 	      return FALSE;
@@ -196,7 +197,8 @@ make_a_section_from_file (bfd *abfd,
 	case decompress:
 	  if (!bfd_init_section_decompress_status (abfd, return_section))
 	    {
-	      (*_bfd_error_handler)
+	      _bfd_error_handler
+		/* xgettext: c-format */
 		(_("%B: unable to initialize decompress status for section %s"),
 		 abfd, name);
 	      return FALSE;
@@ -1218,7 +1220,8 @@ coff_write_native_symbol (bfd *abfd,
 }
 
 static void
-null_error_handler (const char * fmt ATTRIBUTE_UNUSED, ...)
+null_error_handler (const char *fmt ATTRIBUTE_UNUSED,
+		    va_list ap ATTRIBUTE_UNUSED)
 {
 }
 
@@ -1640,7 +1643,12 @@ _bfd_coff_get_external_symbols (bfd *abfd)
 
   syms = bfd_malloc (size);
   if (syms == NULL)
-    return FALSE;
+    {
+      /* PR 21013: Provide an error message when the alloc fails.  */
+      _bfd_error_handler (_("%B: Not enough memory to allocate space for %lu symbols"),
+			  abfd, size);
+      return FALSE;
+    }
 
   if (bfd_seek (abfd, obj_sym_filepos (abfd), SEEK_SET) != 0
       || bfd_bread (syms, size, abfd) != size)
@@ -1703,7 +1711,8 @@ _bfd_coff_read_string_table (bfd *abfd)
 
   if (strsize < STRING_SIZE_SIZE)
     {
-      (*_bfd_error_handler)
+      _bfd_error_handler
+	/* xgettext: c-format */
 	(_("%B: bad string table size %lu"), abfd, (unsigned long) strsize);
       bfd_set_error (bfd_error_bad_value);
       return NULL;
@@ -2133,7 +2142,7 @@ coff_print_symbol (bfd *abfd,
 				 auxp->u.auxent.x_scn.x_comdat);
 		      break;
 		    }
-		    /* Otherwise fall through.  */
+		  /* Fall through.  */
 		case C_EXT:
 		case C_AIX_WEAKEXT:
 		  if (ISFCN (combined->u.syment.n_type))
@@ -2153,7 +2162,7 @@ coff_print_symbol (bfd *abfd,
 			       llnos, next);
 		      break;
 		    }
-		  /* Otherwise fall through.  */
+		  /* Fall through.  */
 		default:
 		  fprintf (file, "AUX lnno %d size 0x%x tagndx %ld",
 			   auxp->u.auxent.x_sym.x_misc.x_lnsz.x_lnno,
@@ -2691,7 +2700,13 @@ static void
 fini_reloc_cookie_rels (struct coff_reloc_cookie *cookie,
 			asection *sec)
 {
-  if (cookie->rels && coff_section_data (NULL, sec)->relocs != cookie->rels)
+  if (cookie->rels
+      /* PR 20401.  The relocs may not have been cached, so check first.
+	 If the relocs were loaded by init_reloc_cookie_rels() then this
+	 will be the case.  FIXME: Would performance be improved if the
+	 relocs *were* cached ?  */
+      && coff_section_data (NULL, sec)
+      && coff_section_data (NULL, sec)->relocs != cookie->rels)
     free (cookie->rels);
 }
 
@@ -2946,6 +2961,7 @@ coff_gc_sweep (bfd *abfd ATTRIBUTE_UNUSED, struct bfd_link_info *info)
 	  o->flags |= SEC_EXCLUDE;
 
 	  if (info->print_gc_sections && o->size != 0)
+	    /* xgettext: c-format */
             _bfd_error_handler (_("Removing unused section '%s' in file '%B'"), sub, o->name);
 
 #if 0
@@ -3022,7 +3038,7 @@ bfd_coff_gc_sections (bfd *abfd ATTRIBUTE_UNUSED, struct bfd_link_info *info)
   if (!bed->can_gc_sections
       || !is_coff_hash_table (info->hash))
     {
-      (*_bfd_error_handler)(_("Warning: gc-sections option ignored"));
+      _bfd_error_handler(_("Warning: gc-sections option ignored"));
       return TRUE;
     }
 #endif

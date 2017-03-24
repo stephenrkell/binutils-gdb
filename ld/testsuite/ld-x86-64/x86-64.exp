@@ -1,5 +1,5 @@
 # Expect script for ld-x86_64 tests
-#   Copyright (C) 2002-2016 Free Software Foundation, Inc.
+#   Copyright (C) 2002-2017 Free Software Foundation, Inc.
 #
 # This file is part of the GNU Binutils.
 #
@@ -207,6 +207,12 @@ set x86_64tests {
      "--64" { pr19827a.S }  {{readelf {-rW} pr19827.rd}} "pr19827.so"}
     {"Build pr19969.so" "-melf_x86_64 -shared" ""
      "--64" { pr19969a.S } {} "pr19969.so"}
+    {"Build pr20550a.o" "" ""
+     "--64" { pr20550a.s }}
+    {"Build pr20550b.so" "-melf_x86_64 -shared" ""
+     "--64" { pr20550b.s } {} "pr20550b.so"}
+    {"Build pr20550" "-melf_x86_64 -pie tmpdir/pr20550a.o tmpdir/pr20550b.so" ""
+     "--64" { dummy.s } {} "pr20550"}
 }
 
 # So as to avoid rewriting every last test case here in a nacl variant,
@@ -241,7 +247,7 @@ global ld
 
 set test_name "Mixed x86_64 and i386 input test 1"
 set test mixed1
-if { ![ld_simple_link $ld tmpdir/$test "-m$emul tmpdir/${test}a.o tmpdir/${test}b.o"] } {
+if { ![ld_link $ld tmpdir/$test "-m$emul tmpdir/${test}a.o tmpdir/${test}b.o"] } {
     if [string match "*i386* architecture of input file `tmpdir/${test}b.o' is incompatible with i386:x86-64* output*" $link_output] {
 	pass "$test_name"
     } {
@@ -251,7 +257,7 @@ if { ![ld_simple_link $ld tmpdir/$test "-m$emul tmpdir/${test}a.o tmpdir/${test}
 
 set test_name "Mixed x86_64 and i386 input test 2"
 set test mixed2
-if { ![ld_simple_link $ld tmpdir/$test "-m$emul tmpdir/${test}a.o tmpdir/${test}b.o"] } {
+if { ![ld_link $ld tmpdir/$test "-m$emul tmpdir/${test}a.o tmpdir/${test}b.o"] } {
     if [string match "*i386* architecture of input file `tmpdir/${test}b.o' is incompatible with i386:x86-64* output*" $link_output] {
 	pass "$test_name"
     } {
@@ -503,6 +509,27 @@ run_dump_test "pr19609-7d"
 run_dump_test "pr19939a"
 run_dump_test "pr19939b"
 run_dump_test "pr19719"
+run_dump_test "pr20253-1a"
+run_dump_test "pr20253-1b"
+run_dump_test "pr20253-1c"
+run_dump_test "pr20253-1d"
+run_dump_test "pr20253-1e"
+run_dump_test "pr20253-1f"
+run_dump_test "pr20253-1g"
+run_dump_test "pr20253-1h"
+run_dump_test "pr20253-1i"
+run_dump_test "pr20253-1j"
+run_dump_test "pr20253-1k"
+run_dump_test "pr20253-1l"
+run_dump_test "pr20253-3"
+run_dump_test "pr20253-4a"
+run_dump_test "pr20253-4b"
+run_dump_test "pr20253-4c"
+run_dump_test "pr20253-4d"
+run_dump_test "pr20253-4e"
+run_dump_test "pr20253-4f"
+run_dump_test "pr20253-5a"
+run_dump_test "pr20253-5b"
 
 proc undefined_weak {cflags ldflags} {
     set testname "Undefined weak symbol"
@@ -511,7 +538,7 @@ proc undefined_weak {cflags ldflags} {
     }
 
     if { [ regexp "\-fPIE" $cflags]
-	 && ![ regexp "\-z nodynamic-undefined-weak" $ldflags] } {
+	 && ![ regexp "nodynamic-undefined-weak" $ldflags] } {
 	set weak_symbol "Weak defined"
     } else {
 	set weak_symbol "Weak undefined"
@@ -538,10 +565,10 @@ proc undefined_weak {cflags ldflags} {
 
     exec cp tmpdir/libpr19704a.so tmpdir/libpr19704.so
 
-    run_ld_link_exec_tests [] [list \
+    run_ld_link_exec_tests [list \
 	[list \
 	    "Run pr19704" \
-	    "$ldflags tmpdir/libpr19704.so -R tmpdir" \
+	    "-Wl,--no-as-needed,-R,tmpdir $ldflags tmpdir/libpr19704.so" \
 	    "" \
 	    { pr19704a.c } \
 	    "pr19704" \
@@ -803,11 +830,11 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
     ]
 
-    run_ld_link_exec_tests [] [list \
+    run_ld_link_exec_tests [list \
 	[list \
 	    "Run plt-main" \
-	    "tmpdir/plt-main1.o tmpdir/plt-main2.o tmpdir/plt-main3.o \
-	     tmpdir/plt-main4.o tmpdir/libplt-lib.so" \
+	    "-Wl,--no-as-needed tmpdir/plt-main1.o tmpdir/plt-main2.o \
+	     tmpdir/plt-main3.o tmpdir/plt-main4.o tmpdir/libplt-lib.so" \
 	    "" \
 	    { plt-main5.c } \
 	    "plt-main" \
@@ -815,8 +842,8 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
 	[list \
 	    "Run plt-main with PIE" \
-	    "tmpdir/plt-main1.o tmpdir/plt-main2.o tmpdir/plt-main3.o \
-	     tmpdir/plt-main4.o tmpdir/libplt-lib.so -pie" \
+	    "-Wl,--no-as-needed -pie tmpdir/plt-main1.o tmpdir/plt-main2.o \
+	     tmpdir/plt-main3.o tmpdir/plt-main4.o tmpdir/libplt-lib.so" \
 	    "" \
 	    { plt-main5.c } \
 	    "plt-main-pie" \
@@ -825,7 +852,7 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
 	[list \
 	    "Run copyreloc-main with PIE without -fPIE" \
-	    "--as-needed tmpdir/copyreloc-main.o tmpdir/copyreloc-lib.so -pie" \
+	    "-Wl,--as-needed -pie tmpdir/copyreloc-main.o tmpdir/copyreloc-lib.so" \
 	    "" \
 	    { dummy.s } \
 	    "copyreloc-main" \
@@ -833,7 +860,7 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
 	[list \
 	    "Run pr17689 with PIE without -fPIE" \
-	    "tmpdir/pr17689b.o tmpdir/pr17689.so -pie" \
+	    "-Wl,--no-as-needed -pie tmpdir/pr17689b.o tmpdir/pr17689.so" \
 	    "" \
 	    { dummy.s } \
 	    "pr17689" \
@@ -841,7 +868,7 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
 	[list \
 	    "Run pr17689 with PIE -z now without -fPIE" \
-	    "--as-needed tmpdir/pr17689b.o tmpdir/pr17689.so -pie -z now" \
+	    "-Wl,--as-needed,-z,now -pie tmpdir/pr17689b.o tmpdir/pr17689.so" \
 	    "" \
 	    { dummy.s } \
 	    "pr17689now" \
@@ -849,7 +876,7 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
 	[list \
 	    "Run pr18900" \
-	    "tmpdir/pr18900.o tmpdir/pr18900.so" \
+	    "-Wl,--no-as-needed tmpdir/pr18900.o tmpdir/pr18900.so" \
 	    "" \
 	    { dummy.s } \
 	    "pr18900" \
@@ -857,7 +884,7 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
 	[list \
 	    "Run pr19031" \
-	    "tmpdir/pr19031.so" \
+	    "-Wl,--no-as-needed tmpdir/pr19031.so" \
 	    "" \
 	    { pr19031b.S pr19031c.c } \
 	    "pr19031" \
@@ -865,13 +892,60 @@ if { [isnative] && [which $CC] != 0 } {
 	] \
 	[list \
 	    "Run gotpcrel1" \
-	    "tmpdir/gotpcrel1d.so" \
+	    "-Wl,--no-as-needed tmpdir/gotpcrel1d.so" \
 	    "" \
 	    { gotpcrel1a.S gotpcrel1b.c gotpcrel1c.c } \
 	    "gotpcrel1" \
 	    "gotpcrel1.out" \
 	] \
     ]
+
+    # Run-time tests which require working ifunc attribute support.
+    if { [check_ifunc_attribute_available] } {
+	run_cc_link_tests [list \
+	    [list \
+		"Build libpr19784a.so" \
+		"-shared -Wl,-Bsymbolic-functions" \
+		"-fPIC -O2 -g" \
+		{ pr19784b.c pr19784c.c } \
+		{} \
+		"libpr19784a.so" \
+	    ] \
+	    [list \
+		"Build libpr19784b.so" \
+		"-shared -Wl,-Bsymbolic-functions" \
+		"-fPIC -O2 -g" \
+		{ pr19784c.c pr19784b.c } \
+		{} \
+		"libpr19784b.so" \
+	    ] \
+	    [list \
+		"Build pr19784a.o" \
+		"" \
+		"" \
+		{ pr19784a.c } \
+	    ] \
+	]
+
+	run_ld_link_exec_tests [list \
+	    [list \
+		"Run pr19784a" \
+		"-Wl,--no-as-needed tmpdir/pr19784a.o tmpdir/libpr19784a.so" \
+		"" \
+		{ dummy.s } \
+		"pr19784a" \
+		"pass.out" \
+	    ] \
+	    [list \
+		"Run pr19784b" \
+		"-Wl,--as-needed tmpdir/pr19784a.o tmpdir/libpr19784b.so" \
+		"" \
+		{ dummy.s } \
+		"pr19784b" \
+		"pass.out" \
+	    ] \
+	]
+    }
 
     if { [istarget "x86_64-*-linux*"] \
 	 && ![istarget "x86_64-*-linux*-gnux32"]} {
@@ -897,11 +971,12 @@ if { [isnative] && [which $CC] != 0 } {
 	    ] \
 	]
 
-	run_ld_link_exec_tests [] [list \
+	run_ld_link_exec_tests [list \
 	    [list \
 		"Run plt-main with -z bndplt" \
-		"tmpdir/plt-main1.o tmpdir/plt-main2.o tmpdir/plt-main3.o \
-		 tmpdir/plt-main4.o tmpdir/libplt-lib.so -z bndplt" \
+		"-Wl,--no-as-needed,-z,bndplt tmpdir/plt-main1.o \
+		 tmpdir/plt-main2.o tmpdir/plt-main3.o \
+		 tmpdir/plt-main4.o tmpdir/libplt-lib.so" \
 		"" \
 		{ plt-main5.c } \
 		"plt-main-bnd" \
@@ -909,13 +984,22 @@ if { [isnative] && [which $CC] != 0 } {
 	    ] \
 	    [list \
 		"Run plt-main with PIE and -z bndplt" \
-		"tmpdir/plt-main1.o tmpdir/plt-main2.o tmpdir/plt-main3.o \
-		 tmpdir/plt-main4.o tmpdir/libplt-lib.so -z bndplt -pie" \
+		"-Wl,--no-as-needed,-z,bndplt -pie tmpdir/plt-main1.o \
+		 tmpdir/plt-main2.o tmpdir/plt-main3.o \
+		 tmpdir/plt-main4.o tmpdir/libplt-lib.so" \
 		"" \
 		{ plt-main5.c } \
 		"plt-main-pie-bnd" \
 		"plt-main.out" \
 		"-fPIC" \
+	    ] \
+	    [list \
+		"Run pr20800" \
+		"-Wl,-z,now -pie" \
+		"" \
+		{ pr20800a.S pr20800b.S } \
+		"pr20800" \
+		"pass.out" \
 	    ] \
 	]
     }
@@ -923,8 +1007,8 @@ if { [isnative] && [which $CC] != 0 } {
     undefined_weak "" ""
     undefined_weak "-fPIE" ""
     undefined_weak "-fPIE" "-pie"
-    undefined_weak "-fPIE" "-z nodynamic-undefined-weak"
-    undefined_weak "-fPIE" "-pie -z nodynamic-undefined-weak"
+    undefined_weak "-fPIE" "-Wl,-z,nodynamic-undefined-weak"
+    undefined_weak "-fPIE" "-pie -Wl,-z,nodynamic-undefined-weak"
 }
 
 if { ![istarget "x86_64-*-linux*"]} {
@@ -935,3 +1019,8 @@ if { ![istarget "x86_64-*-linux*"]} {
 run_dump_test "pr17618"
 run_dump_test "pltgot-1"
 run_dump_test "pltgot-2"
+run_dump_test "pr20830a"
+run_dump_test "pr20830b"
+run_dump_test "pr21038a"
+run_dump_test "pr21038b"
+run_dump_test "pr21038c"

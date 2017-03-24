@@ -1,7 +1,7 @@
 /* Variables that describe the inferior process running under GDB:
    Where it is, why it stopped, and how to step it.
 
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -42,6 +42,8 @@ struct target_desc_info;
 
 #include "progspace.h"
 #include "registry.h"
+
+#include "symfile-add-flags.h"
 
 struct infcall_suspend_state;
 struct infcall_control_state;
@@ -129,6 +131,20 @@ extern void child_terminal_init (struct target_ops *self);
 extern void child_terminal_init_with_pgrp (int pgrp);
 
 /* From fork-child.c */
+
+/* Report an error that happened when starting to trace the inferior
+   (i.e., when the "traceme_fun" callback is called on fork_inferior)
+   and bail out.  This function does not return.  */
+
+extern void trace_start_error (const char *fmt, ...)
+  ATTRIBUTE_NORETURN;
+
+/* Like "trace_start_error", but the error message is constructed by
+   combining STRING with the system error message for errno.  This
+   function does not return.  */
+
+extern void trace_start_error_with_name (const char *string)
+  ATTRIBUTE_NORETURN;
 
 extern int fork_inferior (char *, char *, char **,
 			  void (*)(void),
@@ -388,9 +404,8 @@ struct inferior
   LONGEST exit_code;
 
   /* Default flags to pass to the symbol reading functions.  These are
-     used whenever a new objfile is created.  The valid values come
-     from enum symfile_add_flags.  */
-  int symfile_flags;
+     used whenever a new objfile is created.  */
+  symfile_add_flags symfile_flags;
 
   /* Info about an inferior's target description (if it's fetched; the
      user supplied description's filename, if any; etc.).  */
@@ -513,6 +528,12 @@ extern struct cleanup *save_current_inferior (void);
 #define ALL_INFERIORS(I) \
   for ((I) = inferior_list; (I); (I) = (I)->next)
 
+/* Traverse all non-exited inferiors.  */
+
+#define ALL_NON_EXITED_INFERIORS(I) \
+  ALL_INFERIORS (I)		    \
+    if ((I)->pid != 0)
+
 extern struct inferior *inferior_list;
 
 /* Prune away automatically added inferiors that aren't required
@@ -522,5 +543,8 @@ extern void prune_inferiors (void);
 extern int number_of_inferiors (void);
 
 extern struct inferior *add_inferior_with_spaces (void);
+
+/* Print the current selected inferior.  */
+extern void print_selected_inferior (struct ui_out *uiout);
 
 #endif /* !defined (INFERIOR_H) */

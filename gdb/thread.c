@@ -1,6 +1,6 @@
 /* Multi-process/thread control for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    Contributed by Lynx Real-Time Systems, Inc.  Los Gatos, CA.
 
@@ -166,7 +166,7 @@ thread_cancel_execution_command (struct thread_info *thr)
 {
   if (thr->thread_fsm != NULL)
     {
-      thread_fsm_clean_up (thr->thread_fsm);
+      thread_fsm_clean_up (thr->thread_fsm, thr);
       thread_fsm_delete (thr->thread_fsm);
       thr->thread_fsm = NULL;
     }
@@ -712,14 +712,14 @@ do_captured_list_thread_ids (struct ui_out *uiout, void *arg)
 	current_thread = tp->global_num;
 
       num++;
-      ui_out_field_int (uiout, "thread-id", tp->global_num);
+      uiout->field_int ("thread-id", tp->global_num);
     }
 
   do_cleanups (cleanup_chain);
 
   if (current_thread != -1)
-    ui_out_field_int (uiout, "current-thread-id", current_thread);
-  ui_out_field_int (uiout, "number-of-threads", num);
+    uiout->field_int ("current-thread-id", current_thread);
+  uiout->field_int ("number-of-threads", num);
   return GDB_RC_OK;
 }
 
@@ -1141,6 +1141,26 @@ validate_registers_access (void)
     error (_("Selected thread is running."));
 }
 
+/* See gdbthread.h.  */
+
+bool
+can_access_registers_ptid (ptid_t ptid)
+{
+  /* No thread, no registers.  */
+  if (ptid_equal (ptid, null_ptid))
+    return false;
+
+  /* Don't try to read from a dead thread.  */
+  if (is_exited (ptid))
+    return false;
+
+  /* ... or from a spinning thread.  FIXME: see validate_registers_access.  */
+  if (is_executing (ptid))
+    return false;
+
+  return true;
+}
+
 int
 pc_in_thread_step_range (CORE_ADDR pc, struct thread_info *thread)
 {
@@ -1213,7 +1233,7 @@ print_thread_info_1 (struct ui_out *uiout, char *requested_threads,
   /* For backward compatibility, we make a list for MI.  A table is
      preferable for the CLI, though, because it shows table
      headers.  */
-  if (ui_out_is_mi_like_p (uiout))
+  if (uiout->is_mi_like_p ())
     make_cleanup_ui_out_list_begin_end (uiout, "threads");
   else
     {
@@ -1231,28 +1251,28 @@ print_thread_info_1 (struct ui_out *uiout, char *requested_threads,
       if (n_threads == 0)
 	{
 	  if (requested_threads == NULL || *requested_threads == '\0')
-	    ui_out_message (uiout, 0, _("No threads.\n"));
+	    uiout->message (_("No threads.\n"));
 	  else
-	    ui_out_message (uiout, 0, _("No threads match '%s'.\n"),
+	    uiout->message (_("No threads match '%s'.\n"),
 			    requested_threads);
 	  do_cleanups (old_chain);
 	  return;
 	}
 
-      if (show_global_ids || ui_out_is_mi_like_p (uiout))
+      if (show_global_ids || uiout->is_mi_like_p ())
 	make_cleanup_ui_out_table_begin_end (uiout, 5, n_threads, "threads");
       else
 	make_cleanup_ui_out_table_begin_end (uiout, 4, n_threads, "threads");
 
-      ui_out_table_header (uiout, 1, ui_left, "current", "");
+      uiout->table_header (1, ui_left, "current", "");
 
-      if (!ui_out_is_mi_like_p (uiout))
-	ui_out_table_header (uiout, 4, ui_left, "id-in-tg", "Id");
-      if (show_global_ids || ui_out_is_mi_like_p (uiout))
-	ui_out_table_header (uiout, 4, ui_left, "id", "GId");
-      ui_out_table_header (uiout, 17, ui_left, "target-id", "Target Id");
-      ui_out_table_header (uiout, 1, ui_left, "frame", "Frame");
-      ui_out_table_body (uiout);
+      if (!uiout->is_mi_like_p ())
+	uiout->table_header (4, ui_left, "id-in-tg", "Id");
+      if (show_global_ids || uiout->is_mi_like_p ())
+	uiout->table_header (4, ui_left, "id", "GId");
+      uiout->table_header (17, ui_left, "target-id", "Target Id");
+      uiout->table_header (1, ui_left, "frame", "Frame");
+      uiout->table_body ();
     }
 
   ALL_THREADS_BY_INFERIOR (inf, tp)
@@ -1266,27 +1286,27 @@ print_thread_info_1 (struct ui_out *uiout, char *requested_threads,
 
       chain2 = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
 
-      if (ui_out_is_mi_like_p (uiout))
+      if (uiout->is_mi_like_p ())
 	{
 	  /* Compatibility.  */
 	  if (ptid_equal (tp->ptid, current_ptid))
-	    ui_out_text (uiout, "* ");
+	    uiout->text ("* ");
 	  else
-	    ui_out_text (uiout, "  ");
+	    uiout->text ("  ");
 	}
       else
 	{
 	  if (ptid_equal (tp->ptid, current_ptid))
-	    ui_out_field_string (uiout, "current", "*");
+	    uiout->field_string ("current", "*");
 	  else
-	    ui_out_field_skip (uiout, "current");
+	    uiout->field_skip ("current");
 	}
 
-      if (!ui_out_is_mi_like_p (uiout))
-	ui_out_field_string (uiout, "id-in-tg", print_thread_id (tp));
+      if (!uiout->is_mi_like_p ())
+	uiout->field_string ("id-in-tg", print_thread_id (tp));
 
-      if (show_global_ids || ui_out_is_mi_like_p (uiout))
-	ui_out_field_int (uiout, "id", tp->global_num);
+      if (show_global_ids || uiout->is_mi_like_p ())
+	uiout->field_int ("id", tp->global_num);
 
       /* For the CLI, we stuff everything into the target-id field.
 	 This is a gross hack to make the output come out looking
@@ -1299,13 +1319,13 @@ print_thread_info_1 (struct ui_out *uiout, char *requested_threads,
       extra_info = target_extra_thread_info (tp);
       name = tp->name ? tp->name : target_thread_name (tp);
 
-      if (ui_out_is_mi_like_p (uiout))
+      if (uiout->is_mi_like_p ())
 	{
-	  ui_out_field_string (uiout, "target-id", target_id);
+	  uiout->field_string ("target-id", target_id);
 	  if (extra_info)
-	    ui_out_field_string (uiout, "details", extra_info);
+	    uiout->field_string ("details", extra_info);
 	  if (name)
-	    ui_out_field_string (uiout, "name", name);
+	    uiout->field_string ("name", name);
 	}
       else
 	{
@@ -1323,12 +1343,12 @@ print_thread_info_1 (struct ui_out *uiout, char *requested_threads,
 	    contents = xstrdup (target_id);
 	  str_cleanup = make_cleanup (xfree, contents);
 
-	  ui_out_field_string (uiout, "target-id", contents);
+	  uiout->field_string ("target-id", contents);
 	  do_cleanups (str_cleanup);
 	}
 
       if (tp->state == THREAD_RUNNING)
-	ui_out_text (uiout, "(running)\n");
+	uiout->text ("(running)\n");
       else
 	{
 	  /* The switch below puts us at the top of the stack (leaf
@@ -1336,22 +1356,22 @@ print_thread_info_1 (struct ui_out *uiout, char *requested_threads,
 	  switch_to_thread (tp->ptid);
 	  print_stack_frame (get_selected_frame (NULL),
 			     /* For MI output, print frame level.  */
-			     ui_out_is_mi_like_p (uiout),
+			     uiout->is_mi_like_p (),
 			     LOCATION, 0);
 	}
 
-      if (ui_out_is_mi_like_p (uiout))
+      if (uiout->is_mi_like_p ())
 	{
 	  char *state = "stopped";
 
 	  if (tp->state == THREAD_RUNNING)
 	    state = "running";
-	  ui_out_field_string (uiout, "state", state);
+	  uiout->field_string ("state", state);
 	}
 
       core = target_core_of_thread (tp->ptid);
-      if (ui_out_is_mi_like_p (uiout) && core != -1)
-	ui_out_field_int (uiout, "core", core);
+      if (uiout->is_mi_like_p () && core != -1)
+	uiout->field_int ("core", core);
 
       do_cleanups (chain2);
     }
@@ -1362,22 +1382,22 @@ print_thread_info_1 (struct ui_out *uiout, char *requested_threads,
 
   if (pid == -1 && requested_threads == NULL)
     {
-      if (ui_out_is_mi_like_p (uiout)
+      if (uiout->is_mi_like_p ()
 	  && !ptid_equal (inferior_ptid, null_ptid))
 	{
 	  int num = ptid_to_global_thread_id (inferior_ptid);
 
 	  gdb_assert (num != 0);
-	  ui_out_field_int (uiout, "current-thread-id", num);
+	  uiout->field_int ("current-thread-id", num);
 	}
 
       if (!ptid_equal (inferior_ptid, null_ptid) && is_exited (inferior_ptid))
-	ui_out_message (uiout, 0, "\n\
+	uiout->message ("\n\
 The current thread <Thread ID %s> has terminated.  See `help thread'.\n",
 			print_thread_id (inferior_thread ()));
       else if (thread_list != NULL
 	       && ptid_equal (inferior_ptid, null_ptid))
-	ui_out_message (uiout, 0, "\n\
+	uiout->message ("\n\
 No selected thread.  See `help thread'.\n");
     }
 }
@@ -1515,7 +1535,7 @@ restore_selected_frame (struct frame_id a_frame_id, int frame_level)
   select_frame (get_current_frame ());
 
   /* Warn the user.  */
-  if (frame_level > 0 && !ui_out_is_mi_like_p (current_uiout))
+  if (frame_level > 0 && !current_uiout->is_mi_like_p ())
     {
       warning (_("Couldn't restore frame #%d in "
 		 "current thread.  Bottom (innermost) frame selected:"),
@@ -1725,7 +1745,7 @@ tp_array_compar (const void *ap_voidp, const void *bp_voidp)
 
   if (a->inf->num != b->inf->num)
     {
-      return ((a->inf->num > b->inf->num) - (a->inf->num < b->inf->num)
+      return (((a->inf->num > b->inf->num) - (a->inf->num < b->inf->num))
 	      * (tp_array_compar_ascending ? +1 : -1));
     }
 
@@ -1825,20 +1845,19 @@ thread_apply_command (char *tidlist, int from_tty)
   char *cmd = NULL;
   struct cleanup *old_chain;
   char *saved_cmd;
-  struct tid_range_parser parser;
+  tid_range_parser parser;
 
   if (tidlist == NULL || *tidlist == '\000')
     error (_("Please specify a thread ID list"));
 
-  tid_range_parser_init (&parser, tidlist, current_inferior ()->num);
-  while (!tid_range_parser_finished (&parser))
+  parser.init (tidlist, current_inferior ()->num);
+  while (!parser.finished ())
     {
       int inf_num, thr_start, thr_end;
 
-      if (!tid_range_parser_get_tid_range (&parser,
-					   &inf_num, &thr_start, &thr_end))
+      if (!parser.get_tid_range (&inf_num, &thr_start, &thr_end))
 	{
-	  cmd = (char *) tid_range_parser_string (&parser);
+	  cmd = (char *) parser.cur_tok ();
 	  break;
 	}
     }
@@ -1856,32 +1875,31 @@ thread_apply_command (char *tidlist, int from_tty)
 
   make_cleanup_restore_current_thread ();
 
-  tid_range_parser_init (&parser, tidlist, current_inferior ()->num);
-  while (!tid_range_parser_finished (&parser)
-	 && tid_range_parser_string (&parser) < cmd)
+  parser.init (tidlist, current_inferior ()->num);
+  while (!parser.finished () && parser.cur_tok () < cmd)
     {
       struct thread_info *tp = NULL;
       struct inferior *inf;
       int inf_num, thr_num;
 
-      tid_range_parser_get_tid (&parser, &inf_num, &thr_num);
+      parser.get_tid (&inf_num, &thr_num);
       inf = find_inferior_id (inf_num);
       if (inf != NULL)
 	tp = find_thread_id (inf, thr_num);
 
-      if (tid_range_parser_star_range (&parser))
+      if (parser.in_star_range ())
 	{
 	  if (inf == NULL)
 	    {
 	      warning (_("Unknown inferior %d"), inf_num);
-	      tid_range_parser_skip (&parser);
+	      parser.skip_range ();
 	      continue;
 	    }
 
 	  /* No use looking for threads past the highest thread number
 	     the inferior ever had.  */
 	  if (thr_num >= inf->highest_thread_num)
-	    tid_range_parser_skip (&parser);
+	    parser.skip_range ();
 
 	  /* Be quiet about unknown threads numbers.  */
 	  if (tp == NULL)
@@ -1890,8 +1908,7 @@ thread_apply_command (char *tidlist, int from_tty)
 
       if (tp == NULL)
 	{
-	  if (show_inferior_qualified_tids ()
-	      || tid_range_parser_qualified (&parser))
+	  if (show_inferior_qualified_tids () || parser.tid_is_qualified ())
 	    warning (_("Unknown thread %d.%d"), inf_num, thr_num);
 	  else
 	    warning (_("Unknown thread %d"), thr_num);
@@ -1923,7 +1940,7 @@ thread_apply_command (char *tidlist, int from_tty)
 void
 thread_command (char *tidstr, int from_tty)
 {
-  if (!tidstr)
+  if (tidstr == NULL)
     {
       if (ptid_equal (inferior_ptid, null_ptid))
 	error (_("No thread selected"));
@@ -1943,10 +1960,31 @@ thread_command (char *tidstr, int from_tty)
 	}
       else
 	error (_("No stack."));
-      return;
     }
+  else
+    {
+      ptid_t previous_ptid = inferior_ptid;
+      enum gdb_rc result;
 
-  gdb_thread_select (current_uiout, tidstr, NULL);
+      result = gdb_thread_select (current_uiout, tidstr, NULL);
+
+      /* If thread switch did not succeed don't notify or print.  */
+      if (result == GDB_RC_FAIL)
+	return;
+
+      /* Print if the thread has not changed, otherwise an event will be sent.  */
+      if (ptid_equal (inferior_ptid, previous_ptid))
+	{
+	  print_selected_thread_frame (current_uiout,
+				       USER_SELECTED_THREAD
+				       | USER_SELECTED_FRAME);
+	}
+      else
+	{
+	  observer_notify_user_selected_context_changed (USER_SELECTED_THREAD
+							 | USER_SELECTED_FRAME);
+	}
+    }
 }
 
 /* Implementation of `thread name'.  */
@@ -2037,7 +2075,7 @@ do_captured_thread_select (struct ui_out *uiout, void *tidstr_v)
   const char *tidstr = (const char *) tidstr_v;
   struct thread_info *tp;
 
-  if (ui_out_is_mi_like_p (uiout))
+  if (uiout->is_mi_like_p ())
     {
       int num = value_as_long (parse_and_eval (tidstr));
 
@@ -2058,32 +2096,53 @@ do_captured_thread_select (struct ui_out *uiout, void *tidstr_v)
 
   annotate_thread_changed ();
 
-  if (ui_out_is_mi_like_p (uiout))
-    ui_out_field_int (uiout, "new-thread-id", inferior_thread ()->global_num);
-  else
-    {
-      ui_out_text (uiout, "[Switching to thread ");
-      ui_out_field_string (uiout, "new-thread-id", print_thread_id (tp));
-      ui_out_text (uiout, " (");
-      ui_out_text (uiout, target_pid_to_str (inferior_ptid));
-      ui_out_text (uiout, ")]");
-    }
-
-  /* Note that we can't reach this with an exited thread, due to the
-     thread_alive check above.  */
-  if (tp->state == THREAD_RUNNING)
-    ui_out_text (uiout, "(running)\n");
-  else
-    {
-      ui_out_text (uiout, "\n");
-      print_stack_frame (get_selected_frame (NULL), 1, SRC_AND_LOC, 1);
-    }
-
   /* Since the current thread may have changed, see if there is any
      exited thread we can now delete.  */
   prune_threads ();
 
   return GDB_RC_OK;
+}
+
+/* Print thread and frame switch command response.  */
+
+void
+print_selected_thread_frame (struct ui_out *uiout,
+			     user_selected_what selection)
+{
+  struct thread_info *tp = inferior_thread ();
+  struct inferior *inf = current_inferior ();
+
+  if (selection & USER_SELECTED_THREAD)
+    {
+      if (uiout->is_mi_like_p ())
+	{
+	  uiout->field_int ("new-thread-id",
+			    inferior_thread ()->global_num);
+	}
+      else
+	{
+	  uiout->text ("[Switching to thread ");
+	  uiout->field_string ("new-thread-id", print_thread_id (tp));
+	  uiout->text (" (");
+	  uiout->text (target_pid_to_str (inferior_ptid));
+	  uiout->text (")]");
+	}
+    }
+
+  if (tp->state == THREAD_RUNNING)
+    {
+      if (selection & USER_SELECTED_THREAD)
+	uiout->text ("(running)\n");
+    }
+  else if (selection & USER_SELECTED_FRAME)
+    {
+      if (selection & USER_SELECTED_THREAD)
+	uiout->text ("\n");
+
+      if (has_stack_frames ())
+	print_stack_frame_to_uiout (uiout, get_selected_frame (NULL),
+				    1, SRC_AND_LOC, 1);
+    }
 }
 
 enum gdb_rc

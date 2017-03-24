@@ -1,6 +1,6 @@
 /* Low level child interface to ptrace.
 
-   Copyright (C) 2004-2016 Free Software Foundation, Inc.
+   Copyright (C) 2004-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -37,5 +37,9 @@ extern struct target_ops *
    tracee identified by PTID.  */
 
 extern pid_t get_ptrace_pid (ptid_t);
+
+
+/* Cleanup the inferior after a successful ptrace detach.  */
+extern void inf_ptrace_detach_success (struct target_ops *ops);
 
 #endif

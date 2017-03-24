@@ -1,6 +1,6 @@
 /* Fork a Unix child process, and set up to debug it, for GDB.
 
-   Copyright (C) 1990-2016 Free Software Foundation, Inc.
+   Copyright (C) 1990-2017 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
 
@@ -31,7 +31,8 @@
 #include "gdbcmd.h"
 #include "solib.h"
 #include "filestuff.h"
-
+#include "top.h"
+#include "signals-state-save-restore.h"
 #include <signal.h>
 
 /* This just gets used as a default if we can't find SHELL.  */
@@ -108,6 +109,31 @@ escape_bang_in_quoted_argument (const char *shell_file)
   return 0;
 }
 
+/* See inferior.h.  */
+
+void
+trace_start_error (const char *fmt, ...)
+{
+  va_list ap;
+
+  va_start (ap, fmt);
+  fprintf_unfiltered (gdb_stderr, "Could not trace the inferior "
+		                  "process.\nError: ");
+  vfprintf_unfiltered (gdb_stderr, fmt, ap);
+  va_end (ap);
+
+  gdb_flush (gdb_stderr);
+  _exit (0177);
+}
+
+/* See inferior.h.  */
+
+void
+trace_start_error_with_name (const char *string)
+{
+  trace_start_error ("%s: %s", string, safe_strerror (errno));
+}
+
 /* Start an inferior Unix child process and sets inferior_ptid to its
    pid.  EXEC_FILE is the file to run.  ALLARGS is a string containing
    the arguments to the program.  ENV is the environment vector to
@@ -141,6 +167,7 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
   struct inferior *inf;
   int i;
   int save_errno;
+  struct ui *save_ui;
 
   /* If no exec file handed to us, get it from the exec-file command
      -- with a good, common error message if none is specified.  */
@@ -275,6 +302,9 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
      restore it.  */
   save_our_env = environ;
 
+  /* Likewise the current UI.  */
+  save_ui = current_ui;
+
   /* Tell the terminal handling subsystem what tty we plan to run on;
      it will just record the information for later.  */
   new_tty_prefork (inferior_io_terminal);
@@ -282,8 +312,8 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
   /* It is generally good practice to flush any possible pending stdio
      output prior to doing a fork, to avoid the possibility of both
      the parent and child flushing the same data after the fork.  */
-  gdb_flush (gdb_stdout);
-  gdb_flush (gdb_stderr);
+  gdb_flush (main_ui->m_gdb_stdout);
+  gdb_flush (main_ui->m_gdb_stderr);
 
   /* If there's any initialization of the target layers that must
      happen to prepare to handle the child we're about fork, do it
@@ -312,6 +342,16 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
 
   if (pid == 0)
     {
+      /* Switch to the main UI, so that gdb_std{in/out/err} in the
+	 child are mapped to std{in/out/err}.  This makes it possible
+	 to use fprintf_unfiltered/warning/error/etc. in the child
+	 from here on.  */
+      current_ui = main_ui;
+
+      /* Close all file descriptors except those that gdb inherited
+	 (usually 0/1/2), so they don't leak to the inferior.  Note
+	 that this closes the file descriptors of all secondary
+	 UIs.  */
       close_most_fds ();
 
       if (debug_fork)
@@ -351,6 +391,8 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
         saying "not parent".  Sorry; you'll have to use print
         statements!  */
 
+      restore_original_signals_state ();
+
       /* There is no execlpe call, so we have to set the environment
          for our child in the global variable.  If we've vforked, this
          clobbers the parent, but environ is restored a few lines down
@@ -377,6 +419,9 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
 
   /* Restore our environment in case a vforked child clob'd it.  */
   environ = save_our_env;
+
+  /* Likewise the current UI.  */
+  current_ui = save_ui;
 
   if (!have_inferiors ())
     init_thread_list ();
@@ -462,7 +507,7 @@ startup_inferior (int ntraps)
 
 	  case TARGET_WAITKIND_SIGNALLED:
 	    target_terminal_ours ();
-	    target_mourn_inferior ();
+	    target_mourn_inferior (event_ptid);
 	    error (_("During startup program terminated with signal %s, %s."),
 		   gdb_signal_to_name (ws.value.sig),
 		   gdb_signal_to_string (ws.value.sig));
@@ -470,7 +515,7 @@ startup_inferior (int ntraps)
 
 	  case TARGET_WAITKIND_EXITED:
 	    target_terminal_ours ();
-	    target_mourn_inferior ();
+	    target_mourn_inferior (event_ptid);
 	    if (ws.value.integer)
 	      error (_("During startup program exited with code %d."),
 		     ws.value.integer);
@@ -494,7 +539,7 @@ startup_inferior (int ntraps)
       if (resume_signal != GDB_SIGNAL_TRAP)
 	{
 	  /* Let shell child handle its own signals in its own way.  */
-	  target_resume (resume_ptid, 0, resume_signal);
+	  target_continue (resume_ptid, resume_signal);
 	}
       else
 	{
@@ -520,7 +565,7 @@ startup_inferior (int ntraps)
 	    break;
 
 	  /* Just make it go on.  */
-	  target_resume (resume_ptid, 0, GDB_SIGNAL_0);
+	  target_continue_no_signal (resume_ptid);
 	}
     }
 

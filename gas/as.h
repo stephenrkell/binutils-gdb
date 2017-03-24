@@ -1,5 +1,5 @@
 /* as.h - global header file
-   Copyright (C) 1987-2016 Free Software Foundation, Inc.
+   Copyright (C) 1987-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -76,8 +76,8 @@
    150 isn't special; it's just an arbitrary non-ASCII char value.  */
 #define OPTION_STD_BASE 150
 /* The first getopt value for machine-dependent long options.
-   190 gives the standard options room to grow.  */
-#define OPTION_MD_BASE 190
+   290 gives the standard options room to grow.  */
+#define OPTION_MD_BASE  290
 
 #ifdef DEBUG
 #undef NDEBUG
@@ -85,8 +85,7 @@
 #if __GNUC__ < 2 || (__GNUC__ == 2 && __GNUC_MINOR__ < 6)
 #define __PRETTY_FUNCTION__  ((char *) NULL)
 #endif
-#define gas_assert(P) \
-  ((void) ((P) ? 0 : (as_assert (__FILE__, __LINE__, __PRETTY_FUNCTION__), 0)))
+#define gas_assert(P)	((void) ((P) ? 0 : (abort (), 0)))
 #undef abort
 #define abort()		as_abort (__FILE__, __LINE__, __PRETTY_FUNCTION__)
 
@@ -377,6 +376,8 @@ COMMON int need_pass_2;
    leave lots of padding.  */
 COMMON int linkrelax;
 
+COMMON int do_not_pad_sections_to_alignment;
+
 /* TRUE if we should produce a listing.  */
 extern int listing;
 
@@ -457,8 +458,8 @@ PRINTF_LIKE (as_warn);
 PRINTF_WHERE_LIKE (as_bad_where);
 PRINTF_WHERE_LIKE (as_warn_where);
 
-void   as_assert (const char *, int, const char *);
 void   as_abort (const char *, int, const char *) ATTRIBUTE_NORETURN;
+void   signal_init (void);
 void   sprint_value (char *, addressT);
 int    had_errors (void);
 int    had_warnings (void);
@@ -531,7 +532,7 @@ int generic_force_reloc (struct fix *);
 
 #include "expr.h"		/* Before targ-*.h */
 
-/* This one starts the chain of target dependant headers.  */
+/* This one starts the chain of target dependent headers.  */
 #include "targ-env.h"
 
 #ifdef OBJ_MAYBE_ELF

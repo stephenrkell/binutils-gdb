@@ -1,5 +1,5 @@
 /* Line completion stuff for GDB, the GNU debugger.
-   Copyright (C) 2000-2016 Free Software Foundation, Inc.
+   Copyright (C) 2000-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -264,7 +264,8 @@ linespec_location_completer (struct cmd_list_element *ignore,
       char *s;
 
       file_to_match = (char *) xmalloc (colon - text + 1);
-      strncpy (file_to_match, text, colon - text + 1);
+      strncpy (file_to_match, text, colon - text);
+      file_to_match[colon - text] = '\0';
       /* Remove trailing colons and quotes from the file name.  */
       for (s = file_to_match + (colon - text);
 	   s > file_to_match;
@@ -610,8 +611,7 @@ expression_completer (struct cmd_list_element *ignore,
       for (;;)
 	{
 	  type = check_typedef (type);
-	  if (TYPE_CODE (type) != TYPE_CODE_PTR
-	      && TYPE_CODE (type) != TYPE_CODE_REF)
+	  if (TYPE_CODE (type) != TYPE_CODE_PTR && !TYPE_IS_REFERENCE (type))
 	    break;
 	  type = TYPE_TARGET_TYPE (type);
 	}

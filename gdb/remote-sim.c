@@ -1,6 +1,6 @@
 /* Generic remote debugging interface for simulators.
 
-   Copyright (C) 1993-2016 Free Software Foundation, Inc.
+   Copyright (C) 1993-2017 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
    Steve Chamberlain (sac@cygnus.com).
@@ -429,8 +429,9 @@ gdbsim_fetch_register (struct target_ops *ops,
 		       struct regcache *regcache, int regno)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct inferior *inf = find_inferior_ptid (regcache_get_ptid (regcache));
   struct sim_inferior_data *sim_data
-    = get_sim_inferior_data (current_inferior (), SIM_INSTANCE_NEEDED);
+    = get_sim_inferior_data (inf, SIM_INSTANCE_NEEDED);
 
   if (regno == -1)
     {
@@ -505,8 +506,9 @@ gdbsim_store_register (struct target_ops *ops,
 		       struct regcache *regcache, int regno)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct inferior *inf = find_inferior_ptid (regcache_get_ptid (regcache));
   struct sim_inferior_data *sim_data
-    = get_sim_inferior_data (current_inferior (), SIM_INSTANCE_NEEDED);
+    = get_sim_inferior_data (inf, SIM_INSTANCE_NEEDED);
 
   if (regno == -1)
     {
@@ -554,7 +556,7 @@ gdbsim_kill (struct target_ops *ops)
 
   /* There is no need to `kill' running simulator - the simulator is
      not running.  Mourning it is enough.  */
-  target_mourn_inferior ();
+  target_mourn_inferior (inferior_ptid);
 }
 
 /* Load an executable file into the target process.  This is expected to

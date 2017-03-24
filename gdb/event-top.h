@@ -1,6 +1,6 @@
 /* Definitions used by event-top.c, for GDB, the GNU debugger.
 
-   Copyright (C) 1999-2016 Free Software Foundation, Inc.
+   Copyright (C) 1999-2017 Free Software Foundation, Inc.
 
    Written by Elena Zannoni <ezannoni@cygnus.com> of Cygnus Solutions.
 
@@ -28,12 +28,12 @@ struct cmd_list_element;
    FIXME: these should really go into top.h.  */
 
 extern void display_gdb_prompt (const char *new_prompt);
-void gdb_setup_readline (void);
-void gdb_disable_readline (void);
+extern void gdb_setup_readline (int);
+extern void gdb_disable_readline (void);
 extern void async_init_signals (void);
-extern void set_async_editing_command (char *args, int from_tty,
-				       struct cmd_list_element *c);
+extern void change_line_handler (int);
 
+extern void command_line_handler (char *rl);
 extern void command_handler (char *command);
 
 /* Signal to catch ^Z typed while reading a command: SIGTSTP or SIGCONT.  */
@@ -54,12 +54,9 @@ extern void async_enable_stdin (void);
 /* Exported variables from event-top.c.
    FIXME: these should really go into top.h.  */
 
-extern int async_command_editing_p;
+extern int set_editing_cmd_var;
 extern int exec_done_display_p;
 extern struct prompts the_prompts;
-extern void (*call_readline) (void *);
-extern void (*input_handler) (char *);
-extern int input_fd;
 extern void (*after_char_processing_hook) (void);
 extern int call_stdin_event_handler_again_p;
 extern void gdb_readline_no_editing_callback (void *client_data);
@@ -74,7 +71,5 @@ extern void gdb_rl_callback_handler_install (const char *prompt);
 /* Reinstall the readline callback handler (with no prompt), if not
    currently installed.  */
 extern void gdb_rl_callback_handler_reinstall (void);
-
-extern void cli_command_loop (void *);
 
 #endif

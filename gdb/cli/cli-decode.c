@@ -1,6 +1,6 @@
 /* Handle lists of commands, their decoding and documentation, for GDB.
 
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -253,6 +253,7 @@ add_cmd (const char *name, enum command_class theclass, cmd_cfunc_ftype *fun,
   c->user_commands = NULL;
   c->cmd_pointer = NULL;
   c->alias_chain = NULL;
+  c->suppress_notification = NULL;
 
   return c;
 }
@@ -883,7 +884,22 @@ add_com_alias (const char *name, const char *oldname, enum command_class theclas
 {
   return add_alias_cmd (name, oldname, theclass, abbrev_flag, &cmdlist);
 }
-
+
+/* Add an element with a suppress notification to the list of commands.  */
+
+struct cmd_list_element *
+add_com_suppress_notification (const char *name, enum command_class theclass,
+			       cmd_cfunc_ftype *fun, const char *doc,
+			       int *suppress_notification)
+{
+  struct cmd_list_element *element;
+
+  element = add_cmd (name, theclass, fun, doc, &cmdlist);
+  element->suppress_notification = suppress_notification;
+
+  return element;
+}
+
 /* Recursively walk the commandlist structures, and print out the
    documentation of commands that match our regex in either their
    name, or their documentation.
@@ -1239,7 +1255,9 @@ find_cmd (const char *command, int len, struct cmd_list_element *clist,
   return found;
 }
 
-static int
+/* Return the length of command name in TEXT.  */
+
+int
 find_command_name_length (const char *text)
 {
   const char *p = text;
@@ -1315,7 +1333,7 @@ valid_user_defined_cmd_name_p (const char *name)
    if no prefix command was ever found.  For example, in the case of "info a",
    "info" matches without ambiguity, but "a" could be "args" or "address", so
    *RESULT_LIST is set to the cmd_list_element for "info".  So in this case
-   RESULT_LIST should not be interpeted as a pointer to the beginning of a
+   RESULT_LIST should not be interpreted as a pointer to the beginning of a
    list; it simply points to a specific command.  In the case of an ambiguous
    return *TEXT is advanced past the last non-ambiguous prefix (e.g.
    "info t" can be "info types" or "info target"; upon return *TEXT has been
@@ -1361,19 +1379,6 @@ lookup_cmd_1 (const char **text, struct cmd_list_element *clist,
   found = 0;
   nfound = 0;
   found = find_cmd (command, len, clist, ignore_help_classes, &nfound);
-
-  /* We didn't find the command in the entered case, so lower case it
-     and search again.  */
-  if (!found || nfound == 0)
-    {
-      for (tmp = 0; tmp < len; tmp++)
-	{
-	  char x = command[tmp];
-
-	  command[tmp] = isupper (x) ? tolower (x) : x;
-	}
-      found = find_cmd (command, len, clist, ignore_help_classes, &nfound);
-    }
 
   /* If nothing matches, we have a simple failure.  */
   if (nfound == 0)
@@ -1715,20 +1720,6 @@ lookup_cmd_composition (const char *text,
       nfound = 0;
       *cmd = find_cmd (command, len, cur_list, 1, &nfound);
       
-      /* We didn't find the command in the entered case, so lower case
-	 it and search again.
-      */
-      if (!*cmd || nfound == 0)
-	{
-	  for (tmp = 0; tmp < len; tmp++)
-	    {
-	      char x = command[tmp];
-
-	      command[tmp] = isupper (x) ? tolower (x) : x;
-	    }
-	  *cmd = find_cmd (command, len, cur_list, 1, &nfound);
-	}
-      
       if (*cmd == CMD_LIST_AMBIGUOUS)
 	{
 	  return 0;              /* ambiguous */
@@ -1885,7 +1876,19 @@ void
 cmd_func (struct cmd_list_element *cmd, char *args, int from_tty)
 {
   if (cmd_func_p (cmd))
-    (*cmd->func) (cmd, args, from_tty);
+    {
+      struct cleanup *cleanups = make_cleanup (null_cleanup, NULL);
+
+      if (cmd->suppress_notification != NULL)
+	{
+	  make_cleanup_restore_integer (cmd->suppress_notification);
+	  *cmd->suppress_notification = 1;
+	}
+
+      (*cmd->func) (cmd, args, from_tty);
+
+      do_cleanups (cleanups);
+    }
   else
     error (_("Invalid command"));
 }

@@ -1,5 +1,5 @@
 # Expect script for simple PE tests that require the just-built binutils only.
-#   Copyright (C) 2004-2016 Free Software Foundation, Inc.
+#   Copyright (C) 2004-2017 Free Software Foundation, Inc.
 #
 # This file is part of the GNU Binutils.
 #
@@ -101,4 +101,6 @@ set foreign_sym_test {
    {{nm -C non-c-lang-syms.d}} "non-c-lang-syms.x"}
 }
 
+# MCore rearranges symbol order.
+setup_xfail mcore-*-pe
 run_ld_link_tests $foreign_sym_test

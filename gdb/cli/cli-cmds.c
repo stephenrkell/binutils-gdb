@@ -1,6 +1,6 @@
 /* GDB CLI commands.
 
-   Copyright (C) 2000-2016 Free Software Foundation, Inc.
+   Copyright (C) 2000-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,6 @@
 
 #include "defs.h"
 #include "arch-utils.h"
-#include "dyn-string.h"
 #include "readline/readline.h"
 #include "readline/tilde.h"
 #include "completer.h"
@@ -56,6 +55,8 @@
 #endif
 
 #include <fcntl.h>
+#include <algorithm>
+#include <string>
 
 /* Prototypes for local command functions */
 
@@ -253,7 +254,7 @@ complete_command (char *arg, int from_tty)
     {
       /* Only print this for non-mi frontends.  An MI frontend may not
 	 be able to handle this.  */
-      if (!ui_out_is_mi_like_p (current_uiout))
+      if (!current_uiout->is_mi_like_p ())
 	{
 	  printf_unfiltered (_("max-completions is zero,"
 			       " completion is disabled.\n"));
@@ -343,12 +344,23 @@ show_configuration (char *args, int from_tty)
 void
 quit_command (char *args, int from_tty)
 {
+  int exit_code = 0;
+
+  /* An optional expression may be used to cause gdb to terminate with
+     the value of that expression.  */
+  if (args)
+    {
+      struct value *val = parse_and_eval (args);
+
+      exit_code = (int) value_as_long (val);
+    }
+
   if (!quit_confirm ())
     error (_("Not confirmed."));
 
   query_if_trace_running (from_tty);
 
-  quit_force (args, from_tty);
+  quit_force (args ? &exit_code : NULL, from_tty);
 }
 
 static void
@@ -918,7 +930,7 @@ list_command (char *arg, int from_tty)
 	{
 	  int first;
 
-	  first = max (cursal.line - get_lines_to_list () / 2, 1);
+	  first = std::max (cursal.line - get_lines_to_list () / 2, 1);
 
 	  /* A small special case --- if listing backwards, and we
 	     should list only one line, list the preceding line,
@@ -945,8 +957,8 @@ list_command (char *arg, int from_tty)
 	    error (_("Already at the start of %s."),
 		   symtab_to_filename_for_display (cursal.symtab));
 	  print_source_lines (cursal.symtab,
-			      max (get_first_line_listed ()
-				   - get_lines_to_list (), 1),
+			      std::max (get_first_line_listed ()
+					- get_lines_to_list (), 1),
 			      get_first_line_listed (), 0);
 	}
 
@@ -1090,7 +1102,7 @@ list_command (char *arg, int from_tty)
     error (_("No default source file yet.  Do \"help list\"."));
   if (dummy_beg)
     print_source_lines (sal_end.symtab,
-			max (sal_end.line - (get_lines_to_list () - 1), 1),
+			std::max (sal_end.line - (get_lines_to_list () - 1), 1),
 			sal_end.line + 1, 0);
   else if (sal.symtab == 0)
     error (_("No default source file yet.  Do \"help list\"."));
@@ -1136,7 +1148,7 @@ print_disassembly (struct gdbarch *gdbarch, const char *name,
 			 paddress (gdbarch, low), paddress (gdbarch, high));
 
       /* Dump the specified range.  */
-      gdb_disassembly (gdbarch, current_uiout, 0, flags, -1, low, high);
+      gdb_disassembly (gdbarch, current_uiout, flags, -1, low, high);
 
       printf_filtered ("End of assembler dump.\n");
       gdb_flush (gdb_stdout);
@@ -1370,11 +1382,11 @@ apropos_command (char *searchstr, int from_tty)
    This does not take care of quoting elements in case they contain spaces
    on purpose.  */
 
-static dyn_string_t
-argv_to_dyn_string (char **argv, int n)
+static std::string
+argv_to_string (char **argv, int n)
 {
   int i;
-  dyn_string_t result = dyn_string_new (10);
+  std::string result;
 
   gdb_assert (argv != NULL);
   gdb_assert (n >= 0 && n <= countargv (argv));
@@ -1382,8 +1394,8 @@ argv_to_dyn_string (char **argv, int n)
   for (i = 0; i < n; ++i)
     {
       if (i > 0)
-	dyn_string_append_char (result, ' ');
-      dyn_string_append_cstr (result, argv[i]);
+	result += " ";
+      result += argv[i];
     }
 
   return result;
@@ -1425,9 +1437,9 @@ alias_command (char *args, int from_tty)
 {
   int i, alias_argc, command_argc;
   int abbrev_flag = 0;
-  char *args2, *equals, *alias, *command;
+  char *args2, *equals;
+  const char *alias, *command;
   char **alias_argv, **command_argv;
-  dyn_string_t alias_dyn_string, command_dyn_string;
   struct cleanup *cleanup;
 
   if (args == NULL || strchr (args, '=') == NULL)
@@ -1479,16 +1491,14 @@ alias_command (char *args, int from_tty)
   /* COMMAND must exist.
      Reconstruct the command to remove any extraneous spaces,
      for better error messages.  */
-  command_dyn_string = argv_to_dyn_string (command_argv, command_argc);
-  make_cleanup_dyn_string_delete (command_dyn_string);
-  command = dyn_string_buf (command_dyn_string);
+  std::string command_string (argv_to_string (command_argv, command_argc));
+  command = command_string.c_str ();
   if (! valid_command_p (command))
     error (_("Invalid command to alias to: %s"), command);
 
   /* ALIAS must not exist.  */
-  alias_dyn_string = argv_to_dyn_string (alias_argv, alias_argc);
-  make_cleanup_dyn_string_delete (alias_dyn_string);
-  alias = dyn_string_buf (alias_dyn_string);
+  std::string alias_string (argv_to_string (alias_argv, alias_argc));
+  alias = alias_string.c_str ();
   if (valid_command_p (alias))
     error (_("Alias already exists: %s"), alias);
 
@@ -1509,7 +1519,6 @@ alias_command (char *args, int from_tty)
     }
   else
     {
-      dyn_string_t alias_prefix_dyn_string, command_prefix_dyn_string;
       const char *alias_prefix, *command_prefix;
       struct cmd_list_element *c_alias, *c_command;
 
@@ -1518,14 +1527,12 @@ alias_command (char *args, int from_tty)
 
       /* Create copies of ALIAS and COMMAND without the last word,
 	 and use that to verify the leading elements match.  */
-      alias_prefix_dyn_string =
-	argv_to_dyn_string (alias_argv, alias_argc - 1);
-      make_cleanup_dyn_string_delete (alias_prefix_dyn_string);
-      command_prefix_dyn_string =
-	argv_to_dyn_string (alias_argv, command_argc - 1);
-      make_cleanup_dyn_string_delete (command_prefix_dyn_string);
-      alias_prefix = dyn_string_buf (alias_prefix_dyn_string);
-      command_prefix = dyn_string_buf (command_prefix_dyn_string);
+      std::string alias_prefix_string (argv_to_string (alias_argv,
+						       alias_argc - 1));
+      std::string command_prefix_string (argv_to_string (alias_argv,
+							 command_argc - 1));
+      alias_prefix = alias_prefix_string.c_str ();
+      command_prefix = command_prefix_string.c_str ();
 
       c_command = lookup_cmd_1 (& command_prefix, cmdlist, NULL, 1);
       /* We've already tried to look up COMMAND.  */

@@ -1,5 +1,5 @@
 /* tc-dlx.c -- Assemble for the DLX
-   Copyright (C) 2002-2016 Free Software Foundation, Inc.
+   Copyright (C) 2002-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -24,6 +24,8 @@
 #include "safe-ctype.h"
 #include "tc-dlx.h"
 #include "opcode/dlx.h"
+#include "elf/dlx.h"
+#include "bfd/elf32-dlx.h"
 
 /* Make it easier to clone this machine desc into another one.  */
 #define	machine_opcode      dlx_opcode
@@ -774,10 +776,11 @@ machine_ip (char *str)
 	  /* Macro move operand/reg.  */
 	  if (operand->X_op == O_register)
 	    {
-	      /* Its a register.  */
+	      /* It's a register.  */
 	      reg_shift = 21;
 	      goto general_reg;
 	    }
+	  /* Fall through.  */
 
 	  /* The immediate 16 bits literal, bit 0-15.  */
 	case 'i':

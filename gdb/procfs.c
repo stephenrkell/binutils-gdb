@@ -1,6 +1,6 @@
 /* Machine independent support for SVR4 /proc (process file system) for GDB.
 
-   Copyright (C) 1999-2016 Free Software Foundation, Inc.
+   Copyright (C) 1999-2017 Free Software Foundation, Inc.
 
    Written by Michael Snyder at Cygnus Solutions.
    Based on work by Fred Fish, Stu Grossman, Geoff Noer, and others.
@@ -791,7 +791,7 @@ destroy_procinfo (procinfo *pi)
 static void
 do_destroy_procinfo_cleanup (void *pi)
 {
-  destroy_procinfo (pi);
+  destroy_procinfo ((procinfo *) pi);
 }
 
 enum { NOKILL, KILL };
@@ -845,7 +845,7 @@ sysset_t_alloc (procinfo * pi)
   sysset_t *ret;
   int size = sysset_t_size (pi);
 
-  ret = xmalloc (size);
+  ret = (sysset_t *) xmalloc (size);
 #ifdef DYNAMIC_SYSCALLS
   ret->pr_size = ((pi->num_syscalls + (8 * sizeof (uint64_t) - 1))
 		  / (8 * sizeof (uint64_t)));
@@ -1675,7 +1675,7 @@ proc_set_traced_sysentry (procinfo *pi, sysset_t *sysset)
 		  - sizeof (sysset_t)
 		  + sysset_t_size (pi);
 
-    argp = xmalloc (argp_size);
+    argp = (struct gdb_proc_ctl_pcsentry *) xmalloc (argp_size);
 
     argp->cmd = PCSENTRY;
     memcpy (&argp->sysset, sysset, sysset_t_size (pi));
@@ -1720,7 +1720,7 @@ proc_set_traced_sysexit (procinfo *pi, sysset_t *sysset)
 		  - sizeof (sysset_t)
 		  + sysset_t_size (pi);
 
-    argp = xmalloc (argp_size);
+    argp = (struct gdb_proc_ctl_pcsexit *) xmalloc (argp_size);
 
     argp->cmd = PCSEXIT;
     memcpy (&argp->sysset, sysset, sysset_t_size (pi));
@@ -2512,9 +2512,13 @@ proc_get_LDT_entry (procinfo *pi, int key)
 	break;	/* end of table */
       /* If key matches, return this entry.  */
       if (ldt_entry->sel == key)
-	return ldt_entry;
+	{
+	  do_cleanups (old_chain);
+	  return ldt_entry;
+	}
     }
   /* Loop ended, match not found.  */
+  do_cleanups (old_chain);
   return NULL;
 #else
   int nldt, i;
@@ -2756,7 +2760,7 @@ proc_update_threads (procinfo *pi)
 static void
 do_closedir_cleanup (void *dir)
 {
-  closedir (dir);
+  closedir ((DIR *) dir);
 }
 
 static int
@@ -3215,15 +3219,16 @@ procfs_fetch_registers (struct target_ops *ops,
 {
   gdb_gregset_t *gregs;
   procinfo *pi;
-  int pid = ptid_get_pid (inferior_ptid);
-  int tid = ptid_get_lwp (inferior_ptid);
+  ptid_t ptid = regcache_get_ptid (regcache);
+  int pid = ptid_get_pid (ptid);
+  int tid = ptid_get_lwp (ptid);
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
 
   pi = find_procinfo_or_die (pid, tid);
 
   if (pi == NULL)
     error (_("procfs: fetch_registers failed to find procinfo for %s"),
-	   target_pid_to_str (inferior_ptid));
+	   target_pid_to_str (ptid));
 
   gregs = proc_get_gregs (pi);
   if (gregs == NULL)
@@ -3264,15 +3269,16 @@ procfs_store_registers (struct target_ops *ops,
 {
   gdb_gregset_t *gregs;
   procinfo *pi;
-  int pid = ptid_get_pid (inferior_ptid);
-  int tid = ptid_get_lwp (inferior_ptid);
+  ptid_t ptid = regcache_get_ptid (regcache);
+  int pid = ptid_get_pid (ptid);
+  int tid = ptid_get_lwp (ptid);
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
 
   pi = find_procinfo_or_die (pid, tid);
 
   if (pi == NULL)
     error (_("procfs: store_registers: failed to find procinfo for %s"),
-	   target_pid_to_str (inferior_ptid));
+	   target_pid_to_str (ptid));
 
   gregs = proc_get_gregs (pi);
   if (gregs == NULL)
@@ -3409,26 +3415,24 @@ dbx_link_addr (bfd *abfd)
 static int
 insert_dbx_link_bpt_in_file (int fd, CORE_ADDR ignored)
 {
-  bfd *abfd;
   long storage_needed;
   CORE_ADDR sym_addr;
 
-  abfd = gdb_bfd_fdopenr ("unamed", 0, fd);
+  gdb_bfd_ref_ptr abfd (gdb_bfd_fdopenr ("unamed", 0, fd));
   if (abfd == NULL)
     {
       warning (_("Failed to create a bfd: %s."), bfd_errmsg (bfd_get_error ()));
       return 0;
     }
 
-  if (!bfd_check_format (abfd, bfd_object))
+  if (!bfd_check_format (abfd.get (), bfd_object))
     {
       /* Not the correct format, so we can not possibly find the dbx_link
 	 symbol in it.	*/
-      gdb_bfd_unref (abfd);
       return 0;
     }
 
-  sym_addr = dbx_link_addr (abfd);
+  sym_addr = dbx_link_addr (abfd.get ());
   if (sym_addr != 0)
     {
       struct breakpoint *dbx_link_bpt;
@@ -3440,14 +3444,11 @@ insert_dbx_link_bpt_in_file (int fd, CORE_ADDR ignored)
       if (dbx_link_bpt == NULL)
 	{
 	  warning (_("Failed to insert dbx_link breakpoint."));
-	  gdb_bfd_unref (abfd);
 	  return 0;
 	}
-      gdb_bfd_unref (abfd);
       return 1;
     }
 
-  gdb_bfd_unref (abfd);
   return 0;
 }
 
@@ -3716,7 +3717,7 @@ wait_again:
 		    else
 		      {
 			/* How to keep going without returning to wfi: */
-			target_resume (ptid, 0, GDB_SIGNAL_0);
+			target_continue_no_signal (ptid);
 			goto wait_again;
 		      }
 		  }
@@ -3742,7 +3743,7 @@ wait_again:
 		    /* This is an internal event and should be transparent
 		       to wfi, so resume the execution and wait again.	See
 		       comment in procfs_init_inferior() for more details.  */
-		    target_resume (ptid, 0, GDB_SIGNAL_0);
+		    target_continue_no_signal (ptid);
 		    goto wait_again;
 		  }
 #endif
@@ -3836,7 +3837,7 @@ wait_again:
 		      add_thread (temp_ptid);
 
 		    status->kind = TARGET_WAITKIND_STOPPED;
-		    status->value.sig = 0;
+		    status->value.sig = GDB_SIGNAL_0;
 		    return retval;
 		  }
 #endif
@@ -4273,7 +4274,7 @@ procfs_kill_inferior (struct target_ops *ops)
 
       if (pi)
 	unconditionally_kill_inferior (pi);
-      target_mourn_inferior ();
+      target_mourn_inferior (inferior_ptid);
     }
 }
 
@@ -4567,7 +4568,7 @@ procfs_create_inferior (struct target_ops *ops, char *exec_file,
       if (path == NULL)
 	path = "/bin:/usr/bin";
 
-      tryname = alloca (strlen (path) + strlen (shell_file) + 2);
+      tryname = (char *) alloca (strlen (path) + strlen (shell_file) + 2);
       for (p = path; p != NULL; p = p1 ? p1 + 1: NULL)
 	{
 	  p1 = strchr (p, ':');
@@ -5367,7 +5368,8 @@ struct procfs_corefile_thread_data {
 static int
 procfs_corefile_thread_callback (procinfo *pi, procinfo *thread, void *data)
 {
-  struct procfs_corefile_thread_data *args = data;
+  struct procfs_corefile_thread_data *args
+    = (struct procfs_corefile_thread_data *) data;
 
   if (pi != NULL)
     {

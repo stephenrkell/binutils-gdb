@@ -1,5 +1,5 @@
 /* Native debugging support for Intel x86 running DJGPP.
-   Copyright (C) 1997-2016 Free Software Foundation, Inc.
+   Copyright (C) 1997-2017 Free Software Foundation, Inc.
    Written by Robert Hoehne.
 
    This file is part of GDB.
@@ -677,7 +677,7 @@ go32_create_inferior (struct target_ops *ops, char *exec_file,
   if (cmdlen > 1024*1024)
     error (_("Command line too long."));
 
-  cmdline = xmalloc (cmdlen + 4);
+  cmdline = (char *) xmalloc (cmdlen + 4);
   strcpy (cmdline + 1, args);
   /* If the command-line length fits into DOS 126-char limits, use the
      DOS command tail format; otherwise, tell v2loadimage to pass it
@@ -938,7 +938,7 @@ go32_terminal_ours (struct target_ops *self)
 static int
 go32_thread_alive (struct target_ops *ops, ptid_t ptid)
 {
-  return !ptid_equal (inferior_ptid, null_ptid);
+  return !ptid_equal (ptid, null_ptid);
 }
 
 static char *

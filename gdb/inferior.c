@@ -1,6 +1,6 @@
 /* Multi-process control for GDB, the GNU debugger.
 
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -249,12 +249,13 @@ exit_inferior_1 (struct inferior *inftoex, int silent)
 
   iterate_over_threads (delete_thread_of_inferior, &arg);
 
-  /* Notify the observers before removing the inferior from the list,
-     so that the observers have a chance to look it up.  */
   observer_notify_inferior_exit (inf);
 
   inf->pid = 0;
   inf->fake_pid_p = 0;
+  xfree (inf->priv);
+  inf->priv = NULL;
+
   if (inf->vfork_parent != NULL)
     {
       inf->vfork_parent->vfork_child = NULL;
@@ -550,6 +551,21 @@ inferior_pid_to_str (int pid)
     return _("<null>");
 }
 
+/* See inferior.h.  */
+
+void
+print_selected_inferior (struct ui_out *uiout)
+{
+  struct inferior *inf = current_inferior ();
+  const char *filename = inf->pspace->pspace_exec_filename;
+
+  if (filename == NULL)
+    filename = _("<noexec>");
+
+  uiout->message (_("[Switching to inferior %d [%s] (%s)]\n"),
+		  inf->num, inferior_pid_to_str (inf->pid), filename);
+}
+
 /* Prints the list of inferiors and their details on UIOUT.  This is a
    version of 'info_inferior_command' suitable for use from MI.
 
@@ -575,18 +591,18 @@ print_inferior (struct ui_out *uiout, char *requested_inferiors)
 
   if (inf_count == 0)
     {
-      ui_out_message (uiout, 0, "No inferiors.\n");
+      uiout->message ("No inferiors.\n");
       return;
     }
 
   old_chain = make_cleanup_ui_out_table_begin_end (uiout, 4, inf_count,
 						   "inferiors");
-  ui_out_table_header (uiout, 1, ui_left, "current", "");
-  ui_out_table_header (uiout, 4, ui_left, "number", "Num");
-  ui_out_table_header (uiout, 17, ui_left, "target-id", "Description");
-  ui_out_table_header (uiout, 17, ui_left, "exec", "Executable");
+  uiout->table_header (1, ui_left, "current", "");
+  uiout->table_header (4, ui_left, "number", "Num");
+  uiout->table_header (17, ui_left, "target-id", "Description");
+  uiout->table_header (17, ui_left, "exec", "Executable");
 
-  ui_out_table_body (uiout);
+  uiout->table_body ();
   for (inf = inferior_list; inf; inf = inf->next)
     {
       struct cleanup *chain2;
@@ -597,35 +613,34 @@ print_inferior (struct ui_out *uiout, char *requested_inferiors)
       chain2 = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
 
       if (inf == current_inferior ())
-	ui_out_field_string (uiout, "current", "*");
+	uiout->field_string ("current", "*");
       else
-	ui_out_field_skip (uiout, "current");
+	uiout->field_skip ("current");
 
-      ui_out_field_int (uiout, "number", inf->num);
+      uiout->field_int ("number", inf->num);
 
-      ui_out_field_string (uiout, "target-id",
-			   inferior_pid_to_str (inf->pid));
+      uiout->field_string ("target-id", inferior_pid_to_str (inf->pid));
 
       if (inf->pspace->pspace_exec_filename != NULL)
-	ui_out_field_string (uiout, "exec", inf->pspace->pspace_exec_filename);
+	uiout->field_string ("exec", inf->pspace->pspace_exec_filename);
       else
-	ui_out_field_skip (uiout, "exec");
+	uiout->field_skip ("exec");
 
       /* Print extra info that isn't really fit to always present in
 	 tabular form.  Currently we print the vfork parent/child
 	 relationships, if any.  */
       if (inf->vfork_parent)
 	{
-	  ui_out_text (uiout, _("\n\tis vfork child of inferior "));
-	  ui_out_field_int (uiout, "vfork-parent", inf->vfork_parent->num);
+	  uiout->text (_("\n\tis vfork child of inferior "));
+	  uiout->field_int ("vfork-parent", inf->vfork_parent->num);
 	}
       if (inf->vfork_child)
 	{
-	  ui_out_text (uiout, _("\n\tis vfork parent of inferior "));
-	  ui_out_field_int (uiout, "vfork-child", inf->vfork_child->num);
+	  uiout->text (_("\n\tis vfork parent of inferior "));
+	  uiout->field_int ("vfork-child", inf->vfork_child->num);
 	}
 
-      ui_out_text (uiout, "\n");
+      uiout->text ("\n");
       do_cleanups (chain2);
     }
 
@@ -635,17 +650,15 @@ print_inferior (struct ui_out *uiout, char *requested_inferiors)
 static void
 detach_inferior_command (char *args, int from_tty)
 {
-  int num, pid;
   struct thread_info *tp;
-  struct get_number_or_range_state state;
 
   if (!args || !*args)
     error (_("Requires argument (inferior id(s) to detach)"));
 
-  init_number_or_range (&state, args);
-  while (!state.finished)
+  number_or_range_parser parser (args);
+  while (!parser.finished ())
     {
-      num = get_number_or_range (&state);
+      int num = parser.get_number ();
 
       if (!valid_gdb_inferior_id (num))
 	{
@@ -653,7 +666,7 @@ detach_inferior_command (char *args, int from_tty)
 	  continue;
 	}
 
-      pid = gdb_inferior_id_to_pid (num);
+      int pid = gdb_inferior_id_to_pid (num);
       if (pid == 0)
 	{
 	  warning (_("Inferior ID %d is not running."), num);
@@ -676,17 +689,15 @@ detach_inferior_command (char *args, int from_tty)
 static void
 kill_inferior_command (char *args, int from_tty)
 {
-  int num, pid;
   struct thread_info *tp;
-  struct get_number_or_range_state state;
 
   if (!args || !*args)
     error (_("Requires argument (inferior id(s) to kill)"));
 
-  init_number_or_range (&state, args);
-  while (!state.finished)
+  number_or_range_parser parser (args);
+  while (!parser.finished ())
     {
-      num = get_number_or_range (&state);
+      int num = parser.get_number ();
 
       if (!valid_gdb_inferior_id (num))
 	{
@@ -694,7 +705,7 @@ kill_inferior_command (char *args, int from_tty)
 	  continue;
 	}
 
-      pid = gdb_inferior_id_to_pid (num);
+      int pid = gdb_inferior_id_to_pid (num);
       if (pid == 0)
 	{
 	  warning (_("Inferior ID %d is not running."), num);
@@ -728,13 +739,6 @@ inferior_command (char *args, int from_tty)
   if (inf == NULL)
     error (_("Inferior ID %d not known."), num);
 
-  printf_filtered (_("[Switching to inferior %d [%s] (%s)]\n"),
-		   inf->num,
-		   inferior_pid_to_str (inf->pid),
-		   (inf->pspace->pspace_exec_filename != NULL
-		    ? inf->pspace->pspace_exec_filename
-		    : _("<noexec>")));
-
   if (inf->pid != 0)
     {
       if (inf->pid != ptid_get_pid (inferior_ptid))
@@ -748,26 +752,18 @@ inferior_command (char *args, int from_tty)
 	  switch_to_thread (tp->ptid);
 	}
 
-      printf_filtered (_("[Switching to thread %s (%s)] "),
-		       print_thread_id (inferior_thread ()),
-		       target_pid_to_str (inferior_ptid));
+      observer_notify_user_selected_context_changed
+	(USER_SELECTED_INFERIOR
+	 | USER_SELECTED_THREAD
+	 | USER_SELECTED_FRAME);
     }
   else
     {
-      struct inferior *inf;
-
-      inf = find_inferior_id (num);
       set_current_inferior (inf);
       switch_to_thread (null_ptid);
       set_current_program_space (inf->pspace);
-    }
 
-  if (inf->pid != 0 && is_running (inferior_ptid))
-    ui_out_text (current_uiout, "(running)\n");
-  else if (inf->pid != 0)
-    {
-      ui_out_text (current_uiout, "\n");
-      print_stack_frame (get_selected_frame (NULL), 1, SRC_AND_LOC, 1);
+      observer_notify_user_selected_context_changed (USER_SELECTED_INFERIOR);
     }
 }
 
@@ -784,18 +780,14 @@ info_inferiors_command (char *args, int from_tty)
 static void
 remove_inferior_command (char *args, int from_tty)
 {
-  int num;
-  struct inferior *inf;
-  struct get_number_or_range_state state;
-
   if (args == NULL || *args == '\0')
     error (_("Requires an argument (inferior id(s) to remove)"));
 
-  init_number_or_range (&state, args);
-  while (!state.finished)
+  number_or_range_parser parser (args);
+  while (!parser.finished ())
     {
-      num = get_number_or_range (&state);
-      inf = find_inferior_id (num);
+      int num = parser.get_number ();
+      struct inferior *inf = find_inferior_id (num);
 
       if (inf == NULL)
 	{
@@ -805,7 +797,7 @@ remove_inferior_command (char *args, int from_tty)
 
       if (inf == current_inferior ())
 	{
-	  warning (_("Can not remove current symbol inferior %d."), num);
+	  warning (_("Can not remove current inferior %d."), num);
 	  continue;
 	}
     
@@ -855,7 +847,11 @@ add_inferior_command (char *args, int from_tty)
   int i, copies = 1;
   char *exec = NULL;
   char **argv;
+  symfile_add_flags add_flags = 0;
   struct cleanup *old_chain = make_cleanup (null_cleanup, NULL);
+
+  if (from_tty)
+    add_flags |= SYMFILE_VERBOSE;
 
   if (args)
     {
@@ -904,7 +900,7 @@ add_inferior_command (char *args, int from_tty)
 	  switch_to_thread (null_ptid);
 
 	  exec_file_attach (exec, from_tty);
-	  symbol_file_add_main (exec, from_tty);
+	  symbol_file_add_main (exec, add_flags);
 	}
     }
 

@@ -1,5 +1,5 @@
 /* YACC parser for C expressions, for GDB.
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -744,7 +744,7 @@ exp	:	SIZEOF '(' type ')'	%prec UNARY
 			       says of sizeof:  "When applied to a reference
 			       or a reference type, the result is the size of
 			       the referenced type."  */
-			  if (TYPE_CODE (type) == TYPE_CODE_REF)
+			  if (TYPE_IS_REFERENCE (type))
 			    type = check_typedef (TYPE_TARGET_TYPE (type));
 			  write_exp_elt_longcst (pstate,
 						 (LONGEST) TYPE_LENGTH (type));
@@ -1085,6 +1085,10 @@ ptr_operator:
 			{ insert_type (tp_reference); }
 	|	'&' ptr_operator
 			{ insert_type (tp_reference); }
+	|       ANDAND
+			{ insert_type (tp_rvalue_reference); }
+	|       ANDAND ptr_operator
+			{ insert_type (tp_rvalue_reference); }
 	;
 
 ptr_operator_ts: ptr_operator
@@ -1555,16 +1559,11 @@ oper:	OPERATOR NEW
 	|	OPERATOR OBJC_LBRAC ']'
 			{ $$ = operator_stoken ("[]"); }
 	|	OPERATOR conversion_type_id
-			{ char *name;
-			  long length;
-			  struct ui_file *buf = mem_fileopen ();
+			{ string_file buf;
 
-			  c_print_type ($2, NULL, buf, -1, 0,
+			  c_print_type ($2, NULL, &buf, -1, 0,
 					&type_print_raw_options);
-			  name = ui_file_xstrdup (buf, &length);
-			  ui_file_delete (buf);
-			  $$ = operator_stoken (name);
-			  free (name);
+			  $$ = operator_stoken (buf.c_str ());
 			}
 	;
 
@@ -3218,9 +3217,9 @@ c_print_token (FILE *file, int type, YYSTYPE value)
   switch (type)
     {
     case INT:
-      fprintf (file, "typed_val_int<%s, %s>",
-	       TYPE_SAFE_NAME (value.typed_val_int.type),
-	       pulongest (value.typed_val_int.val));
+      parser_fprintf (file, "typed_val_int<%s, %s>",
+		      TYPE_SAFE_NAME (value.typed_val_int.type),
+		      pulongest (value.typed_val_int.val));
       break;
 
     case CHAR:
@@ -3231,34 +3230,34 @@ c_print_token (FILE *file, int type, YYSTYPE value)
 	memcpy (copy, value.tsval.ptr, value.tsval.length);
 	copy[value.tsval.length] = '\0';
 
-	fprintf (file, "tsval<type=%d, %s>", value.tsval.type, copy);
+	parser_fprintf (file, "tsval<type=%d, %s>", value.tsval.type, copy);
       }
       break;
 
     case NSSTRING:
     case VARIABLE:
-      fprintf (file, "sval<%s>", copy_name (value.sval));
+      parser_fprintf (file, "sval<%s>", copy_name (value.sval));
       break;
 
     case TYPENAME:
-      fprintf (file, "tsym<type=%s, name=%s>",
-	       TYPE_SAFE_NAME (value.tsym.type),
-	       copy_name (value.tsym.stoken));
+      parser_fprintf (file, "tsym<type=%s, name=%s>",
+		      TYPE_SAFE_NAME (value.tsym.type),
+		      copy_name (value.tsym.stoken));
       break;
 
     case NAME:
     case UNKNOWN_CPP_NAME:
     case NAME_OR_INT:
     case BLOCKNAME:
-      fprintf (file, "ssym<name=%s, sym=%s, field_of_this=%d>",
-	       copy_name (value.ssym.stoken),
-	       (value.ssym.sym.symbol == NULL
-		? "(null)" : SYMBOL_PRINT_NAME (value.ssym.sym.symbol)),
-	       value.ssym.is_a_field_of_this);
+      parser_fprintf (file, "ssym<name=%s, sym=%s, field_of_this=%d>",
+		       copy_name (value.ssym.stoken),
+		       (value.ssym.sym.symbol == NULL
+			? "(null)" : SYMBOL_PRINT_NAME (value.ssym.sym.symbol)),
+		       value.ssym.is_a_field_of_this);
       break;
 
     case FILENAME:
-      fprintf (file, "bval<%s>", host_address_to_string (value.bval));
+      parser_fprintf (file, "bval<%s>", host_address_to_string (value.bval));
       break;
     }
 }

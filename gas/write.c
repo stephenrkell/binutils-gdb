@@ -1,5 +1,5 @@
 /* write.c - emit .o file
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -18,14 +18,13 @@
    Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
    02110-1301, USA.  */
 
-/* This thing should be set up to do byteordering correctly.  But...  */
+/* This thing should be set up to do byte ordering correctly.  But...  */
 
 #include "as.h"
 #include "subsegs.h"
 #include "obstack.h"
 #include "output-file.h"
 #include "dwarf2dbg.h"
-#include "libbfd.h"
 #include "compress-debug.h"
 
 #ifndef TC_FORCE_RELOCATION
@@ -579,7 +578,12 @@ size_seg (bfd *abfd, asection *sec, void *xxx ATTRIBUTE_UNUSED)
   x = bfd_set_section_flags (abfd, sec, flags);
   gas_assert (x);
 
-  newsize = md_section_align (sec, size);
+  /* If permitted, allow the backend to pad out the section
+     to some alignment boundary.  */
+  if (do_not_pad_sections_to_alignment)
+    newsize = size;
+  else
+    newsize = md_section_align (sec, size);
   x = bfd_set_section_size (abfd, sec, newsize);
   gas_assert (x);
 
@@ -1454,7 +1458,7 @@ compress_debug (bfd *abfd, asection *sec, void *xxx ATTRIBUTE_UNUSED)
   compressed_size = header_size;
 
   /* Stream the frags through the compression engine, adding new frags
-     as necessary to accomodate the compressed output.  */
+     as necessary to accommodate the compressed output.  */
   for (f = seginfo->frchainP->frch_root;
        f;
        f = f->fr_next)
@@ -1696,7 +1700,7 @@ set_symtab (void)
 }
 
 /* Finish the subsegments.  After every sub-segment, we fake an
-   ".align ...".  This conforms to BSD4.2 brane-damage.  We then fake
+   ".align ...".  This conforms to BSD4.2 brain-damage.  We then fake
    ".fill 0" because that is the kind of frag that requires least
    thought.  ".align" frags like to have a following frag since that
    makes calculating their intended length trivial.  */
@@ -1708,6 +1712,7 @@ set_symtab (void)
    code-bearing sections.  */
 #define SUB_SEGMENT_ALIGN(SEG, FRCHAIN)					\
   (!(FRCHAIN)->frch_next && subseg_text_p (SEG)				\
+   && !do_not_pad_sections_to_alignment					\
    ? get_recorded_alignment (SEG)					\
    : 0)
 #else
@@ -1727,31 +1732,31 @@ subsegs_finish_section (asection *s)
        frchainP != NULL;
        frchainP = frchainP->frch_next)
     {
-      int alignment = 0;
+      int alignment;
 
       subseg_set (s, frchainP->frch_subseg);
 
       /* This now gets called even if we had errors.  In that case,
 	 any alignment is meaningless, and, moreover, will look weird
 	 if we are generating a listing.  */
-      if (!had_errors ())
+      if (had_errors ())
+	do_not_pad_sections_to_alignment = 1;
+
+      alignment = SUB_SEGMENT_ALIGN (now_seg, frchainP);
+      if ((bfd_get_section_flags (now_seg->owner, now_seg) & SEC_MERGE)
+	  && now_seg->entsize)
 	{
-	  alignment = SUB_SEGMENT_ALIGN (now_seg, frchainP);
-	  if ((bfd_get_section_flags (now_seg->owner, now_seg) & SEC_MERGE)
-	      && now_seg->entsize)
+	  unsigned int entsize = now_seg->entsize;
+	  int entalign = 0;
+
+	  while ((entsize & 1) == 0)
 	    {
-	      unsigned int entsize = now_seg->entsize;
-	      int entalign = 0;
-
-	      while ((entsize & 1) == 0)
-		{
-		  ++entalign;
-		  entsize >>= 1;
-		}
-
-	      if (entalign > alignment)
-		alignment = entalign;
+	      ++entalign;
+	      entsize >>= 1;
 	    }
+
+	  if (entalign > alignment)
+	    alignment = entalign;
 	}
 
       if (subseg_text_p (now_seg))
@@ -1830,7 +1835,7 @@ write_object_file (void)
 #endif
 
   /* From now on, we don't care about sub-segments.  Build one frag chain
-     for each segment. Linked thru fr_next.  */
+     for each segment. Linked through fr_next.  */
 
   /* Remove the sections created by gas for its own purposes.  */
   {
@@ -2687,7 +2692,11 @@ relax_segment (struct frag *segment_frag_root, segT segment, int pass)
 		  know (fragP->fr_next);
 		  after = fragP->fr_next->fr_address + stretch;
 		  growth = target - after;
-		  if (growth < 0)
+
+		  /* Growth may be negative, but variable part of frag
+		     cannot have fewer than 0 chars.  That is, we can't
+		     .org backwards.  */
+		  if (address + fragP->fr_fix > target)
 		    {
 		      growth = 0;
 
@@ -2709,9 +2718,6 @@ relax_segment (struct frag *segment_frag_root, segT segment, int pass)
 			  break;
 			}
 
-		      /* Growth may be negative, but variable part of frag
-			 cannot have fewer than 0 chars.  That is, we can't
-			 .org backwards.  */
 		      as_bad_where (fragP->fr_file, fragP->fr_line,
 				    _("attempt to move .org backwards"));
 

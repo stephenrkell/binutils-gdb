@@ -1,5 +1,5 @@
 /* ARC target-dependent stuff.  Extension data structures.
-   Copyright (C) 1995-2016 Free Software Foundation, Inc.
+   Copyright (C) 1995-2017 Free Software Foundation, Inc.
 
    This file is part of libopcodes.
 
@@ -40,6 +40,10 @@
 #define ARC_EXTENSIONS_H
 
 #include "opcode/arc.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define IGNORE_FIRST_OPD 1
 
@@ -123,12 +127,16 @@ extern enum ExtReadWrite arcExtMap_coreReadWrite (int);
 extern const char * arcExtMap_coreRegName (int);
 extern const char * arcExtMap_auxRegName (long);
 extern const char * arcExtMap_condCodeName (int);
-extern const extInstruction_t *arcExtMap_insn (int, int);
+extern const extInstruction_t *arcExtMap_insn (int, unsigned long long);
 extern struct arc_opcode *arcExtMap_genOpcode (const extInstruction_t *,
 					       unsigned arc_target,
 					       const char **errmsg);
 
 /* Dump function (for debugging).  */
 extern void dump_ARC_extmap (void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ARC_EXTENSIONS_H */

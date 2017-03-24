@@ -1,5 +1,5 @@
 /* tc-ft32.c -- Assemble code for ft32
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -392,6 +392,8 @@ md_assemble (char *str)
   output[idx++] = 0xff & (b >> 8);
   output[idx++] = 0xff & (b >> 16);
   output[idx++] = 0xff & (b >> 24);
+
+  dwarf2_emit_insn (4);
 
   while (ISSPACE (*op_end))
     op_end++;

@@ -1,7 +1,7 @@
 /* *INDENT-OFF* */ /* ATTRIBUTE_PRINTF confuses indent, avoid running it
 		      for now.  */
 /* I/O, string, cleanup, and other random utilities for GDB.
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 1986-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,6 +22,8 @@
 #define UTILS_H
 
 #include "exceptions.h"
+#include "common/scoped_restore.h"
+#include <chrono>
 
 extern void initialize_utils (void);
 
@@ -50,7 +52,7 @@ extern const char *gdb_bfd_errmsg (bfd_error_type error_tag, char **matching);
 /* Reset the prompt_for_continue clock.  */
 void reset_prompt_for_continue_wait_time (void);
 /* Return the time spent in prompt_for_continue.  */
-struct timeval get_prompt_for_continue_wait_time (void);
+std::chrono::steady_clock::duration get_prompt_for_continue_wait_time ();
 
 /* Parsing utilites.  */
 
@@ -64,12 +66,6 @@ char **gdb_buildargv (const char *);
 
 extern struct cleanup *make_cleanup_freeargv (char **);
 
-struct dyn_string;
-extern struct cleanup *make_cleanup_dyn_string_delete (struct dyn_string *);
-
-struct ui_file;
-extern struct cleanup *make_cleanup_ui_file_delete (struct ui_file *);
-
 struct ui_out;
 extern struct cleanup *
   make_cleanup_ui_out_redirect_pop (struct ui_out *uiout);
@@ -82,8 +78,6 @@ extern struct cleanup *(make_cleanup_free_section_addr_info
 
 extern struct cleanup *make_cleanup_fclose (FILE *file);
 
-extern struct cleanup *make_cleanup_bfd_unref (bfd *abfd);
-
 struct obstack;
 extern struct cleanup *make_cleanup_obstack_free (struct obstack *obstack);
 
@@ -93,12 +87,6 @@ extern struct cleanup *make_cleanup_restore_uinteger (unsigned int *variable);
 struct target_ops;
 extern struct cleanup *make_cleanup_unpush_target (struct target_ops *ops);
 
-
-extern struct cleanup *
-  make_cleanup_restore_ui_out (struct ui_out **variable);
-extern struct cleanup *
-  make_cleanup_restore_ui_file (struct ui_file **variable);
-
 extern struct cleanup *make_cleanup_value_free_to_mark (struct value *);
 extern struct cleanup *make_cleanup_value_free (struct value *);
 
@@ -107,7 +95,17 @@ extern struct cleanup *make_cleanup_free_so (struct so_list *so);
 
 extern struct cleanup *make_cleanup_restore_current_language (void);
 
-extern struct cleanup *make_cleanup_htab_delete (htab_t htab);
+/* A deleter for a hash table.  */
+struct htab_deleter
+{
+  void operator() (htab *ptr) const
+  {
+    htab_delete (ptr);
+  }
+};
+
+/* A unique_ptr wrapper for htab_t.  */
+typedef std::unique_ptr<htab, htab_deleter> htab_up;
 
 struct parser_state;
 extern struct cleanup *make_cleanup_clear_parser_state
@@ -153,24 +151,33 @@ extern int yquery (const char *, ...) ATTRIBUTE_PRINTF (1, 2);
 
 extern void begin_line (void);
 
-extern void wrap_here (char *);
+extern void wrap_here (const char *);
 
 extern void reinitialize_more_filter (void);
 
 extern int pagination_enabled;
 
-/* Global ui_file streams.  These are all defined in main.c.  */
+extern struct ui_file **current_ui_gdb_stdout_ptr (void);
+extern struct ui_file **current_ui_gdb_stdin_ptr (void);
+extern struct ui_file **current_ui_gdb_stderr_ptr (void);
+extern struct ui_file **current_ui_gdb_stdlog_ptr (void);
+
+/* The current top level's ui_file streams.  */
+
 /* Normal results */
-extern struct ui_file *gdb_stdout;
+#define gdb_stdout (*current_ui_gdb_stdout_ptr ())
 /* Input stream */
-extern struct ui_file *gdb_stdin;
+#define gdb_stdin (*current_ui_gdb_stdin_ptr ())
 /* Serious error notifications */
-extern struct ui_file *gdb_stderr;
+#define gdb_stderr (*current_ui_gdb_stderr_ptr ())
 /* Log/debug/trace messages that should bypass normal stdout/stderr
    filtering.  For moment, always call this stream using
    *_unfiltered.  In the very near future that restriction shall be
    removed - either call shall be unfiltered.  (cagney 1999-06-13).  */
-extern struct ui_file *gdb_stdlog;
+#define gdb_stdlog (*current_ui_gdb_stdlog_ptr ())
+
+/* Truly global ui_file streams.  These are all defined in main.c.  */
+
 /* Target output that should bypass normal stdout/stderr filtering.
    For moment, always call this stream using *_unfiltered.  In the
    very near future that restriction shall be removed - either call
@@ -293,7 +300,7 @@ extern void (*deprecated_error_begin_hook) (void);
 
 extern char *warning_pre_print;
 
-extern void error_stream (struct ui_file *) ATTRIBUTE_NORETURN;
+extern void error_stream (const string_file &) ATTRIBUTE_NORETURN;
 
 extern void demangler_vwarning (const char *file, int line,
 			       const char *, va_list ap)
