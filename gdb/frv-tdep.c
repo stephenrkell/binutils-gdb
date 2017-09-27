@@ -39,8 +39,6 @@
 #include "frv-tdep.h"
 #include "objfiles.h"
 
-extern void _initialize_frv_tdep (void);
-
 struct frv_unwind_cache		/* was struct frame_extra_info */
   {
     /* The previous frame's inner-most stack address.  Used as this
@@ -87,7 +85,7 @@ struct gdbarch_tdep
   int num_hw_breakpoints;
 
   /* Register names.  */
-  char **register_names;
+  const char **register_names;
 };
 
 /* Return the FR-V ABI associated with GDBARCH.  */
@@ -147,8 +145,8 @@ new_variant (void)
   /* By default, don't supply any general-purpose or floating-point
      register names.  */
   var->register_names 
-    = (char **) xmalloc ((frv_num_regs + frv_num_pseudo_regs)
-                         * sizeof (char *));
+    = (const char **) xmalloc ((frv_num_regs + frv_num_pseudo_regs)
+			       * sizeof (const char *));
   for (r = 0; r < frv_num_regs + frv_num_pseudo_regs; r++)
     var->register_names[r] = "";
 
@@ -1582,7 +1580,6 @@ frv_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       break;
     }
 
-  set_gdbarch_print_insn (gdbarch, print_insn_frv);
   if (frv_abi (gdbarch) == FRV_ABI_FDPIC)
     set_gdbarch_convert_from_func_ptr_addr (gdbarch,
 					    frv_convert_from_func_ptr_addr);

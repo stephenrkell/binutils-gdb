@@ -6295,15 +6295,11 @@ arm_get_next_pcs_is_thumb (struct arm_get_next_pcs *self)
    single-step support.  We find the target of the coming instructions
    and breakpoint them.  */
 
-VEC (CORE_ADDR) *
+std::vector<CORE_ADDR>
 arm_software_single_step (struct regcache *regcache)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
   struct arm_get_next_pcs next_pcs_ctx;
-  CORE_ADDR pc;
-  int i;
-  VEC (CORE_ADDR) *next_pcs = NULL;
-  struct cleanup *old_chain = make_cleanup (VEC_cleanup (CORE_ADDR), &next_pcs);
 
   arm_get_next_pcs_ctor (&next_pcs_ctx,
 			 &arm_get_next_pcs_ops,
@@ -6312,15 +6308,10 @@ arm_software_single_step (struct regcache *regcache)
 			 0,
 			 regcache);
 
-  next_pcs = arm_get_next_pcs (&next_pcs_ctx);
+  std::vector<CORE_ADDR> next_pcs = arm_get_next_pcs (&next_pcs_ctx);
 
-  for (i = 0; VEC_iterate (CORE_ADDR, next_pcs, i, pc); i++)
-    {
-      pc = gdbarch_addr_bits_remove (gdbarch, pc);
-      VEC_replace (CORE_ADDR, next_pcs, i, pc);
-    }
-
-  discard_cleanups (old_chain);
+  for (CORE_ADDR &pc_ref : next_pcs)
+    pc_ref = gdbarch_addr_bits_remove (gdbarch, pc_ref);
 
   return next_pcs;
 }
@@ -7782,10 +7773,15 @@ gdb_print_insn_arm (bfd_vma memaddr, disassemble_info *info)
   else
     info->symbols = NULL;
 
-  if (info->endian == BFD_ENDIAN_BIG)
-    return print_insn_big_arm (memaddr, info);
-  else
-    return print_insn_little_arm (memaddr, info);
+  /* GDB is able to get bfd_mach from the exe_bfd, info->mach is
+     accurate, so mark USER_SPECIFIED_MACHINE_TYPE bit.  Otherwise,
+     opcodes/arm-dis.c:print_insn reset info->mach, and it will trigger
+     the assert on the mismatch of info->mach and bfd_get_mach (exec_bfd)
+     in default_print_insn.  */
+  if (exec_bfd != NULL)
+    info->flags |= USER_SPECIFIED_MACHINE_TYPE;
+
+  return default_print_insn (memaddr, info);
 }
 
 /* The following define instruction sequences that will cause ARM
@@ -7898,11 +7894,6 @@ arm_breakpoint_kind_from_current_state (struct gdbarch *gdbarch,
   if (target_read_memory (regcache_read_pc (regcache), buf, 4) == 0)
     {
       struct arm_get_next_pcs next_pcs_ctx;
-      CORE_ADDR pc;
-      int i;
-      VEC (CORE_ADDR) *next_pcs = NULL;
-      struct cleanup *old_chain
-	= make_cleanup (VEC_cleanup (CORE_ADDR), &next_pcs);
 
       arm_get_next_pcs_ctor (&next_pcs_ctx,
 			     &arm_get_next_pcs_ops,
@@ -7911,17 +7902,15 @@ arm_breakpoint_kind_from_current_state (struct gdbarch *gdbarch,
 			     0,
 			     regcache);
 
-      next_pcs = arm_get_next_pcs (&next_pcs_ctx);
+      std::vector<CORE_ADDR> next_pcs = arm_get_next_pcs (&next_pcs_ctx);
 
       /* If MEMADDR is the next instruction of current pc, do the
 	 software single step computation, and get the thumb mode by
 	 the destination address.  */
-      for (i = 0; VEC_iterate (CORE_ADDR, next_pcs, i, pc); i++)
+      for (CORE_ADDR pc : next_pcs)
 	{
 	  if (UNMAKE_THUMB_ADDR (pc) == *pcptr)
 	    {
-	      do_cleanups (old_chain);
-
 	      if (IS_THUMB_ADDR (pc))
 		{
 		  *pcptr = MAKE_THUMB_ADDR (*pcptr);
@@ -7931,8 +7920,6 @@ arm_breakpoint_kind_from_current_state (struct gdbarch *gdbarch,
 		return ARM_BP_KIND_ARM;
 	    }
 	}
-
-      do_cleanups (old_chain);
     }
 
   return arm_breakpoint_kind_from_pc (gdbarch, pcptr);
@@ -8160,7 +8147,7 @@ arm_store_return_value (struct type *type, struct regcache *regs,
 
   if (TYPE_CODE (type) == TYPE_CODE_FLT)
     {
-      gdb_byte buf[MAX_REGISTER_SIZE];
+      gdb_byte buf[FP_REGISTER_SIZE];
 
       switch (gdbarch_tdep (gdbarch)->fp_model)
 	{
@@ -8367,7 +8354,7 @@ arm_skip_stub (struct frame_info *frame, CORE_ADDR pc)
     {
       /* Use the name suffix to determine which register contains the
          target PC.  */
-      static char *table[15] =
+      static const char *table[15] =
       {"r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
        "r8", "r9", "sl", "fp", "ip", "sp", "lr"
       };
@@ -8562,7 +8549,7 @@ show_disassembly_style_sfunc (struct ui_file *file, int from_tty,
   char *options = get_disassembler_options (gdbarch);
   const char *style = "";
   int len = 0;
-  char *opt;
+  const char *opt;
 
   FOR_EACH_DISASSEMBLER_OPTION (opt, options)
     if (CONST_STRNEQ (opt, "reg-names-"))
@@ -9404,6 +9391,12 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   /* On ARM targets char defaults to unsigned.  */
   set_gdbarch_char_signed (gdbarch, 0);
 
+  /* wchar_t is unsigned under the AAPCS.  */
+  if (tdep->arm_abi == ARM_ABI_AAPCS)
+    set_gdbarch_wchar_signed (gdbarch, 0);
+  else
+    set_gdbarch_wchar_signed (gdbarch, 1);
+
   /* Note: for displaced stepping, this includes the breakpoint, and one word
      of additional scratch space.  This setting isn't used for anything beside
      displaced stepping at present.  */
@@ -9589,12 +9582,12 @@ arm_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
 		      (unsigned long) tdep->lowest_pc);
 }
 
+#if GDB_SELF_TEST
 namespace selftests
 {
 static void arm_record_test (void);
 }
-
-extern initialize_file_ftype _initialize_arm_tdep; /* -Wmissing-prototypes */
+#endif
 
 void
 _initialize_arm_tdep (void)
@@ -9732,7 +9725,7 @@ vfp - VFP co-processor."),
 			   &setdebuglist, &showdebuglist);
 
 #if GDB_SELF_TEST
-  register_self_test (selftests::arm_record_test);
+  selftests::register_test ("arm-record", selftests::arm_record_test);
 #endif
 
 }

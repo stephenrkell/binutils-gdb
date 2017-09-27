@@ -290,7 +290,7 @@ s390_parse_cpu (const char *         arg,
       S390_INSTR_FLAG_HTM },
     { STRING_COMMA_LEN ("z13"), STRING_COMMA_LEN ("arch11"),
       S390_INSTR_FLAG_HTM | S390_INSTR_FLAG_VX },
-    { STRING_COMMA_LEN ("arch12"), STRING_COMMA_LEN (""),
+    { STRING_COMMA_LEN ("z14"), STRING_COMMA_LEN ("arch12"),
       S390_INSTR_FLAG_HTM | S390_INSTR_FLAG_VX }
   };
   static struct
@@ -1270,7 +1270,8 @@ md_gather_operands (char *str,
 
       operand = s390_operands + *opindex_ptr;
 
-      if ((opcode->flags & S390_INSTR_FLAG_OPTPARM) && *str == '\0')
+      if ((opcode->flags & (S390_INSTR_FLAG_OPTPARM | S390_INSTR_FLAG_OPTPARM2))
+	  && *str == '\0')
 	{
 	  /* Optional parameters might need to be ORed with a
 	     value so calling s390_insert_operand is needed.  */
@@ -1304,19 +1305,6 @@ md_gather_operands (char *str,
 	as_bad (_("illegal operand"));
       else if (ex.X_op == O_absent)
 	{
-	  /* No operands, check if all operands can be skipped.  */
-	  while (*opindex_ptr != 0 && operand->flags & S390_OPERAND_OPTIONAL)
-	    {
-	      if (operand->flags & S390_OPERAND_DISP)
-		{
-		  /* An optional displacement makes the whole D(X,B)
-		     D(L,B) or D(B) block optional.  */
-		  do {
-		    operand = s390_operands + *(++opindex_ptr);
-		  } while (!(operand->flags & S390_OPERAND_BASE));
-		}
-	      operand = s390_operands + *(++opindex_ptr);
-	    }
 	  if (opindex_ptr[0] == '\0')
 	    break;
 	  as_bad (_("missing operand"));
@@ -1486,8 +1474,6 @@ md_gather_operands (char *str,
 		      while (opindex_ptr[1] != '\0')
 			{
 			  operand = s390_operands + *(++opindex_ptr);
-			  if (operand->flags & S390_OPERAND_OPTIONAL)
-			    continue;
 			  as_bad (_("syntax error; expected ','"));
 			  break;
 			}
@@ -1530,8 +1516,6 @@ md_gather_operands (char *str,
 		  while (opindex_ptr[1] != '\0')
 		    {
 		      operand = s390_operands + *(++opindex_ptr);
-		      if (operand->flags & S390_OPERAND_OPTIONAL)
-			continue;
 		      as_bad (_("syntax error; expected ','"));
 		      break;
 		    }
@@ -1553,7 +1537,18 @@ md_gather_operands (char *str,
 	      str++;
 	    }
 
-	  if ((opcode->flags & S390_INSTR_FLAG_OPTPARM) && *str == '\0')
+	  if ((opcode->flags & (S390_INSTR_FLAG_OPTPARM
+				| S390_INSTR_FLAG_OPTPARM2))
+	      && opindex_ptr[1] != '\0'
+	      && opindex_ptr[2] == '\0'
+	      && *str == '\0')
+	    continue;
+
+	  if ((opcode->flags & S390_INSTR_FLAG_OPTPARM2)
+	      && opindex_ptr[1] != '\0'
+	      && opindex_ptr[2] != '\0'
+	      && opindex_ptr[3] == '\0'
+	      && *str == '\0')
 	    continue;
 
 	  /* If there is a next operand it must be separated by a comma.  */
@@ -1564,8 +1559,6 @@ md_gather_operands (char *str,
 		  while (opindex_ptr[1] != '\0')
 		    {
 		      operand = s390_operands + *(++opindex_ptr);
-		      if (operand->flags & S390_OPERAND_OPTIONAL)
-			continue;
 		      as_bad (_("syntax error; expected ','"));
 		      break;
 		    }
@@ -2133,9 +2126,11 @@ md_pcrel_from_section (fixS *fixp, segT sec ATTRIBUTE_UNUSED)
 int
 tc_s390_fix_adjustable (fixS *fixP)
 {
-  /* Don't adjust references to merge sections.  */
-  if ((S_GET_SEGMENT (fixP->fx_addsy)->flags & SEC_MERGE) != 0)
+  /* Don't adjust pc-relative references to merge sections.  */
+  if (fixP->fx_pcrel
+      && (S_GET_SEGMENT (fixP->fx_addsy)->flags & SEC_MERGE) != 0)
     return 0;
+
   /* adjust_reloc_syms doesn't know about the GOT.  */
   if (   fixP->fx_r_type == BFD_RELOC_16_GOTOFF
       || fixP->fx_r_type == BFD_RELOC_32_GOTOFF

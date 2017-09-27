@@ -388,6 +388,9 @@ struct _i386_insn
     /* Have BND prefix.  */
     const char *bnd_prefix;
 
+    /* Have NOTRACK prefix.  */
+    const char *notrack_prefix;
+
     /* Error message.  */
     enum i386_error error;
   };
@@ -2144,6 +2147,7 @@ enum PREFIX_GROUP
   PREFIX_EXIST = 0,
   PREFIX_LOCK,
   PREFIX_REP,
+  PREFIX_DS,
   PREFIX_OTHER
 };
 
@@ -2152,7 +2156,8 @@ enum PREFIX_GROUP
    same class already exists.
    b. PREFIX_LOCK if lock prefix is added.
    c. PREFIX_REP if rep/repne prefix is added.
-   d. PREFIX_OTHER if other prefix is added.
+   d. PREFIX_DS if ds prefix is added.
+   e. PREFIX_OTHER if other prefix is added.
  */
 
 static enum PREFIX_GROUP
@@ -2177,8 +2182,10 @@ add_prefix (unsigned int prefix)
 	default:
 	  abort ();
 
-	case CS_PREFIX_OPCODE:
 	case DS_PREFIX_OPCODE:
+	  ret = PREFIX_DS;
+	  /* Fall through.  */
+	case CS_PREFIX_OPCODE:
 	case ES_PREFIX_OPCODE:
 	case FS_PREFIX_OPCODE:
 	case GS_PREFIX_OPCODE:
@@ -3702,6 +3709,10 @@ md_assemble (char *line)
   if (i.bnd_prefix && !i.tm.opcode_modifier.bndprefixok)
     as_bad (_("expecting valid branch instruction after `bnd'"));
 
+  /* Check NOTRACK prefix.  */
+  if (i.notrack_prefix && !i.tm.opcode_modifier.notrackprefixok)
+    as_bad (_("expecting indirect branch instruction after `notrack'"));
+
   if (i.tm.cpu_flags.bitfield.cpumpx)
     {
       if (flag_code == CODE_64BIT && i.prefix[ADDR_PREFIX])
@@ -3968,6 +3979,10 @@ parse_insn (char *line, char *mnemonic)
 		{
 		case PREFIX_EXIST:
 		  return NULL;
+		case PREFIX_DS:
+		  if (current_templates->start->cpu_flags.bitfield.cpucet)
+		    i.notrack_prefix = current_templates->start->name;
+		  break;
 		case PREFIX_REP:
 		  if (current_templates->start->cpu_flags.bitfield.cpuhle)
 		    i.hle_prefix = current_templates->start->name;

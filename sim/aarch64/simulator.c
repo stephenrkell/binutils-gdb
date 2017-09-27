@@ -1650,7 +1650,7 @@ set_flags_for_add32 (sim_cpu *cpu, int32_t value1, int32_t value2)
   if (result & (1 << 31))
     flags |= N;
 
-  if (uresult != result)
+  if (uresult != (uint32_t)result)
     flags |= C;
 
   if (sresult != result)
@@ -5468,6 +5468,47 @@ do_vec_ADDP (sim_cpu *cpu)
     }
 }
 
+/* Float point vector convert to longer (precision).  */
+static void
+do_vec_FCVTL (sim_cpu *cpu)
+{
+  /* instr[31]    = 0
+     instr[30]    = half (0) / all (1)
+     instr[29,23] = 00 1110 0
+     instr[22]    = single (0) / double (1)
+     instr[21,10] = 10 0001 0111 10
+     instr[9,5]   = Rn
+     instr[4,0]   = Rd.  */
+
+  unsigned rn = INSTR (9, 5);
+  unsigned rd = INSTR (4, 0);
+  unsigned full = INSTR (30, 30);
+  unsigned i;
+
+  NYI_assert (31, 31, 0);
+  NYI_assert (29, 23, 0x1C);
+  NYI_assert (21, 10, 0x85E);
+
+  TRACE_DECODE (cpu, "emulated at line %d", __LINE__);
+  if (INSTR (22, 22))
+    {
+      for (i = 0; i < 2; i++)
+	aarch64_set_vec_double (cpu, rd, i,
+				aarch64_get_vec_float (cpu, rn, i + 2*full));
+    }
+  else
+    {
+      HALT_NYI;
+
+#if 0
+      /* TODO: Implement missing half-float support.  */
+      for (i = 0; i < 4; i++)
+	aarch64_set_vec_float (cpu, rd, i,
+			     aarch64_get_vec_halffloat (cpu, rn, i + 4*full));
+#endif
+    }
+}
+
 static void
 do_vec_FABS (sim_cpu *cpu)
 {
@@ -5716,6 +5757,13 @@ do_vec_op1 (sim_cpu *cpu)
     case 0x30: do_vec_mull (cpu); return;
     case 0x33: do_vec_FMLA (cpu); return;
     case 0x35: do_vec_fadd (cpu); return;
+
+    case 0x1E:
+      switch (INSTR (20, 16))
+	{
+	case 0x01: do_vec_FCVTL (cpu); return;
+	default: HALT_NYI;
+	}
 
     case 0x2E:
       switch (INSTR (20, 16))
@@ -8926,6 +8974,146 @@ do_scalar_SSHL (sim_cpu *cpu)
 			 aarch64_get_vec_s64 (cpu, rn, 0) >> - shift);
 }
 
+/* Floating point scalar compare greater than or equal to 0.  */
+static void
+do_scalar_FCMGE_zero (sim_cpu *cpu)
+{
+  /* instr [31,23] = 0111 1110 1
+     instr [22,22] = size
+     instr [21,16] = 1000 00
+     instr [15,10] = 1100 10
+     instr [9, 5]  = Rn
+     instr [4, 0]  = Rd.  */
+
+  unsigned size = INSTR (22, 22);
+  unsigned rn = INSTR (9, 5);
+  unsigned rd = INSTR (4, 0);
+
+  NYI_assert (31, 23, 0x0FD);
+  NYI_assert (21, 16, 0x20);
+  NYI_assert (15, 10, 0x32);
+
+  TRACE_DECODE (cpu, "emulated at line %d", __LINE__);
+  if (size)
+    aarch64_set_vec_u64 (cpu, rd, 0,
+			 aarch64_get_vec_double (cpu, rn, 0) >= 0.0 ? -1 : 0);
+  else
+    aarch64_set_vec_u32 (cpu, rd, 0,
+			 aarch64_get_vec_float (cpu, rn, 0) >= 0.0 ? -1 : 0);
+}
+
+/* Floating point scalar compare less than or equal to 0.  */
+static void
+do_scalar_FCMLE_zero (sim_cpu *cpu)
+{
+  /* instr [31,23] = 0111 1110 1
+     instr [22,22] = size
+     instr [21,16] = 1000 00
+     instr [15,10] = 1101 10
+     instr [9, 5]  = Rn
+     instr [4, 0]  = Rd.  */
+
+  unsigned size = INSTR (22, 22);
+  unsigned rn = INSTR (9, 5);
+  unsigned rd = INSTR (4, 0);
+
+  NYI_assert (31, 23, 0x0FD);
+  NYI_assert (21, 16, 0x20);
+  NYI_assert (15, 10, 0x36);
+
+  TRACE_DECODE (cpu, "emulated at line %d", __LINE__);
+  if (size)
+    aarch64_set_vec_u64 (cpu, rd, 0,
+			 aarch64_get_vec_double (cpu, rn, 0) <= 0.0 ? -1 : 0);
+  else
+    aarch64_set_vec_u32 (cpu, rd, 0,
+			 aarch64_get_vec_float (cpu, rn, 0) <= 0.0 ? -1 : 0);
+}
+
+/* Floating point scalar compare greater than 0.  */
+static void
+do_scalar_FCMGT_zero (sim_cpu *cpu)
+{
+  /* instr [31,23] = 0101 1110 1
+     instr [22,22] = size
+     instr [21,16] = 1000 00
+     instr [15,10] = 1100 10
+     instr [9, 5]  = Rn
+     instr [4, 0]  = Rd.  */
+
+  unsigned size = INSTR (22, 22);
+  unsigned rn = INSTR (9, 5);
+  unsigned rd = INSTR (4, 0);
+
+  NYI_assert (31, 23, 0x0BD);
+  NYI_assert (21, 16, 0x20);
+  NYI_assert (15, 10, 0x32);
+
+  TRACE_DECODE (cpu, "emulated at line %d", __LINE__);
+  if (size)
+    aarch64_set_vec_u64 (cpu, rd, 0,
+			 aarch64_get_vec_double (cpu, rn, 0) > 0.0 ? -1 : 0);
+  else
+    aarch64_set_vec_u32 (cpu, rd, 0,
+			 aarch64_get_vec_float (cpu, rn, 0) > 0.0 ? -1 : 0);
+}
+
+/* Floating point scalar compare equal to 0.  */
+static void
+do_scalar_FCMEQ_zero (sim_cpu *cpu)
+{
+  /* instr [31,23] = 0101 1110 1
+     instr [22,22] = size
+     instr [21,16] = 1000 00
+     instr [15,10] = 1101 10
+     instr [9, 5]  = Rn
+     instr [4, 0]  = Rd.  */
+
+  unsigned size = INSTR (22, 22);
+  unsigned rn = INSTR (9, 5);
+  unsigned rd = INSTR (4, 0);
+
+  NYI_assert (31, 23, 0x0BD);
+  NYI_assert (21, 16, 0x20);
+  NYI_assert (15, 10, 0x36);
+
+  TRACE_DECODE (cpu, "emulated at line %d", __LINE__);
+  if (size)
+    aarch64_set_vec_u64 (cpu, rd, 0,
+			 aarch64_get_vec_double (cpu, rn, 0) == 0.0 ? -1 : 0);
+  else
+    aarch64_set_vec_u32 (cpu, rd, 0,
+			 aarch64_get_vec_float (cpu, rn, 0) == 0.0 ? -1 : 0);
+}
+
+/* Floating point scalar compare less than 0.  */
+static void
+do_scalar_FCMLT_zero (sim_cpu *cpu)
+{
+  /* instr [31,23] = 0101 1110 1
+     instr [22,22] = size
+     instr [21,16] = 1000 00
+     instr [15,10] = 1110 10
+     instr [9, 5]  = Rn
+     instr [4, 0]  = Rd.  */
+
+  unsigned size = INSTR (22, 22);
+  unsigned rn = INSTR (9, 5);
+  unsigned rd = INSTR (4, 0);
+
+  NYI_assert (31, 23, 0x0BD);
+  NYI_assert (21, 16, 0x20);
+  NYI_assert (15, 10, 0x3A);
+
+  TRACE_DECODE (cpu, "emulated at line %d", __LINE__);
+  if (size)
+    aarch64_set_vec_u64 (cpu, rd, 0,
+			 aarch64_get_vec_double (cpu, rn, 0) < 0.0 ? -1 : 0);
+  else
+    aarch64_set_vec_u32 (cpu, rd, 0,
+			 aarch64_get_vec_float (cpu, rn, 0) < 0.0 ? -1 : 0);
+}
+
 static void
 do_scalar_shift (sim_cpu *cpu)
 {
@@ -9249,7 +9437,9 @@ do_scalar_vec (sim_cpu *cpu)
 	case 0x0D: do_scalar_CMGT (cpu); return;
 	case 0x11: do_scalar_USHL (cpu); return;
 	case 0x2E: do_scalar_NEG (cpu); return;
+	case 0x32: do_scalar_FCMGE_zero (cpu); return;
 	case 0x35: do_scalar_FABD (cpu); return;
+	case 0x36: do_scalar_FCMLE_zero (cpu); return;
 	case 0x39: do_scalar_FCM (cpu); return;
 	case 0x3B: do_scalar_FCM (cpu); return;
 	default:
@@ -9263,6 +9453,9 @@ do_scalar_vec (sim_cpu *cpu)
 	{
 	case 0x21: do_double_add (cpu); return;
 	case 0x11: do_scalar_SSHL (cpu); return;
+	case 0x32: do_scalar_FCMGT_zero (cpu); return;
+	case 0x36: do_scalar_FCMEQ_zero (cpu); return;
+	case 0x3A: do_scalar_FCMLT_zero (cpu); return;
 	default:
 	  HALT_NYI;
 	}
@@ -11331,310 +11524,224 @@ vec_reg (unsigned v, unsigned o)
   return (v + o) & 0x3F;
 }
 
-/* Load multiple N-element structures to N consecutive registers.  */
+/* Load multiple N-element structures to M consecutive registers.  */
 static void
-vec_load (sim_cpu *cpu, uint64_t address, unsigned N)
+vec_load (sim_cpu *cpu, uint64_t address, unsigned N, unsigned M)
 {
   int      all  = INSTR (30, 30);
   unsigned size = INSTR (11, 10);
   unsigned vd   = INSTR (4, 0);
-  unsigned i;
+  unsigned rpt = (N == M) ? 1 : M;
+  unsigned selem = N;
+  unsigned i, j, k;
 
   switch (size)
     {
     case 0: /* 8-bit operations.  */
-      if (all)
-	for (i = 0; i < (16 * N); i++)
-	  aarch64_set_vec_u8 (cpu, vec_reg (vd, i >> 4), i & 15,
-			      aarch64_get_mem_u8 (cpu, address + i));
-      else
-	for (i = 0; i < (8 * N); i++)
-	  aarch64_set_vec_u8 (cpu, vec_reg (vd, i >> 3), i & 7,
-			      aarch64_get_mem_u8 (cpu, address + i));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (8 + (8 * all)); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_vec_u8 (cpu, vec_reg (vd, i + k), j,
+				  aarch64_get_mem_u8 (cpu, address));
+	      address += 1;
+	    }
       return;
 
     case 1: /* 16-bit operations.  */
-      if (all)
-	for (i = 0; i < (8 * N); i++)
-	  aarch64_set_vec_u16 (cpu, vec_reg (vd, i >> 3), i & 7,
-			       aarch64_get_mem_u16 (cpu, address + i * 2));
-      else
-	for (i = 0; i < (4 * N); i++)
-	  aarch64_set_vec_u16 (cpu, vec_reg (vd, i >> 2), i & 3,
-			       aarch64_get_mem_u16 (cpu, address + i * 2));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (4 + (4 * all)); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_vec_u16 (cpu, vec_reg (vd, i + k), j,
+				   aarch64_get_mem_u16 (cpu, address));
+	      address += 2;
+	    }
       return;
 
     case 2: /* 32-bit operations.  */
-      if (all)
-	for (i = 0; i < (4 * N); i++)
-	  aarch64_set_vec_u32 (cpu, vec_reg (vd, i >> 2), i & 3,
-			       aarch64_get_mem_u32 (cpu, address + i * 4));
-      else
-	for (i = 0; i < (2 * N); i++)
-	  aarch64_set_vec_u32 (cpu, vec_reg (vd, i >> 1), i & 1,
-			       aarch64_get_mem_u32 (cpu, address + i * 4));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (2 + (2 * all)); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_vec_u32 (cpu, vec_reg (vd, i + k), j,
+				   aarch64_get_mem_u32 (cpu, address));
+	      address += 4;
+	    }
       return;
 
     case 3: /* 64-bit operations.  */
-      if (all)
-	for (i = 0; i < (2 * N); i++)
-	  aarch64_set_vec_u64 (cpu, vec_reg (vd, i >> 1), i & 1,
-			       aarch64_get_mem_u64 (cpu, address + i * 8));
-      else
-	for (i = 0; i < N; i++)
-	  aarch64_set_vec_u64 (cpu, vec_reg (vd, i), 0,
-			       aarch64_get_mem_u64 (cpu, address + i * 8));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (1 + all); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_vec_u64 (cpu, vec_reg (vd, i + k), j,
+				   aarch64_get_mem_u64 (cpu, address));
+	      address += 8;
+	    }
       return;
     }
 }
 
-/* LD4: load multiple 4-element to four consecutive registers.  */
+/* Load multiple 4-element structures into four consecutive registers.  */
 static void
 LD4 (sim_cpu *cpu, uint64_t address)
 {
-  vec_load (cpu, address, 4);
+  vec_load (cpu, address, 4, 4);
 }
 
-/* LD3: load multiple 3-element structures to three consecutive registers.  */
+/* Load multiple 3-element structures into three consecutive registers.  */
 static void
 LD3 (sim_cpu *cpu, uint64_t address)
 {
-  vec_load (cpu, address, 3);
+  vec_load (cpu, address, 3, 3);
 }
 
-/* LD2: load multiple 2-element structures to two consecutive registers.  */
+/* Load multiple 2-element structures into two consecutive registers.  */
 static void
 LD2 (sim_cpu *cpu, uint64_t address)
 {
-  vec_load (cpu, address, 2);
+  vec_load (cpu, address, 2, 2);
 }
 
 /* Load multiple 1-element structures into one register.  */
 static void
 LD1_1 (sim_cpu *cpu, uint64_t address)
 {
-  int      all  = INSTR (30, 30);
-  unsigned size = INSTR (11, 10);
-  unsigned vd   = INSTR (4, 0);
-  unsigned i;
-
-  switch (size)
-    {
-    case 0:
-      /* LD1 {Vd.16b}, addr, #16 */
-      /* LD1 {Vd.8b}, addr, #8 */
-      for (i = 0; i < (all ? 16 : 8); i++)
-	aarch64_set_vec_u8 (cpu, vd, i,
-			    aarch64_get_mem_u8 (cpu, address + i));
-      return;
-
-    case 1:
-      /* LD1 {Vd.8h}, addr, #16 */
-      /* LD1 {Vd.4h}, addr, #8 */
-      for (i = 0; i < (all ? 8 : 4); i++)
-	aarch64_set_vec_u16 (cpu, vd, i,
-			     aarch64_get_mem_u16 (cpu, address + i * 2));
-      return;
-
-    case 2:
-      /* LD1 {Vd.4s}, addr, #16 */
-      /* LD1 {Vd.2s}, addr, #8 */
-      for (i = 0; i < (all ? 4 : 2); i++)
-	aarch64_set_vec_u32 (cpu, vd, i,
-			     aarch64_get_mem_u32 (cpu, address + i * 4));
-      return;
-
-    case 3:
-      /* LD1 {Vd.2d}, addr, #16 */
-      /* LD1 {Vd.1d}, addr, #8 */
-      for (i = 0; i < (all ? 2 : 1); i++)
-	aarch64_set_vec_u64 (cpu, vd, i,
-			     aarch64_get_mem_u64 (cpu, address + i * 8));
-      return;
-    }
+  vec_load (cpu, address, 1, 1);
 }
 
 /* Load multiple 1-element structures into two registers.  */
 static void
 LD1_2 (sim_cpu *cpu, uint64_t address)
 {
-  /* FIXME: This algorithm is *exactly* the same as the LD2 version.
-     So why have two different instructions ?  There must be something
-     wrong somewhere.  */
-  vec_load (cpu, address, 2);
+  vec_load (cpu, address, 1, 2);
 }
 
 /* Load multiple 1-element structures into three registers.  */
 static void
 LD1_3 (sim_cpu *cpu, uint64_t address)
 {
-  /* FIXME: This algorithm is *exactly* the same as the LD3 version.
-     So why have two different instructions ?  There must be something
-     wrong somewhere.  */
-  vec_load (cpu, address, 3);
+  vec_load (cpu, address, 1, 3);
 }
 
 /* Load multiple 1-element structures into four registers.  */
 static void
 LD1_4 (sim_cpu *cpu, uint64_t address)
 {
-  /* FIXME: This algorithm is *exactly* the same as the LD4 version.
-     So why have two different instructions ?  There must be something
-     wrong somewhere.  */
-  vec_load (cpu, address, 4);
+  vec_load (cpu, address, 1, 4);
 }
 
-/* Store multiple N-element structures to N consecutive registers.  */
+/* Store multiple N-element structures from M consecutive registers.  */
 static void
-vec_store (sim_cpu *cpu, uint64_t address, unsigned N)
+vec_store (sim_cpu *cpu, uint64_t address, unsigned N, unsigned M)
 {
   int      all  = INSTR (30, 30);
   unsigned size = INSTR (11, 10);
   unsigned vd   = INSTR (4, 0);
-  unsigned i;
+  unsigned rpt = (N == M) ? 1 : M;
+  unsigned selem = N;
+  unsigned i, j, k;
 
   switch (size)
     {
     case 0: /* 8-bit operations.  */
-      if (all)
-	for (i = 0; i < (16 * N); i++)
-	  aarch64_set_mem_u8
-	    (cpu, address + i,
-	     aarch64_get_vec_u8 (cpu, vec_reg (vd, i >> 4), i & 15));
-      else
-	for (i = 0; i < (8 * N); i++)
-	  aarch64_set_mem_u8
-	    (cpu, address + i,
-	     aarch64_get_vec_u8 (cpu, vec_reg (vd, i >> 3), i & 7));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (8 + (8 * all)); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_mem_u8
+		(cpu, address,
+		 aarch64_get_vec_u8 (cpu, vec_reg (vd, i + k), j));
+	      address += 1;
+	    }
       return;
 
     case 1: /* 16-bit operations.  */
-      if (all)
-	for (i = 0; i < (8 * N); i++)
-	  aarch64_set_mem_u16
-	    (cpu, address + i * 2,
-	     aarch64_get_vec_u16 (cpu, vec_reg (vd, i >> 3), i & 7));
-      else
-	for (i = 0; i < (4 * N); i++)
-	  aarch64_set_mem_u16
-	    (cpu, address + i * 2,
-	     aarch64_get_vec_u16 (cpu, vec_reg (vd, i >> 2), i & 3));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (4 + (4 * all)); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_mem_u16
+		(cpu, address,
+		 aarch64_get_vec_u16 (cpu, vec_reg (vd, i + k), j));
+	      address += 2;
+	    }
       return;
 
     case 2: /* 32-bit operations.  */
-      if (all)
-	for (i = 0; i < (4 * N); i++)
-	  aarch64_set_mem_u32
-	    (cpu, address + i * 4,
-	     aarch64_get_vec_u32 (cpu, vec_reg (vd, i >> 2), i & 3));
-      else
-	for (i = 0; i < (2 * N); i++)
-	  aarch64_set_mem_u32
-	    (cpu, address + i * 4,
-	     aarch64_get_vec_u32 (cpu, vec_reg (vd, i >> 1), i & 1));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (2 + (2 * all)); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_mem_u32
+		(cpu, address,
+		 aarch64_get_vec_u32 (cpu, vec_reg (vd, i + k), j));
+	      address += 4;
+	    }
       return;
 
     case 3: /* 64-bit operations.  */
-      if (all)
-	for (i = 0; i < (2 * N); i++)
-	  aarch64_set_mem_u64
-	    (cpu, address + i * 8,
-	     aarch64_get_vec_u64 (cpu, vec_reg (vd, i >> 1), i & 1));
-      else
-	for (i = 0; i < N; i++)
-	  aarch64_set_mem_u64
-	    (cpu, address + i * 8,
-	     aarch64_get_vec_u64 (cpu, vec_reg (vd, i), 0));
+      for (i = 0; i < rpt; i++)
+	for (j = 0; j < (1 + all); j++)
+	  for (k = 0; k < selem; k++)
+	    {
+	      aarch64_set_mem_u64
+		(cpu, address,
+		 aarch64_get_vec_u64 (cpu, vec_reg (vd, i + k), j));
+	      address += 8;
+	    }
       return;
     }
 }
 
-/* Store multiple 4-element structure to four consecutive registers.  */
+/* Store multiple 4-element structure from four consecutive registers.  */
 static void
 ST4 (sim_cpu *cpu, uint64_t address)
 {
-  vec_store (cpu, address, 4);
+  vec_store (cpu, address, 4, 4);
 }
 
-/* Store multiple 3-element structures to three consecutive registers.  */
+/* Store multiple 3-element structures from three consecutive registers.  */
 static void
 ST3 (sim_cpu *cpu, uint64_t address)
 {
-  vec_store (cpu, address, 3);
+  vec_store (cpu, address, 3, 3);
 }
 
-/* Store multiple 2-element structures to two consecutive registers.  */
+/* Store multiple 2-element structures from two consecutive registers.  */
 static void
 ST2 (sim_cpu *cpu, uint64_t address)
 {
-  vec_store (cpu, address, 2);
+  vec_store (cpu, address, 2, 2);
 }
 
-/* Store multiple 1-element structures into one register.  */
+/* Store multiple 1-element structures from one register.  */
 static void
 ST1_1 (sim_cpu *cpu, uint64_t address)
 {
-  int      all  = INSTR (30, 30);
-  unsigned size = INSTR (11, 10);
-  unsigned vd   = INSTR (4, 0);
-  unsigned i;
-
-  switch (size)
-    {
-    case 0:
-      for (i = 0; i < (all ? 16 : 8); i++)
-	aarch64_set_mem_u8 (cpu, address + i,
-			    aarch64_get_vec_u8 (cpu, vd, i));
-      return;
-
-    case 1:
-      for (i = 0; i < (all ? 8 : 4); i++)
-	aarch64_set_mem_u16 (cpu, address + i * 2,
-			     aarch64_get_vec_u16 (cpu, vd, i));
-      return;
-
-    case 2:
-      for (i = 0; i < (all ? 4 : 2); i++)
-	aarch64_set_mem_u32 (cpu, address + i * 4,
-			     aarch64_get_vec_u32 (cpu, vd, i));
-      return;
-
-    case 3:
-      for (i = 0; i < (all ? 2 : 1); i++)
-	aarch64_set_mem_u64 (cpu, address + i * 8,
-			     aarch64_get_vec_u64 (cpu, vd, i));
-      return;
-    }
+  vec_store (cpu, address, 1, 1);
 }
 
-/* Store multiple 1-element structures into two registers.  */
+/* Store multiple 1-element structures from two registers.  */
 static void
 ST1_2 (sim_cpu *cpu, uint64_t address)
 {
-  /* FIXME: This algorithm is *exactly* the same as the ST2 version.
-     So why have two different instructions ?  There must be
-     something wrong somewhere.  */
-  vec_store (cpu, address, 2);
+  vec_store (cpu, address, 1, 2);
 }
 
-/* Store multiple 1-element structures into three registers.  */
+/* Store multiple 1-element structures from three registers.  */
 static void
 ST1_3 (sim_cpu *cpu, uint64_t address)
 {
-  /* FIXME: This algorithm is *exactly* the same as the ST3 version.
-     So why have two different instructions ?  There must be
-     something wrong somewhere.  */
-  vec_store (cpu, address, 3);
+  vec_store (cpu, address, 1, 3);
 }
 
-/* Store multiple 1-element structures into four registers.  */
+/* Store multiple 1-element structures from four registers.  */
 static void
 ST1_4 (sim_cpu *cpu, uint64_t address)
 {
-  /* FIXME: This algorithm is *exactly* the same as the ST4 version.
-     So why have two different instructions ?  There must be
-     something wrong somewhere.  */
-  vec_store (cpu, address, 4);
+  vec_store (cpu, address, 1, 4);
 }
 
 #define LDn_STn_SINGLE_LANE_AND_SIZE()				\

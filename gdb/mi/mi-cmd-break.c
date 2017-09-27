@@ -64,26 +64,22 @@ enum bp_type
   };
 
 /* Arrange for all new breakpoints and catchpoints to be reported to
-   CURRENT_UIOUT until the cleanup returned by this function is run.
+   CURRENT_UIOUT until the destructor of the returned scoped_restore
+   is run.
 
    Note that MI output will be probably invalid if more than one
    breakpoint is created inside one MI command.  */
 
-struct cleanup *
+scoped_restore_tmpl<int>
 setup_breakpoint_reporting (void)
 {
-  struct cleanup *rev_flag;
-
   if (! mi_breakpoint_observers_installed)
     {
       observer_attach_breakpoint_created (breakpoint_notify);
       mi_breakpoint_observers_installed = 1;
     }
 
-  rev_flag = make_cleanup_restore_integer (&mi_can_breakpoint_notify);
-  mi_can_breakpoint_notify = 1;
-
-  return rev_flag;
+  return make_scoped_restore (&mi_can_breakpoint_notify, 1);
 }
 
 
@@ -141,7 +137,7 @@ mi_argv_to_format (char **argv, int argc)
 
 	      xsnprintf (tmp, sizeof (tmp), "\\%o",
 			 (unsigned char) argv[0][i]);
-	      obstack_grow (&obstack, tmp, strlen (tmp));
+	      obstack_grow_str (&obstack, tmp);
 	    }
 	  break;
 	}
@@ -152,7 +148,7 @@ mi_argv_to_format (char **argv, int argc)
   for (i = 1; i < argc; i++)
     {
       obstack_1grow (&obstack, ',');
-      obstack_grow (&obstack, argv[i], strlen (argv[i]));
+      obstack_grow_str (&obstack, argv[i]);
     }
   obstack_1grow (&obstack, '\0');
 
@@ -167,7 +163,7 @@ mi_argv_to_format (char **argv, int argc)
    If not, it will insert other type breakpoint.  */
 
 static void
-mi_cmd_break_insert_1 (int dprintf, char *command, char **argv, int argc)
+mi_cmd_break_insert_1 (int dprintf, const char *command, char **argv, int argc)
 {
   char *address = NULL;
   int hardware = 0;
@@ -180,7 +176,7 @@ mi_cmd_break_insert_1 (int dprintf, char *command, char **argv, int argc)
   int tracepoint = 0;
   struct cleanup *back_to = make_cleanup (null_cleanup, NULL);
   enum bptype type_wanted;
-  struct event_location *location;
+  event_location_up location;
   struct breakpoint_ops *ops;
   int is_explicit = 0;
   struct explicit_location explicit_loc;
@@ -301,7 +297,7 @@ mi_cmd_break_insert_1 (int dprintf, char *command, char **argv, int argc)
     }
 
   /* Now we have what we need, let's insert the breakpoint!  */
-  setup_breakpoint_reporting ();
+  scoped_restore restore_breakpoint_reporting = setup_breakpoint_reporting ();
 
   if (tracepoint)
     {
@@ -343,15 +339,10 @@ mi_cmd_break_insert_1 (int dprintf, char *command, char **argv, int argc)
     {
       location = string_to_event_location_basic (&address, current_language);
       if (*address)
-	{
-	  delete_event_location (location);
-	  error (_("Garbage '%s' at end of location"), address);
-	}
+	error (_("Garbage '%s' at end of location"), address);
     }
 
-  make_cleanup_delete_event_location (location);
-
-  create_breakpoint (get_current_arch (), location, condition, thread,
+  create_breakpoint (get_current_arch (), location.get (), condition, thread,
 		     extra_string,
 		     0 /* condition and thread are valid.  */,
 		     temp_p, type_wanted,
@@ -365,7 +356,7 @@ mi_cmd_break_insert_1 (int dprintf, char *command, char **argv, int argc)
    See the MI manual for the list of possible options.  */
 
 void
-mi_cmd_break_insert (char *command, char **argv, int argc)
+mi_cmd_break_insert (const char *command, char **argv, int argc)
 {
   mi_cmd_break_insert_1 (0, command, argv, argc);
 }
@@ -374,7 +365,7 @@ mi_cmd_break_insert (char *command, char **argv, int argc)
    See the MI manual for the list of possible options.  */
 
 void
-mi_cmd_dprintf_insert (char *command, char **argv, int argc)
+mi_cmd_dprintf_insert (const char *command, char **argv, int argc)
 {
   mi_cmd_break_insert_1 (1, command, argv, argc);
 }
@@ -387,7 +378,7 @@ enum wp_type
 };
 
 void
-mi_cmd_break_passcount (char *command, char **argv, int argc)
+mi_cmd_break_passcount (const char *command, char **argv, int argc)
 {
   int n;
   int p;
@@ -403,7 +394,7 @@ mi_cmd_break_passcount (char *command, char **argv, int argc)
   if (t)
     {
       t->pass_count = p;
-      observer_notify_breakpoint_modified (&t->base);
+      observer_notify_breakpoint_modified (t);
     }
   else
     {
@@ -418,7 +409,7 @@ mi_cmd_break_passcount (char *command, char **argv, int argc)
    -break-watch -a <expr> --> insert an access wp.  */
 
 void
-mi_cmd_break_watch (char *command, char **argv, int argc)
+mi_cmd_break_watch (const char *command, char **argv, int argc)
 {
   char *expr = NULL;
   enum wp_type type = REG_WP;
@@ -496,9 +487,9 @@ mi_read_next_line (void)
 }
 
 void
-mi_cmd_break_commands (char *command, char **argv, int argc)
+mi_cmd_break_commands (const char *command, char **argv, int argc)
 {
-  struct command_line *break_command;
+  command_line_up break_command;
   char *endptr;
   int bnum;
   struct breakpoint *b;
@@ -528,6 +519,6 @@ mi_cmd_break_commands (char *command, char **argv, int argc)
   else
     break_command = read_command_lines_1 (mi_read_next_line, 1, 0, 0);
 
-  breakpoint_set_commands (b, break_command);
+  breakpoint_set_commands (b, std::move (break_command));
 }
 

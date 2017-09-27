@@ -104,7 +104,7 @@ if { [check_shared_lib_support] } then {
     setup_xfail "tic6x-*-*"
     run_ld_link_tests {
 	{"Build shared library for next test"
-	    "-shared" "" "" "note-3.s" {} "note-3.so" }
+	    "-shared --hash-style=sysv" "" "" "note-3.s" {} "note-3.so" }
 	{"Link using broken linker script"
 	    "--script note-3.t tmpdir/note-3.so" "" "" ""
 	    { { ld "note-3.l" } }
@@ -176,6 +176,10 @@ if { [check_shared_lib_support] } then {
 	    "pr20995-2" \
 	    "" "tmpdir/pr20995-2.so" "$AFLAGS_NONPIC" \
 	    {pr20995a.s} {{readelf {-S --wide} pr20995.r}} "pr20995-2"]]
+}
+
+if [is_underscore_target] {
+    set ASFLAGS "$ASFLAGS --defsym UNDERSCORE=1"
 }
 
 set test_list [lsort [glob -nocomplain $srcdir/$subdir/*.d]]
@@ -298,6 +302,27 @@ if { [istarget *-*-linux*]
      || [istarget *-*-nacl*]
      || [istarget *-*-gnu*] } {
     run_ld_link_exec_tests $array_tests_pie $xfails
+
+    run_ld_link_exec_tests [list \
+	[list \
+	    "Run mbind2a" \
+	    "$NOPIE_LDFLAGS -Wl,-z,common-page-size=0x4000" \
+	    "" \
+	    { mbind2a.s mbind2b.c } \
+	    "mbind2a" \
+	    "pass.out" \
+	    "-O2 -I../bfd" \
+	] \
+	[list \
+	    "Run mbind2b" \
+	    "-static -Wl,-z,common-page-size=0x4000" \
+	    "" \
+	    { mbind2a.s mbind2b.c } \
+	    "mbind2b" \
+	    "pass.out" \
+	    "-O2 -I../bfd" \
+	] \
+    ]
 }
 
 # <http://www.gnu.org/software/hurd/open_issues/binutils.html#static>

@@ -294,7 +294,7 @@ bsd_uthread_fetch_registers (struct target_ops *ops,
   CORE_ADDR addr = ptid_get_tid (ptid);
   struct target_ops *beneath = find_target_beneath (ops);
   CORE_ADDR active_addr;
-  struct cleanup *cleanup = save_inferior_ptid ();
+  scoped_restore save_inferior_ptid = make_scoped_restore (&inferior_ptid);
 
   /* We are doing operations (e.g. reading memory) that rely on
      inferior_ptid.  */
@@ -315,8 +315,6 @@ bsd_uthread_fetch_registers (struct target_ops *ops,
       uthread_ops->supply_uthread (regcache, regnum,
 				   addr + bsd_uthread_thread_ctx_offset);
     }
-
-  do_cleanups (cleanup);
 }
 
 static void
@@ -330,7 +328,7 @@ bsd_uthread_store_registers (struct target_ops *ops,
   ptid_t ptid = regcache_get_ptid (regcache);
   CORE_ADDR addr = ptid_get_tid (ptid);
   CORE_ADDR active_addr;
-  struct cleanup *cleanup = save_inferior_ptid ();
+  scoped_restore save_inferior_ptid = make_scoped_restore (&inferior_ptid);
 
   /* We are doing operations (e.g. reading memory) that rely on
      inferior_ptid.  */
@@ -349,8 +347,6 @@ bsd_uthread_store_registers (struct target_ops *ops,
          request to the layer beneath.  */
       beneath->to_store_registers (beneath, regcache, regnum);
     }
-
-  do_cleanups (cleanup);
 }
 
 static ptid_t
@@ -464,7 +460,7 @@ bsd_uthread_update_thread_list (struct target_ops *ops)
 }
 
 /* Possible states a thread can be in.  */
-static char *bsd_uthread_state[] =
+static const char *bsd_uthread_state[] =
 {
   "RUNNING",
   "SIGTHREAD",
@@ -491,7 +487,7 @@ static char *bsd_uthread_state[] =
 /* Return a string describing th state of the thread specified by
    INFO.  */
 
-static char *
+static const char *
 bsd_uthread_extra_thread_info (struct target_ops *self,
 			       struct thread_info *info)
 {
@@ -511,7 +507,7 @@ bsd_uthread_extra_thread_info (struct target_ops *self,
   return NULL;
 }
 
-static char *
+static const char *
 bsd_uthread_pid_to_str (struct target_ops *ops, ptid_t ptid)
 {
   if (ptid_get_tid (ptid) != 0)
@@ -550,9 +546,6 @@ bsd_uthread_target (void)
 
   return t;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_bsd_uthread;
 
 void
 _initialize_bsd_uthread (void)

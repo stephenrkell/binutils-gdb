@@ -106,7 +106,7 @@ bfd_compress_section_contents (bfd *abfd, sec_ptr sec,
       if (orig_compression_header_size == 0)
 	{
 	  /* Convert it from .zdebug* section.  Get the uncompressed
-	     size first.  We need to substract the 12-byte overhead in
+	     size first.  We need to subtract the 12-byte overhead in
 	     .zdebug* section.  Set orig_compression_header_size to
 	     the 12-bye overhead.  */
 	  orig_compression_header_size = 12;
@@ -252,9 +252,9 @@ bfd_get_full_section_contents (bfd *abfd, sec_ptr sec, bfd_byte **ptr)
 	      if (bfd_get_error () == bfd_error_no_memory)
 		_bfd_error_handler
 		  /* xgettext:c-format */
-		  (_("error: %B(%A) is too large (%#lx bytes)"),
-		  abfd, sec, (long) sz);
-	    return FALSE;
+		  (_("error: %B(%A) is too large (%#Lx bytes)"),
+		  abfd, sec, sz);
+	      return FALSE;
 	    }
 	}
 
@@ -542,7 +542,6 @@ bfd_init_section_compress_status (bfd *abfd, sec_ptr sec)
 {
   bfd_size_type uncompressed_size;
   bfd_byte *uncompressed_buffer;
-  bfd_boolean ret;
 
   /* Error if not opened for read.  */
   if (abfd->direction != read_direction
@@ -558,18 +557,18 @@ bfd_init_section_compress_status (bfd *abfd, sec_ptr sec)
   /* Read in the full section contents and compress it.  */
   uncompressed_size = sec->size;
   uncompressed_buffer = (bfd_byte *) bfd_malloc (uncompressed_size);
+  /* PR 21431 */
+  if (uncompressed_buffer == NULL)
+    return FALSE;
+
   if (!bfd_get_section_contents (abfd, sec, uncompressed_buffer,
 				 0, uncompressed_size))
-    ret = FALSE;
-  else
-    {
-      uncompressed_size = bfd_compress_section_contents (abfd, sec,
-							 uncompressed_buffer,
-							 uncompressed_size);
-      ret = uncompressed_size != 0;
-    }
+    return FALSE;
 
-  return ret;
+  uncompressed_size = bfd_compress_section_contents (abfd, sec,
+						     uncompressed_buffer,
+						     uncompressed_size);
+  return uncompressed_size != 0;
 }
 
 /*

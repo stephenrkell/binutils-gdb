@@ -100,7 +100,6 @@ case $targ in
  mips*-sgi-* | mips*-*-bsd* | \
  mips*-*-lnews* | \
  mips*-*-sysv* | mips*-*-riscos* | \
- ns32k-*-* | \
  sh*-*-symbianelf* | \
  sparclet-*-aout* | \
  sparc86x-*-aout* | \
@@ -173,6 +172,7 @@ fido*)		 targ_archs=bfd_m68k_arch ;;
 hppa*)		 targ_archs=bfd_hppa_arch ;;
 i[3-7]86)	 targ_archs=bfd_i386_arch ;;
 i370)		 targ_archs=bfd_i370_arch ;;
+ia16)		 targ_archs=bfd_i386_arch ;;
 lm32)	         targ_archs=bfd_lm32_arch ;;
 m6811*|m68hc11*) targ_archs="bfd_m68hc11_arch bfd_m68hc12_arch bfd_m9s12x_arch bfd_m9s12xg_arch" ;;
 m6812*|m68hc12*) targ_archs="bfd_m68hc12_arch bfd_m68hc11_arch bfd_m9s12x_arch bfd_m9s12xg_arch" ;;
@@ -197,6 +197,7 @@ tilegx*)	 targ_archs=bfd_tilegx_arch ;;
 tilepro*)	 targ_archs=bfd_tilepro_arch ;;
 v850*)		 targ_archs="bfd_v850_arch bfd_v850_rh850_arch" ;;
 visium*)	 targ_archs=bfd_visium_arch ;;
+wasm32)		 targ_archs=bfd_wasm32_arch ;;
 x86_64*)	 targ_archs=bfd_i386_arch ;;
 xtensa*)	 targ_archs=bfd_xtensa_arch ;;
 xgate)		 targ_archs=bfd_xgate_arch ;;
@@ -502,7 +503,10 @@ case "${targ}" in
   cris-*-* | crisv32-*-*)
     targ_defvec=cris_aout_vec
     targ_selvecs="cris_elf32_us_vec cris_elf32_vec ieee_vec"
-    targ_underscore=yes # Note: not true for cris_elf32_vec.
+    case "${targ}" in
+	*-*-linux*) ;;
+	*) targ_underscore=yes ;;
+    esac
     ;;
 
   crx-*-elf*)
@@ -523,8 +527,9 @@ case "${targ}" in
     targ_defvec=d30v_elf32_vec
     ;;
 
-  epiphany-*-elf)
+  epiphany-*-*)
     targ_defvec=epiphany_elf32_vec
+    targ_underscore=yes
     ;;
 
   fido-*-elf* )
@@ -905,8 +910,14 @@ case "${targ}" in
     targ_selvecs="icoff_le_vec icoff_be_vec"
     ;;
 
+  ia16-*-elf)
+    targ_defvec=i386_elf32_vec
+    targ_selvecs="i386_msdos_vec i386_aout_vec"
+    ;;
+
   ip2k-*-elf)
     targ_defvec=ip2k_elf32_vec
+    targ_underscore=yes
     ;;
 
   iq2000-*-elf)
@@ -925,6 +936,7 @@ case "${targ}" in
 
   m32c-*-elf | m32c-*-rtems*)
     targ_defvec=m32c_elf32_vec
+    targ_underscore=yes
     ;;
 
   m32r*le-*-linux*)
@@ -1225,6 +1237,7 @@ case "${targ}" in
 #endif
   mn10200-*-*)
     targ_defvec=mn10200_elf32_vec
+    targ_underscore=yes
     ;;
 
   mn10300-*-*)
@@ -1429,16 +1442,14 @@ case "${targ}" in
 
   pru-*-*)
     targ_defvec=pru_elf32_vec
-    targ_underscore=yes
     ;;
 
 #ifdef BFD64
   riscv32-*-*)
     targ_defvec=riscv_elf32_vec
-    targ_selvecs="riscv_elf32_vec"
+    targ_selvecs="riscv_elf32_vec riscv_elf64_vec"
     want64=true
     ;;
-
   riscv64-*-*)
     targ_defvec=riscv_elf64_vec
     targ_selvecs="riscv_elf32_vec riscv_elf64_vec"
@@ -1448,11 +1459,13 @@ case "${targ}" in
 
   rl78-*-elf)
     targ_defvec=rl78_elf32_vec
+    targ_underscore=yes
     ;;
 
   rx-*-elf)
     targ_defvec=rx_elf32_le_vec
     targ_selvecs="rx_elf32_be_vec rx_elf32_le_vec rx_elf32_be_ns_vec"
+    targ_underscore=yes
     ;;
 
   s390-*-linux*)
@@ -1762,6 +1775,7 @@ case "${targ}" in
   v850*-*-*)
     targ_defvec=v850_elf32_vec
     targ_selvecs="v800_elf32_vec"
+    targ_underscore=yes
     ;;
 
   vax-*-netbsdelf*)
@@ -1791,6 +1805,11 @@ case "${targ}" in
 
   visium-*-elf)
     targ_defvec=visium_elf32_vec
+    ;;
+
+  wasm32-*-*)
+    targ_defvec=wasm32_elf32_vec
+    targ_selvecs="wasm_vec"
     ;;
 
   we32k-*-*)

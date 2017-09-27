@@ -35,6 +35,36 @@
 #include "tracepoint.h"
 #include "dll.h"
 #include "hostio.h"
+#include <vector>
+#include "common-inferior.h"
+#include "job-control.h"
+#include "environ.h"
+
+#include "common/selftest.h"
+
+#define require_running_or_return(BUF)		\
+  if (!target_running ())			\
+    {						\
+      write_enn (BUF);				\
+      return;					\
+    }
+
+#define require_running_or_break(BUF)		\
+  if (!target_running ())			\
+    {						\
+      write_enn (BUF);				\
+      break;					\
+    }
+
+/* The environment to pass to the inferior when creating it.  */
+
+static gdb_environ our_environ;
+
+/* Start the inferior using a shell.  */
+
+/* We always try to start the inferior using a shell.  */
+
+int startup_with_shell = 1;
 
 /* The thread set with an `Hc' packet.  `Hc' is deprecated in favor of
    `vCont'.  Note the multi-process extensions made `vCont' a
@@ -78,7 +108,9 @@ static int vCont_supported;
    space randomization feature before starting an inferior.  */
 int disable_randomization = 1;
 
-static char **program_argv, **wrapper_argv;
+static char *program_name = NULL;
+static std::vector<char *> program_args;
+static std::string wrapper_argv;
 
 int pass_signals[GDB_SIGNAL_LAST];
 int program_signals[GDB_SIGNAL_LAST];
@@ -91,22 +123,6 @@ int program_signals_p;
 
 unsigned long signal_pid;
 
-#ifdef SIGTTOU
-/* A file descriptor for the controlling terminal.  */
-int terminal_fd;
-
-/* TERMINAL_FD's original foreground group.  */
-pid_t old_foreground_pgrp;
-
-/* Hand back terminal ownership to the original foreground group.  */
-
-static void
-restore_old_foreground_pgrp (void)
-{
-  tcsetpgrp (terminal_fd, old_foreground_pgrp);
-}
-#endif
-
 /* Set if you want to disable optional thread related packets support
    in gdbserver, for the sake of testing GDB against stubs that don't
    support them.  */
@@ -116,8 +132,8 @@ int disable_packet_qC;
 int disable_packet_qfThreadInfo;
 
 /* Last status reported to GDB.  */
-static struct target_waitstatus last_status;
-static ptid_t last_ptid;
+struct target_waitstatus last_status;
+ptid_t last_ptid;
 
 char *own_buf;
 static unsigned char *mem_buf;
@@ -236,102 +252,31 @@ target_running (void)
   return get_first_thread () != NULL;
 }
 
-static int
-start_inferior (char **argv)
+/* See common/common-inferior.h.  */
+
+const char *
+get_exec_wrapper ()
 {
-  char **new_argv = argv;
+  return !wrapper_argv.empty () ? wrapper_argv.c_str () : NULL;
+}
 
-  if (wrapper_argv != NULL)
-    {
-      int i, count = 1;
+/* See common/common-inferior.h.  */
 
-      for (i = 0; wrapper_argv[i] != NULL; i++)
-	count++;
-      for (i = 0; argv[i] != NULL; i++)
-	count++;
-      new_argv = XALLOCAVEC (char *, count);
-      count = 0;
-      for (i = 0; wrapper_argv[i] != NULL; i++)
-	new_argv[count++] = wrapper_argv[i];
-      for (i = 0; argv[i] != NULL; i++)
-	new_argv[count++] = argv[i];
-      new_argv[count] = NULL;
-    }
+char *
+get_exec_file (int err)
+{
+  if (err && program_name == NULL)
+    error (_("No executable file specified."));
 
-  if (debug_threads)
-    {
-      int i;
-      for (i = 0; new_argv[i]; ++i)
-	debug_printf ("new_argv[%d] = \"%s\"\n", i, new_argv[i]);
-      debug_flush ();
-    }
+  return program_name;
+}
 
-#ifdef SIGTTOU
-  signal (SIGTTOU, SIG_DFL);
-  signal (SIGTTIN, SIG_DFL);
-#endif
+/* See server.h.  */
 
-  signal_pid = create_inferior (new_argv[0], new_argv);
-
-  /* FIXME: we don't actually know at this point that the create
-     actually succeeded.  We won't know that until we wait.  */
-  fprintf (stderr, "Process %s created; pid = %ld\n", argv[0],
-	   signal_pid);
-  fflush (stderr);
-
-#ifdef SIGTTOU
-  signal (SIGTTOU, SIG_IGN);
-  signal (SIGTTIN, SIG_IGN);
-  terminal_fd = fileno (stderr);
-  old_foreground_pgrp = tcgetpgrp (terminal_fd);
-  tcsetpgrp (terminal_fd, signal_pid);
-  atexit (restore_old_foreground_pgrp);
-#endif
-
-  if (wrapper_argv != NULL)
-    {
-      ptid_t ptid = pid_to_ptid (signal_pid);
-
-      last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
-
-      if (last_status.kind == TARGET_WAITKIND_STOPPED)
-	{
-	  do
-	    {
-	      target_continue_no_signal (ptid);
-
-	      last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
-	      if (last_status.kind != TARGET_WAITKIND_STOPPED)
-		break;
-
-	      current_thread->last_resume_kind = resume_stop;
-	      current_thread->last_status = last_status;
-	    }
-	  while (last_status.value.sig != GDB_SIGNAL_TRAP);
-	}
-      target_post_create_inferior ();
-      return signal_pid;
-    }
-
-  /* Wait till we are at 1st instruction in program, return new pid
-     (assuming success).  */
-  last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
-
-  /* At this point, the target process, if it exits, is stopped.  Do not call
-     the function target_post_create_inferior if the process has already
-     exited, as the target implementation of the routine may rely on the
-     process being live. */
-  if (last_status.kind != TARGET_WAITKIND_EXITED
-      && last_status.kind != TARGET_WAITKIND_SIGNALLED)
-    {
-      target_post_create_inferior ();
-      current_thread->last_resume_kind = resume_stop;
-      current_thread->last_status = last_status;
-    }
-  else
-    target_mourn_inferior (last_ptid);
-
-  return signal_pid;
+gdb_environ *
+get_environ ()
+{
+  return &our_environ;
 }
 
 static int
@@ -702,6 +647,67 @@ handle_general_set (char *own_buf)
       return;
     }
 
+  if (strcmp (own_buf, "QEnvironmentReset") == 0)
+    {
+      our_environ = gdb_environ::from_host_environ ();
+
+      write_ok (own_buf);
+      return;
+    }
+
+  if (startswith (own_buf, "QEnvironmentHexEncoded:"))
+    {
+      const char *p = own_buf + sizeof ("QEnvironmentHexEncoded:") - 1;
+      /* The final form of the environment variable.  FINAL_VAR will
+	 hold the 'VAR=VALUE' format.  */
+      std::string final_var = hex2str (p);
+      std::string var_name, var_value;
+
+      if (remote_debug)
+	{
+	  debug_printf (_("[QEnvironmentHexEncoded received '%s']\n"), p);
+	  debug_printf (_("[Environment variable to be set: '%s']\n"),
+			final_var.c_str ());
+	  debug_flush ();
+	}
+
+      size_t pos = final_var.find ('=');
+      if (pos == std::string::npos)
+	{
+	  warning (_("Unexpected format for environment variable: '%s'"),
+		   final_var.c_str ());
+	  write_enn (own_buf);
+	  return;
+	}
+
+      var_name = final_var.substr (0, pos);
+      var_value = final_var.substr (pos + 1, std::string::npos);
+
+      our_environ.set (var_name.c_str (), var_value.c_str ());
+
+      write_ok (own_buf);
+      return;
+    }
+
+  if (startswith (own_buf, "QEnvironmentUnset:"))
+    {
+      const char *p = own_buf + sizeof ("QEnvironmentUnset:") - 1;
+      std::string varname = hex2str (p);
+
+      if (remote_debug)
+	{
+	  debug_printf (_("[QEnvironmentUnset received '%s']\n"), p);
+	  debug_printf (_("[Environment variable to be unset: '%s']\n"),
+			varname.c_str ());
+	  debug_flush ();
+	}
+
+      our_environ.unset (varname.c_str ());
+
+      write_ok (own_buf);
+      return;
+    }
+
   if (strcmp (own_buf, "QStartNoAckMode") == 0)
     {
       if (remote_debug)
@@ -838,6 +844,31 @@ handle_general_set (char *own_buf)
       return;
     }
 
+  if (startswith (own_buf, "QStartupWithShell:"))
+    {
+      const char *value = own_buf + strlen ("QStartupWithShell:");
+
+      if (strcmp (value, "1") == 0)
+	startup_with_shell = true;
+      else if (strcmp (value, "0") == 0)
+	startup_with_shell = false;
+      else
+	{
+	  /* Unknown value.  */
+	  fprintf (stderr, "Unknown value to startup-with-shell: %s\n",
+		   own_buf);
+	  write_enn (own_buf);
+	  return;
+	}
+
+      if (remote_debug)
+	debug_printf (_("[Inferior will %s started with shell]"),
+		      startup_with_shell ? "be" : "not be");
+
+      write_ok (own_buf);
+      return;
+    }
+
   /* Otherwise we didn't know what packet it was.  Say we didn't
      understand it.  */
   own_buf[0] = 0;
@@ -856,12 +887,14 @@ get_features_xml (const char *annex)
      This variable is set up from the auto-generated
      init_registers_... routine for the current target.  */
 
-  if (desc->xmltarget != NULL && strcmp (annex, "target.xml") == 0)
+  if (strcmp (annex, "target.xml") == 0)
     {
-      if (*desc->xmltarget == '@')
-	return desc->xmltarget + 1;
+      const char *ret = tdesc_get_features_xml ((target_desc*) desc);
+
+      if (*ret == '@')
+	return ret + 1;
       else
-	annex = desc->xmltarget;
+	annex = ret;
     }
 
 #ifdef USE_XML
@@ -936,7 +969,7 @@ gdb_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
   res = prepare_to_access_memory ();
   if (res == 0)
     {
-      if (set_desired_thread (1))
+      if (set_desired_thread ())
 	res = read_inferior_memory (memaddr, myaddr, len);
       else
 	res = 1;
@@ -963,7 +996,7 @@ gdb_write_memory (CORE_ADDR memaddr, const unsigned char *myaddr, int len)
       ret = prepare_to_access_memory ();
       if (ret == 0)
 	{
-	  if (set_desired_thread (1))
+	  if (set_desired_thread ())
 	    ret = write_inferior_memory (memaddr, myaddr, len);
 	  else
 	    ret = EIO;
@@ -1124,12 +1157,99 @@ handle_search_memory (char *own_buf, int packet_len)
   free (pattern);
 }
 
-#define require_running(BUF)			\
-  if (!target_running ())			\
-    {						\
-      write_enn (BUF);				\
-      return;					\
+/* Handle the "D" packet.  */
+
+static void
+handle_detach (char *own_buf)
+{
+  require_running_or_return (own_buf);
+
+  int pid;
+
+  if (multi_process)
+    {
+      /* skip 'D;' */
+      pid = strtol (&own_buf[2], NULL, 16);
     }
+  else
+    pid = ptid_get_pid (current_ptid);
+
+  if ((tracing && disconnected_tracing) || any_persistent_commands ())
+    {
+      struct process_info *process = find_process_pid (pid);
+
+      if (process == NULL)
+	{
+	  write_enn (own_buf);
+	  return;
+	}
+
+      if (tracing && disconnected_tracing)
+	fprintf (stderr,
+		 "Disconnected tracing in effect, "
+		 "leaving gdbserver attached to the process\n");
+
+      if (any_persistent_commands ())
+	fprintf (stderr,
+		 "Persistent commands are present, "
+		 "leaving gdbserver attached to the process\n");
+
+      /* Make sure we're in non-stop/async mode, so we we can both
+	 wait for an async socket accept, and handle async target
+	 events simultaneously.  There's also no point either in
+	 having the target stop all threads, when we're going to
+	 pass signals down without informing GDB.  */
+      if (!non_stop)
+	{
+	  if (debug_threads)
+	    debug_printf ("Forcing non-stop mode\n");
+
+	  non_stop = 1;
+	  start_non_stop (1);
+	}
+
+      process->gdb_detached = 1;
+
+      /* Detaching implicitly resumes all threads.  */
+      target_continue_no_signal (minus_one_ptid);
+
+      write_ok (own_buf);
+      return;
+    }
+
+  fprintf (stderr, "Detaching from process %d\n", pid);
+  stop_tracing ();
+  if (detach_inferior (pid) != 0)
+    write_enn (own_buf);
+  else
+    {
+      discard_queued_stop_replies (pid_to_ptid (pid));
+      write_ok (own_buf);
+
+      if (extended_protocol || target_running ())
+	{
+	  /* There is still at least one inferior remaining or
+	     we are in extended mode, so don't terminate gdbserver,
+	     and instead treat this like a normal program exit.  */
+	  last_status.kind = TARGET_WAITKIND_EXITED;
+	  last_status.value.integer = 0;
+	  last_ptid = pid_to_ptid (pid);
+
+	  current_thread = NULL;
+	}
+      else
+	{
+	  putpkt (own_buf);
+	  remote_close ();
+
+	  /* If we are attached, then we can exit.  Otherwise, we
+	     need to hang around doing nothing, until the child is
+	     gone.  */
+	  join_inferior (pid);
+	  exit (0);
+	}
+    }
+}
 
 /* Parse options to --debug-format= and "monitor set debug-format".
    ARG is the text after "--debug-format=" or "monitor set debug-format".
@@ -1389,45 +1509,18 @@ handle_qxfer_features (const char *annex,
 }
 
 /* Worker routine for handle_qxfer_libraries.
-   Add to the length pointed to by ARG a conservative estimate of the
-   length needed to transmit the file name of INF.  */
-
-static void
-accumulate_file_name_length (struct inferior_list_entry *inf, void *arg)
-{
-  struct dll_info *dll = (struct dll_info *) inf;
-  unsigned int *total_len = (unsigned int *) arg;
-
-  /* Over-estimate the necessary memory.  Assume that every character
-     in the library name must be escaped.  */
-  *total_len += 128 + 6 * strlen (dll->name);
-}
-
-/* Worker routine for handle_qxfer_libraries.
    Emit the XML to describe the library in INF.  */
 
 static void
 emit_dll_description (struct inferior_list_entry *inf, void *arg)
 {
   struct dll_info *dll = (struct dll_info *) inf;
-  char **p_ptr = (char **) arg;
-  char *p = *p_ptr;
-  char *name;
+  std::string *document = (std::string *) arg;
+  std::string name = xml_escape_text (dll->name);
 
-  strcpy (p, "  <library name=\"");
-  p = p + strlen (p);
-  name = xml_escape_text (dll->name);
-  strcpy (p, name);
-  free (name);
-  p = p + strlen (p);
-  strcpy (p, "\"><segment address=\"");
-  p = p + strlen (p);
-  sprintf (p, "0x%lx", (long) dll->base_addr);
-  p = p + strlen (p);
-  strcpy (p, "\"/></library>\n");
-  p = p + strlen (p);
-
-  *p_ptr = p;
+  *document += string_printf
+    ("  <library name=\"%s\"><segment address=\"0x%lx\"/></library>\n",
+     name.c_str (), (long) dll->base_addr);
 }
 
 /* Handle qXfer:libraries:read.  */
@@ -1437,43 +1530,26 @@ handle_qxfer_libraries (const char *annex,
 			gdb_byte *readbuf, const gdb_byte *writebuf,
 			ULONGEST offset, LONGEST len)
 {
-  unsigned int total_len;
-  char *document, *p;
-
   if (writebuf != NULL)
     return -2;
 
   if (annex[0] != '\0' || current_thread == NULL)
     return -1;
 
-  total_len = 64;
-  for_each_inferior_with_data (&all_dlls, accumulate_file_name_length,
-			       &total_len);
+  std::string document = "<library-list version=\"1.0\">\n";
 
-  document = (char *) malloc (total_len);
-  if (document == NULL)
+  for_each_inferior_with_data (&all_dlls, emit_dll_description, &document);
+
+  document += "</library-list>\n";
+
+  if (offset > document.length ())
     return -1;
 
-  strcpy (document, "<library-list version=\"1.0\">\n");
-  p = document + strlen (document);
+  if (offset + len > document.length ())
+    len = document.length () - offset;
 
-  for_each_inferior_with_data (&all_dlls, emit_dll_description, &p);
+  memcpy (readbuf, &document[offset], len);
 
-  strcpy (p, "</library-list>\n");
-
-  total_len = strlen (document);
-
-  if (offset > total_len)
-    {
-      free (document);
-      return -1;
-    }
-
-  if (offset + len > total_len)
-    len = total_len - offset;
-
-  memcpy (readbuf, document + offset, len);
-  free (document);
   return len;
 }
 
@@ -1567,11 +1643,14 @@ handle_qxfer_threads_worker (struct inferior_list_entry *inf, void *arg)
 {
   struct thread_info *thread = (struct thread_info *) inf;
   struct buffer *buffer = (struct buffer *) arg;
-  ptid_t ptid = thread_to_gdb_id (thread);
+  ptid_t ptid = ptid_of (thread);
   char ptid_s[100];
   int core = target_core_of_thread (ptid);
   char core_s[21];
   const char *name = target_thread_name (ptid);
+  int handle_len;
+  gdb_byte *handle;
+  bool handle_status = target_thread_handle (ptid, &handle, &handle_len);
 
   write_ptid (ptid_s, ptid);
 
@@ -1585,6 +1664,13 @@ handle_qxfer_threads_worker (struct inferior_list_entry *inf, void *arg)
 
   if (name != NULL)
     buffer_xml_printf (buffer, " name=\"%s\"", name);
+
+  if (handle_status)
+    {
+      char *handle_s = (char *) alloca (handle_len * 2 + 1);
+      bin2hex (handle, handle_s, handle_len);
+      buffer_xml_printf (buffer, " handle=\"%s\"", handle_s);
+    }
 
   buffer_xml_printf (buffer, "/>\n");
 }
@@ -2051,21 +2137,20 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
   /* Reply the current thread id.  */
   if (strcmp ("qC", own_buf) == 0 && !disable_packet_qC)
     {
-      ptid_t gdb_id;
-      require_running (own_buf);
+      ptid_t ptid;
+      require_running_or_return (own_buf);
 
-      if (!ptid_equal (general_thread, null_ptid)
-	  && !ptid_equal (general_thread, minus_one_ptid))
-	gdb_id = general_thread;
+      if (general_thread != null_ptid && general_thread != minus_one_ptid)
+	ptid = general_thread;
       else
 	{
 	  thread_ptr = get_first_inferior (&all_threads);
-	  gdb_id = thread_to_gdb_id ((struct thread_info *)thread_ptr);
+	  ptid = thread_ptr->id;
 	}
 
       sprintf (own_buf, "QC");
       own_buf += 2;
-      write_ptid (own_buf, gdb_id);
+      write_ptid (own_buf, ptid);
       return;
     }
 
@@ -2121,28 +2206,22 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
     {
       if (strcmp ("qfThreadInfo", own_buf) == 0)
 	{
-	  ptid_t gdb_id;
-
-	  require_running (own_buf);
+	  require_running_or_return (own_buf);
 	  thread_ptr = get_first_inferior (&all_threads);
 
 	  *own_buf++ = 'm';
-	  gdb_id = thread_to_gdb_id ((struct thread_info *)thread_ptr);
-	  write_ptid (own_buf, gdb_id);
+	  write_ptid (own_buf, thread_ptr->id);
 	  thread_ptr = thread_ptr->next;
 	  return;
 	}
 
       if (strcmp ("qsThreadInfo", own_buf) == 0)
 	{
-	  ptid_t gdb_id;
-
-	  require_running (own_buf);
+	  require_running_or_return (own_buf);
 	  if (thread_ptr != NULL)
 	    {
 	      *own_buf++ = 'm';
-	      gdb_id = thread_to_gdb_id ((struct thread_info *)thread_ptr);
-	      write_ptid (own_buf, gdb_id);
+	      write_ptid (own_buf, thread_ptr->id);
 	      thread_ptr = thread_ptr->next;
 	      return;
 	    }
@@ -2159,7 +2238,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
     {
       CORE_ADDR text, data;
 
-      require_running (own_buf);
+      require_running_or_return (own_buf);
       if (the_target->read_offsets (&text, &data))
 	sprintf (own_buf, "Text=%lX;Data=%lX;Bss=%lX",
 		 (long)text, (long)data, (long)data);
@@ -2274,7 +2353,9 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	}
 
       sprintf (own_buf,
-	       "PacketSize=%x;QPassSignals+;QProgramSignals+",
+	       "PacketSize=%x;QPassSignals+;QProgramSignals+;"
+	       "QStartupWithShell+;QEnvironmentHexEncoded+;"
+	       "QEnvironmentReset+;QEnvironmentUnset+",
 	       PBUFSIZ - 1);
 
       if (target_supports_catch_syscall ())
@@ -2394,7 +2475,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       int i, err;
       ptid_t ptid = null_ptid;
 
-      require_running (own_buf);
+      require_running_or_return (own_buf);
 
       for (i = 0; i < 3; i++)
 	{
@@ -2507,7 +2588,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 
   if (startswith (own_buf, "qSearch:memory:"))
     {
-      require_running (own_buf);
+      require_running_or_return (own_buf);
       handle_search_memory (own_buf, packet_len);
       return;
     }
@@ -2525,7 +2606,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	}
       else
 	{
-	  require_running (own_buf);
+	  require_running_or_return (own_buf);
 	  process = current_process ();
 	}
 
@@ -2547,7 +2628,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       int len;
       unsigned long long crc;
 
-      require_running (own_buf);
+      require_running_or_return (own_buf);
       comma = unpack_varlen_hex (own_buf + 5, &base);
       if (*comma++ != ',')
 	{
@@ -2654,7 +2735,7 @@ handle_v_cont (char *own_buf)
   char *p, *q;
   int n = 0, i = 0;
   struct thread_resume *resume_info;
-  struct thread_resume default_action = {{0}};
+  struct thread_resume default_action { null_ptid };
 
   /* Count the number of semicolons in the packet.  There should be one
      for every action.  */
@@ -2852,7 +2933,9 @@ handle_v_attach (char *own_buf)
 static int
 handle_v_run (char *own_buf)
 {
-  char *p, *next_p, **new_argv;
+  char *p, *next_p;
+  std::vector<char *> new_argv;
+  char *new_program_name = NULL;
   int i, new_argc;
 
   new_argc = 0;
@@ -2862,62 +2945,103 @@ handle_v_run (char *own_buf)
       new_argc++;
     }
 
-  new_argv = (char **) calloc (new_argc + 2, sizeof (char *));
-  if (new_argv == NULL)
-    {
-      write_enn (own_buf);
-      return 0;
-    }
-
-  i = 0;
-  for (p = own_buf + strlen ("vRun;"); *p; p = next_p)
+  for (i = 0, p = own_buf + strlen ("vRun;"); *p; p = next_p, ++i)
     {
       next_p = strchr (p, ';');
       if (next_p == NULL)
 	next_p = p + strlen (p);
 
       if (i == 0 && p == next_p)
-	new_argv[i] = NULL;
+	{
+	  /* No program specified.  */
+	  new_program_name = NULL;
+	}
+      else if (p == next_p)
+	{
+	  /* Empty argument.  */
+	  new_argv.push_back (xstrdup ("''"));
+	}
       else
 	{
-	  /* FIXME: Fail request if out of memory instead of dying.  */
-	  new_argv[i] = (char *) xmalloc (1 + (next_p - p) / 2);
-	  hex2bin (p, (gdb_byte *) new_argv[i], (next_p - p) / 2);
-	  new_argv[i][(next_p - p) / 2] = '\0';
-	}
+	  size_t len = (next_p - p) / 2;
+	  /* ARG is the unquoted argument received via the RSP.  */
+	  char *arg = (char *) xmalloc (len + 1);
+	  /* FULL_ARGS will contain the quoted version of ARG.  */
+	  char *full_arg = (char *) xmalloc ((len + 1) * 2);
+	  /* These are pointers used to navigate the strings above.  */
+	  char *tmp_arg = arg;
+	  char *tmp_full_arg = full_arg;
+	  int need_quote = 0;
 
+	  hex2bin (p, (gdb_byte *) arg, len);
+	  arg[len] = '\0';
+
+	  while (*tmp_arg != '\0')
+	    {
+	      switch (*tmp_arg)
+		{
+		case '\n':
+		  /* Quote \n.  */
+		  *tmp_full_arg = '\'';
+		  ++tmp_full_arg;
+		  need_quote = 1;
+		  break;
+
+		case '\'':
+		  /* Quote single quote.  */
+		  *tmp_full_arg = '\\';
+		  ++tmp_full_arg;
+		  break;
+
+		default:
+		  break;
+		}
+
+	      *tmp_full_arg = *tmp_arg;
+	      ++tmp_full_arg;
+	      ++tmp_arg;
+	    }
+
+	  if (need_quote)
+	    *tmp_full_arg++ = '\'';
+
+	  /* Finish FULL_ARG and push it into the vector containing
+	     the argv.  */
+	  *tmp_full_arg = '\0';
+	  if (i == 0)
+	    new_program_name = full_arg;
+	  else
+	    new_argv.push_back (full_arg);
+	  xfree (arg);
+	}
       if (*next_p)
 	next_p++;
-      i++;
     }
-  new_argv[i] = NULL;
+  new_argv.push_back (NULL);
 
-  if (new_argv[0] == NULL)
+  if (new_program_name == NULL)
     {
       /* GDB didn't specify a program to run.  Use the program from the
 	 last run with the new argument list.  */
-
-      if (program_argv == NULL)
+      if (program_name == NULL)
 	{
 	  write_enn (own_buf);
-	  freeargv (new_argv);
-	  return 0;
-	}
-
-      new_argv[0] = strdup (program_argv[0]);
-      if (new_argv[0] == NULL)
-	{
-	  write_enn (own_buf);
-	  freeargv (new_argv);
+	  free_vector_argv (new_argv);
 	  return 0;
 	}
     }
+  else
+    {
+      xfree (program_name);
+      program_name = new_program_name;
+    }
 
   /* Free the old argv and install the new one.  */
-  freeargv (program_argv);
-  program_argv = new_argv;
+  free_vector_argv (program_args);
+  program_args = new_argv;
 
-  start_inferior (program_argv);
+  create_inferior (program_name, program_args);
+
   if (last_status.kind == TARGET_WAITKIND_STOPPED)
     {
       prepare_resume_reply (own_buf, last_ptid, &last_status);
@@ -3119,14 +3243,12 @@ queue_stop_reply_callback (struct inferior_list_entry *entry, void *arg)
 	{
 	  if (debug_threads)
 	    {
-	      char *status_string
+	      std::string status_string
 		= target_waitstatus_to_string (&thread->last_status);
 
 	      debug_printf ("Reporting thread %s as already stopped with %s\n",
 			    target_pid_to_str (entry->id),
-			    status_string);
-
-	      xfree (status_string);
+			    status_string.c_str ());
 	    }
 
 	  gdb_assert (thread->last_status.kind != TARGET_WAITKIND_IGNORE);
@@ -3286,7 +3408,7 @@ handle_status (char *own_buf)
 	  /* GDB assumes the current thread is the thread we're
 	     reporting the status for.  */
 	  general_thread = thread->id;
-	  set_desired_thread (1);
+	  set_desired_thread ();
 
 	  gdb_assert (tp->last_status.kind != TARGET_WAITKIND_IGNORE);
 	  prepare_resume_reply (own_buf, tp->entry.id, &tp->last_status);
@@ -3337,6 +3459,13 @@ gdbserver_usage (FILE *stream)
 	   "  --no-disable-randomization\n"
 	   "                        Don't disable address space randomization when\n"
 	   "                        starting PROG.\n"
+	   "  --startup-with-shell\n"
+	   "                        Start PROG using a shell.  I.e., execs a shell that\n"
+	   "                        then execs PROG.  (default)\n"
+	   "  --no-startup-with-shell\n"
+	   "                        Exec PROG directly instead of using a shell.\n"
+	   "                        Disables argument globbing and variable substitution\n"
+	   "                        on UNIX-like systems.\n"
 	   "\n"
 	   "Debug options:\n"
 	   "\n"
@@ -3370,26 +3499,6 @@ gdbserver_show_disableable (FILE *stream)
 	   "  Tthread     \tPassing the thread specifier in the "
 	   "T stop reply packet\n"
 	   "  threads     \tAll of the above\n");
-}
-
-
-#undef require_running
-#define require_running(BUF)			\
-  if (!target_running ())			\
-    {						\
-      write_enn (BUF);				\
-      break;					\
-    }
-
-static int
-first_thread_of (struct inferior_list_entry *entry, void *args)
-{
-  int pid = * (int *) args;
-
-  if (ptid_get_pid (entry->id) == pid)
-    return 1;
-
-  return 0;
 }
 
 static void
@@ -3511,11 +3620,14 @@ captured_main (int argc, char *argv[])
 {
   int bad_attach;
   int pid;
-  char *arg_end, *port;
+  char *arg_end;
+  const char *port = NULL;
   char **next_arg = &argv[1];
   volatile int multi_mode = 0;
   volatile int attach = 0;
   int was_running;
+  bool selftest = false;
+  const char *selftest_filter = NULL;
 
   while (*next_arg != NULL && **next_arg == '-')
     {
@@ -3535,13 +3647,25 @@ captured_main (int argc, char *argv[])
 	multi_mode = 1;
       else if (strcmp (*next_arg, "--wrapper") == 0)
 	{
+	  char **tmp;
+
 	  next_arg++;
 
-	  wrapper_argv = next_arg;
+	  tmp = next_arg;
 	  while (*next_arg != NULL && strcmp (*next_arg, "--") != 0)
-	    next_arg++;
+	    {
+	      wrapper_argv += *next_arg;
+	      wrapper_argv += ' ';
+	      next_arg++;
+	    }
 
-	  if (next_arg == wrapper_argv || *next_arg == NULL)
+	  if (!wrapper_argv.empty ())
+	    {
+	      /* Erase the last whitespace.  */
+	      wrapper_argv.erase (wrapper_argv.end () - 1);
+	    }
+
+	  if (next_arg == tmp || *next_arg == NULL)
 	    {
 	      gdbserver_usage (stderr);
 	      exit (1);
@@ -3608,15 +3732,27 @@ captured_main (int argc, char *argv[])
 	{
 	  /* "-" specifies a stdio connection and is a form of port
 	     specification.  */
-	  *next_arg = STDIO_CONNECTION_NAME;
+	  port = STDIO_CONNECTION_NAME;
+	  next_arg++;
 	  break;
 	}
       else if (strcmp (*next_arg, "--disable-randomization") == 0)
 	disable_randomization = 1;
       else if (strcmp (*next_arg, "--no-disable-randomization") == 0)
 	disable_randomization = 0;
+      else if (strcmp (*next_arg, "--startup-with-shell") == 0)
+	startup_with_shell = true;
+      else if (strcmp (*next_arg, "--no-startup-with-shell") == 0)
+	startup_with_shell = false;
       else if (strcmp (*next_arg, "--once") == 0)
 	run_once = 1;
+      else if (strcmp (*next_arg, "--selftest") == 0)
+	selftest = true;
+      else if (startswith (*next_arg, "--selftest="))
+	{
+	  selftest = true;
+	  selftest_filter = *next_arg + strlen ("--selftest=");
+	}
       else
 	{
 	  fprintf (stderr, "Unknown argument: %s\n", *next_arg);
@@ -3627,9 +3763,13 @@ captured_main (int argc, char *argv[])
       continue;
     }
 
-  port = *next_arg;
-  next_arg++;
-  if (port == NULL || (!attach && !multi_mode && *next_arg == NULL))
+  if (port == NULL)
+    {
+      port = *next_arg;
+      next_arg++;
+    }
+  if ((port == NULL || (!attach && !multi_mode && *next_arg == NULL))
+       && !selftest)
     {
       gdbserver_usage (stderr);
       exit (1);
@@ -3645,7 +3785,8 @@ captured_main (int argc, char *argv[])
      starting the inferior.  Inferiors created in this scenario have
      stdin,stdout redirected.  So do this here before we call
      start_inferior.  */
-  remote_prepare (port);
+  if (port != NULL)
+    remote_prepare (port);
 
   bad_attach = 0;
   pid = 0;
@@ -3672,8 +3813,12 @@ captured_main (int argc, char *argv[])
       exit (1);
     }
 
+  /* Gather information about the environment.  */
+  our_environ = gdb_environ::from_host_environ ();
+
   initialize_async_io ();
   initialize_low ();
+  have_job_control ();
   initialize_event_loop ();
   if (target_supports_tracepoints ())
     initialize_tracepoint ();
@@ -3682,18 +3827,24 @@ captured_main (int argc, char *argv[])
   own_buf = (char *) xmalloc (PBUFSIZ + 1);
   mem_buf = (unsigned char *) xmalloc (PBUFSIZ);
 
+  if (selftest)
+    {
+      selftests::run_tests (selftest_filter);
+      throw_quit ("Quit");
+    }
+
   if (pid == 0 && *next_arg != NULL)
     {
       int i, n;
 
       n = argc - (next_arg - argv);
-      program_argv = XNEWVEC (char *, n + 1);
-      for (i = 0; i < n; i++)
-	program_argv[i] = xstrdup (next_arg[i]);
-      program_argv[i] = NULL;
+      program_name = xstrdup (next_arg[0]);
+      for (i = 1; i < n; i++)
+	program_args.push_back (xstrdup (next_arg[i]));
+      program_args.push_back (NULL);
 
       /* Wait till we are at first instruction in program.  */
-      start_inferior (program_argv);
+      create_inferior (program_name, program_args);
 
       /* We are now (hopefully) stopped at the first instruction of
 	 the target process.  This assumes that the target process was
@@ -3911,13 +4062,10 @@ process_point_options (struct gdb_breakpoint *bp, char **packet)
 static int
 process_serial_event (void)
 {
-  char ch;
-  int i = 0;
   int signal;
   unsigned int len;
   int res;
   CORE_ADDR mem_addr;
-  int pid;
   unsigned char sig;
   int packet_len;
   int new_packet_len = -1;
@@ -3934,8 +4082,7 @@ process_serial_event (void)
     }
   response_needed = 1;
 
-  i = 0;
-  ch = own_buf[i++];
+  char ch = own_buf[0];
   switch (ch)
     {
     case 'q':
@@ -3945,91 +4092,7 @@ process_serial_event (void)
       handle_general_set (own_buf);
       break;
     case 'D':
-      require_running (own_buf);
-
-      if (multi_process)
-	{
-	  i++; /* skip ';' */
-	  pid = strtol (&own_buf[i], NULL, 16);
-	}
-      else
-	pid = ptid_get_pid (current_ptid);
-
-      if ((tracing && disconnected_tracing) || any_persistent_commands ())
-	{
-	  struct process_info *process = find_process_pid (pid);
-
-	  if (process == NULL)
-	    {
-	      write_enn (own_buf);
-	      break;
-	    }
-
-	  if (tracing && disconnected_tracing)
-	    fprintf (stderr,
-		     "Disconnected tracing in effect, "
-		     "leaving gdbserver attached to the process\n");
-
-	  if (any_persistent_commands ())
-	    fprintf (stderr,
-		     "Persistent commands are present, "
-		     "leaving gdbserver attached to the process\n");
-
-	  /* Make sure we're in non-stop/async mode, so we we can both
-	     wait for an async socket accept, and handle async target
-	     events simultaneously.  There's also no point either in
-	     having the target stop all threads, when we're going to
-	     pass signals down without informing GDB.  */
-	  if (!non_stop)
-	    {
-	      if (debug_threads)
-		debug_printf ("Forcing non-stop mode\n");
-
-	      non_stop = 1;
-	      start_non_stop (1);
-	    }
-
-	  process->gdb_detached = 1;
-
-	  /* Detaching implicitly resumes all threads.  */
-	  target_continue_no_signal (minus_one_ptid);
-
-	  write_ok (own_buf);
-	  break; /* from switch/case */
-	}
-
-      fprintf (stderr, "Detaching from process %d\n", pid);
-      stop_tracing ();
-      if (detach_inferior (pid) != 0)
-	write_enn (own_buf);
-      else
-	{
-	  discard_queued_stop_replies (pid_to_ptid (pid));
-	  write_ok (own_buf);
-
-	  if (extended_protocol || target_running ())
-	    {
-	      /* There is still at least one inferior remaining or
-		 we are in extended mode, so don't terminate gdbserver,
-		 and instead treat this like a normal program exit.  */
-	      last_status.kind = TARGET_WAITKIND_EXITED;
-	      last_status.value.integer = 0;
-	      last_ptid = pid_to_ptid (pid);
-
-	      current_thread = NULL;
-	    }
-	  else
-	    {
-	      putpkt (own_buf);
-	      remote_close ();
-
-	      /* If we are attached, then we can exit.  Otherwise, we
-		 need to hang around doing nothing, until the child is
-		 gone.  */
-	      join_inferior (pid);
-	      exit (0);
-	    }
-	}
+      handle_detach (own_buf);
       break;
     case '!':
       extended_protocol = 1;
@@ -4041,27 +4104,18 @@ process_serial_event (void)
     case 'H':
       if (own_buf[1] == 'c' || own_buf[1] == 'g' || own_buf[1] == 's')
 	{
-	  ptid_t gdb_id, thread_id;
-	  int pid;
+	  require_running_or_break (own_buf);
 
-	  require_running (own_buf);
+	  ptid_t thread_id = read_ptid (&own_buf[2], NULL);
 
-	  gdb_id = read_ptid (&own_buf[2], NULL);
-
-	  pid = ptid_get_pid (gdb_id);
-
-	  if (ptid_equal (gdb_id, null_ptid)
-	      || ptid_equal (gdb_id, minus_one_ptid))
+	  if (thread_id == null_ptid || thread_id == minus_one_ptid)
 	    thread_id = null_ptid;
-	  else if (pid != 0
-		   && ptid_equal (pid_to_ptid (pid),
-				  gdb_id))
+	  else if (thread_id.is_pid ())
 	    {
-	      struct thread_info *thread =
-		(struct thread_info *) find_inferior (&all_threads,
-						      first_thread_of,
-						      &pid);
-	      if (!thread)
+	      /* The ptid represents a pid.  */
+	      thread_info *thread = find_any_thread_of_pid (thread_id.pid ());
+
+	      if (thread == NULL)
 		{
 		  write_enn (own_buf);
 		  break;
@@ -4071,8 +4125,8 @@ process_serial_event (void)
 	    }
 	  else
 	    {
-	      thread_id = gdb_id_to_thread_id (gdb_id);
-	      if (ptid_equal (thread_id, null_ptid))
+	      /* The ptid represents a lwp/tid.  */
+	      if (find_thread_ptid (thread_id) == NULL)
 		{
 		  write_enn (own_buf);
 		  break;
@@ -4095,7 +4149,7 @@ process_serial_event (void)
 		}
 
 	      general_thread = thread_id;
-	      set_desired_thread (1);
+	      set_desired_thread ();
 	      gdb_assert (current_thread != NULL);
 	    }
 	  else if (own_buf[1] == 'c')
@@ -4111,7 +4165,7 @@ process_serial_event (void)
 	}
       break;
     case 'g':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       if (current_traceframe >= 0)
 	{
 	  struct regcache *regcache
@@ -4128,7 +4182,7 @@ process_serial_event (void)
 	{
 	  struct regcache *regcache;
 
-	  if (!set_desired_thread (1))
+	  if (!set_desired_thread ())
 	    write_enn (own_buf);
 	  else
 	    {
@@ -4138,14 +4192,14 @@ process_serial_event (void)
 	}
       break;
     case 'G':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       if (current_traceframe >= 0)
 	write_enn (own_buf);
       else
 	{
 	  struct regcache *regcache;
 
-	  if (!set_desired_thread (1))
+	  if (!set_desired_thread ())
 	    write_enn (own_buf);
 	  else
 	    {
@@ -4156,7 +4210,7 @@ process_serial_event (void)
 	}
       break;
     case 'm':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       decode_m_packet (&own_buf[1], &mem_addr, &len);
       res = gdb_read_memory (mem_addr, mem_buf, len);
       if (res < 0)
@@ -4165,7 +4219,7 @@ process_serial_event (void)
 	bin2hex (mem_buf, own_buf, res);
       break;
     case 'M':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       decode_M_packet (&own_buf[1], &mem_addr, &len, &mem_buf);
       if (gdb_write_memory (mem_addr, mem_buf, len) == 0)
 	write_ok (own_buf);
@@ -4173,7 +4227,7 @@ process_serial_event (void)
 	write_enn (own_buf);
       break;
     case 'X':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       if (decode_X_packet (&own_buf[1], packet_len - 1,
 			   &mem_addr, &len, &mem_buf) < 0
 	  || gdb_write_memory (mem_addr, mem_buf, len) != 0)
@@ -4182,7 +4236,7 @@ process_serial_event (void)
 	write_ok (own_buf);
       break;
     case 'C':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       hex2bin (own_buf + 1, &sig, 1);
       if (gdb_signal_to_host_p ((enum gdb_signal) sig))
 	signal = gdb_signal_to_host ((enum gdb_signal) sig);
@@ -4191,7 +4245,7 @@ process_serial_event (void)
       myresume (own_buf, 0, signal);
       break;
     case 'S':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       hex2bin (own_buf + 1, &sig, 1);
       if (gdb_signal_to_host_p ((enum gdb_signal) sig))
 	signal = gdb_signal_to_host ((enum gdb_signal) sig);
@@ -4200,12 +4254,12 @@ process_serial_event (void)
       myresume (own_buf, 1, signal);
       break;
     case 'c':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       signal = 0;
       myresume (own_buf, 0, signal);
       break;
     case 's':
-      require_running (own_buf);
+      require_running_or_break (own_buf);
       signal = 0;
       myresume (own_buf, 1, signal);
       break;
@@ -4277,13 +4331,10 @@ process_serial_event (void)
 
     case 'T':
       {
-	ptid_t gdb_id, thread_id;
+	require_running_or_break (own_buf);
 
-	require_running (own_buf);
-
-	gdb_id = read_ptid (&own_buf[1], NULL);
-	thread_id = gdb_id_to_thread_id (gdb_id);
-	if (ptid_equal (thread_id, null_ptid))
+	ptid_t thread_id = read_ptid (&own_buf[1], NULL);
+	if (find_thread_ptid (thread_id) == NULL)
 	  {
 	    write_enn (own_buf);
 	    break;
@@ -4308,9 +4359,10 @@ process_serial_event (void)
 	  fprintf (stderr, "GDBserver restarting\n");
 
 	  /* Wait till we are at 1st instruction in prog.  */
-	  if (program_argv != NULL)
+	  if (program_name != NULL)
 	    {
-	      start_inferior (program_argv);
+	      create_inferior (program_name, program_args);
+
 	      if (last_status.kind == TARGET_WAITKIND_STOPPED)
 		{
 		  /* Stopped at the first instruction of the target
@@ -4378,7 +4430,7 @@ handle_serial_event (int err, gdb_client_data client_data)
 
   /* Be sure to not change the selected thread behind GDB's back.
      Important in the non-stop mode asynchronous protocol.  */
-  set_desired_thread (1);
+  set_desired_thread ();
 
   return 0;
 }
@@ -4473,7 +4525,18 @@ handle_target_event (int err, gdb_client_data client_data)
 
   /* Be sure to not change the selected thread behind GDB's back.
      Important in the non-stop mode asynchronous protocol.  */
-  set_desired_thread (1);
+  set_desired_thread ();
 
   return 0;
 }
+
+#if GDB_SELF_TEST
+namespace selftests
+{
+
+void
+reset ()
+{}
+
+} // namespace selftests
+#endif /* GDB_SELF_TEST */

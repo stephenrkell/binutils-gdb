@@ -1017,16 +1017,14 @@ do_frame_register_read (void *src, int regnum, gdb_byte *buf)
     return REG_VALID;
 }
 
-struct regcache *
+std::unique_ptr<struct regcache>
 frame_save_as_regcache (struct frame_info *this_frame)
 {
   struct address_space *aspace = get_frame_address_space (this_frame);
-  struct regcache *regcache = regcache_xmalloc (get_frame_arch (this_frame),
-						aspace);
-  struct cleanup *cleanups = make_cleanup_regcache_xfree (regcache);
+  std::unique_ptr<struct regcache> regcache
+    (new struct regcache (get_frame_arch (this_frame), aspace));
 
-  regcache_save (regcache, do_frame_register_read, this_frame);
-  discard_cleanups (cleanups);
+  regcache_save (regcache.get (), do_frame_register_read, this_frame);
   return regcache;
 }
 
@@ -1034,8 +1032,6 @@ void
 frame_pop (struct frame_info *this_frame)
 {
   struct frame_info *prev_frame;
-  struct regcache *scratch;
-  struct cleanup *cleanups;
 
   if (get_frame_type (this_frame) == DUMMY_FRAME)
     {
@@ -1062,8 +1058,8 @@ frame_pop (struct frame_info *this_frame)
      Save them in a scratch buffer so that there isn't a race between
      trying to extract the old values from the current regcache while
      at the same time writing new values into that same cache.  */
-  scratch = frame_save_as_regcache (prev_frame);
-  cleanups = make_cleanup_regcache_xfree (scratch);
+  std::unique_ptr<struct regcache> scratch
+    = frame_save_as_regcache (prev_frame);
 
   /* FIXME: cagney/2003-03-16: It should be possible to tell the
      target's register cache that it is about to be hit with a burst
@@ -1075,8 +1071,7 @@ frame_pop (struct frame_info *this_frame)
      (arguably a bug in the target code mind).  */
   /* Now copy those saved registers into the current regcache.
      Here, regcache_cpy() calls regcache_restore().  */
-  regcache_cpy (get_current_regcache (), scratch);
-  do_cleanups (cleanups);
+  regcache_cpy (get_current_regcache (), scratch.get ());
 
   /* We've made right mess of GDB's local state, just discard
      everything.  */
@@ -1252,10 +1247,27 @@ frame_unwind_register_signed (struct frame_info *frame, int regnum)
   struct gdbarch *gdbarch = frame_unwind_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int size = register_size (gdbarch, regnum);
-  gdb_byte buf[MAX_REGISTER_SIZE];
+  struct value *value = frame_unwind_register_value (frame, regnum);
 
-  frame_unwind_register (frame, regnum, buf);
-  return extract_signed_integer (buf, size, byte_order);
+  gdb_assert (value != NULL);
+
+  if (value_optimized_out (value))
+    {
+      throw_error (OPTIMIZED_OUT_ERROR,
+		   _("Register %d was not saved"), regnum);
+    }
+  if (!value_entirely_available (value))
+    {
+      throw_error (NOT_AVAILABLE_ERROR,
+		   _("Register %d is not available"), regnum);
+    }
+
+  LONGEST r = extract_signed_integer (value_contents_all (value), size,
+				      byte_order);
+
+  release_value (value);
+  value_free (value);
+  return r;
 }
 
 LONGEST
@@ -1270,10 +1282,27 @@ frame_unwind_register_unsigned (struct frame_info *frame, int regnum)
   struct gdbarch *gdbarch = frame_unwind_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int size = register_size (gdbarch, regnum);
-  gdb_byte buf[MAX_REGISTER_SIZE];
+  struct value *value = frame_unwind_register_value (frame, regnum);
 
-  frame_unwind_register (frame, regnum, buf);
-  return extract_unsigned_integer (buf, size, byte_order);
+  gdb_assert (value != NULL);
+
+  if (value_optimized_out (value))
+    {
+      throw_error (OPTIMIZED_OUT_ERROR,
+		   _("Register %d was not saved"), regnum);
+    }
+  if (!value_entirely_available (value))
+    {
+      throw_error (NOT_AVAILABLE_ERROR,
+		   _("Register %d is not available"), regnum);
+    }
+
+  ULONGEST r = extract_unsigned_integer (value_contents_all (value), size,
+					 byte_order);
+
+  release_value (value);
+  value_free (value);
+  return r;
 }
 
 ULONGEST
@@ -1410,16 +1439,21 @@ get_frame_register_bytes (struct frame_info *frame, int regnum,
 	}
       else
 	{
-	  gdb_byte buf[MAX_REGISTER_SIZE];
-	  enum lval_type lval;
-	  CORE_ADDR addr;
-	  int realnum;
+	  struct value *value = frame_unwind_register_value (frame->next,
+							     regnum);
+	  gdb_assert (value != NULL);
+	  *optimizedp = value_optimized_out (value);
+	  *unavailablep = !value_entirely_available (value);
 
-	  frame_register (frame, regnum, optimizedp, unavailablep,
-			  &lval, &addr, &realnum, buf);
 	  if (*optimizedp || *unavailablep)
-	    return 0;
-	  memcpy (myaddr, buf + offset, curr_len);
+	    {
+	      release_value (value);
+	      value_free (value);
+	      return 0;
+	    }
+	  memcpy (myaddr, value_contents_all (value) + offset, curr_len);
+	  release_value (value);
+	  value_free (value);
 	}
 
       myaddr += curr_len;
@@ -1460,11 +1494,15 @@ put_frame_register_bytes (struct frame_info *frame, int regnum,
 	}
       else
 	{
-	  gdb_byte buf[MAX_REGISTER_SIZE];
+	  struct value *value = frame_unwind_register_value (frame->next,
+							     regnum);
+	  gdb_assert (value != NULL);
 
-	  deprecated_frame_register_read (frame, regnum, buf);
-	  memcpy (buf + offset, myaddr, curr_len);
-	  put_frame_register (frame, regnum, buf);
+	  memcpy ((char *) value_contents_writeable (value) + offset, myaddr,
+		  curr_len);
+	  put_frame_register (frame, regnum, value_contents_raw (value));
+	  release_value (value);
+	  value_free (value);
 	}
 
       myaddr += curr_len;
@@ -1677,6 +1715,23 @@ select_frame (struct frame_info *fi)
 	}
     }
 }
+
+#if GDB_SELF_TEST
+struct frame_info *
+create_test_frame (struct regcache *regcache)
+{
+  struct frame_info *this_frame = XCNEW (struct frame_info);
+
+  sentinel_frame = create_sentinel_frame (NULL, regcache);
+  sentinel_frame->prev = this_frame;
+  sentinel_frame->prev_p = 1;;
+  this_frame->prev_arch.p = 1;
+  this_frame->prev_arch.arch = get_regcache_arch (regcache);
+  this_frame->next = sentinel_frame;
+
+  return this_frame;
+}
+#endif
 
 /* Create an arbitrary (i.e. address specified by user) or innermost frame.
    Always returns a non-NULL value.  */
@@ -2446,8 +2501,8 @@ get_frame_address_in_block_if_available (struct frame_info *this_frame,
   return 1;
 }
 
-void
-find_frame_sal (struct frame_info *frame, struct symtab_and_line *sal)
+symtab_and_line
+find_frame_sal (frame_info *frame)
 {
   struct frame_info *next_frame;
   int notcurrent;
@@ -2468,21 +2523,21 @@ find_frame_sal (struct frame_info *frame, struct symtab_and_line *sal)
 
       /* If frame is inline, it certainly has symbols.  */
       gdb_assert (sym);
-      init_sal (sal);
+
+      symtab_and_line sal;
       if (SYMBOL_LINE (sym) != 0)
 	{
-	  sal->symtab = symbol_symtab (sym);
-	  sal->line = SYMBOL_LINE (sym);
+	  sal.symtab = symbol_symtab (sym);
+	  sal.line = SYMBOL_LINE (sym);
 	}
       else
 	/* If the symbol does not have a location, we don't know where
 	   the call site is.  Do not pretend to.  This is jarring, but
 	   we can't do much better.  */
-	sal->pc = get_frame_pc (frame);
+	sal.pc = get_frame_pc (frame);
 
-      sal->pspace = get_frame_program_space (frame);
-
-      return;
+      sal.pspace = get_frame_program_space (frame);
+      return sal;
     }
 
   /* If FRAME is not the innermost frame, that normally means that
@@ -2495,13 +2550,10 @@ find_frame_sal (struct frame_info *frame, struct symtab_and_line *sal)
      instruction/line, consequently, for such cases, want to get the
      line containing fi->pc.  */
   if (!get_frame_pc_if_available (frame, &pc))
-    {
-      init_sal (sal);
-      return;
-    }
+    return {};
 
   notcurrent = (pc != get_frame_address_in_block (frame));
-  (*sal) = find_pc_line (pc, notcurrent);
+  return find_pc_line (pc, notcurrent);
 }
 
 /* Per "frame.h", return the ``address'' of the frame.  Code should
@@ -2869,8 +2921,6 @@ frame_prepare_for_sniffer (struct frame_info *frame,
   frame->unwind = unwind;
   return make_cleanup (frame_cleanup_after_sniffer, frame);
 }
-
-extern initialize_file_ftype _initialize_frame; /* -Wmissing-prototypes */
 
 static struct cmd_list_element *set_backtrace_cmdlist;
 static struct cmd_list_element *show_backtrace_cmdlist;

@@ -305,7 +305,7 @@ register_set_keyword_table (const CGEN_HW_ENTRY *hw)
 /* Given a keyword table KEYWORD and a register number REGNUM, return
    the name of the register, or "" if KEYWORD contains no register
    whose number is REGNUM.  */
-static char *
+static const char *
 register_name_from_keyword (CGEN_KEYWORD *keyword_table, int regnum)
 {
   const CGEN_KEYWORD_ENTRY *entry
@@ -2437,7 +2437,7 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     if (gdbarch_tdep (arches->gdbarch)->me_module == me_module)
       return arches->gdbarch;
 
-  tdep = XNEW (struct gdbarch_tdep);
+  tdep = XCNEW (struct gdbarch_tdep);
   gdbarch = gdbarch_alloc (&info, tdep);
 
   /* Get a CGEN CPU descriptor for this architecture.  */
@@ -2502,9 +2502,6 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   return gdbarch;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_mep_tdep;
 
 void
 _initialize_mep_tdep (void)

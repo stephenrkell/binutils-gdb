@@ -204,7 +204,7 @@ static const char *d_extensions[] =
   ".d", NULL
 };
 
-static const struct language_defn d_language_defn =
+extern const struct language_defn d_language_defn =
 {
   "d",
   "D",
@@ -239,11 +239,12 @@ static const struct language_defn d_language_defn =
   1,				/* C-style arrays.  */
   0,				/* String lower bound.  */
   default_word_break_characters,
-  default_make_symbol_completion_list,
+  default_collect_symbol_completion_matches,
   d_language_arch_info,
   default_print_array_index,
   default_pass_by_reference,
   c_get_string,
+  c_watch_location_expression,
   NULL,				/* la_get_symbol_name_cmp */
   iterate_over_symbols,
   &default_varobj_ops,
@@ -341,13 +342,8 @@ builtin_d_type (struct gdbarch *gdbarch)
   return (const struct builtin_d_type *) gdbarch_data (gdbarch, d_type_data);
 }
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_d_language;
-
 void
 _initialize_d_language (void)
 {
   d_type_data = gdbarch_data_register_post_init (build_d_types);
-
-  add_language (&d_language_defn);
 }

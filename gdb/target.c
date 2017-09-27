@@ -46,8 +46,9 @@
 #include "top.h"
 #include "event-top.h"
 #include <algorithm>
+#include "byte-vector.h"
 
-static void target_info (char *, int);
+static void info_target_command (char *, int);
 
 static void generic_tls_error (void) ATTRIBUTE_NORETURN;
 
@@ -91,7 +92,7 @@ static int return_zero_has_execution (struct target_ops *, ptid_t);
 
 static void target_command (char *, int);
 
-static struct target_ops *find_default_run_target (char *);
+static struct target_ops *find_default_run_target (const char *);
 
 static struct gdbarch *default_thread_architecture (struct target_ops *ops,
 						    ptid_t ptid);
@@ -103,7 +104,7 @@ static int dummy_find_memory_regions (struct target_ops *self,
 static char *dummy_make_corefile_notes (struct target_ops *self,
 					bfd *ignore1, int *ignore2);
 
-static char *default_pid_to_str (struct target_ops *ops, ptid_t ptid);
+static const char *default_pid_to_str (struct target_ops *ops, ptid_t ptid);
 
 static enum exec_direction_kind default_execution_direction
     (struct target_ops *self);
@@ -403,7 +404,7 @@ add_target (struct target_ops *t)
 /* See target.h.  */
 
 void
-add_deprecated_target_alias (struct target_ops *t, char *alias)
+add_deprecated_target_alias (struct target_ops *t, const char *alias)
 {
   struct cmd_list_element *c;
   char *alt;
@@ -432,53 +433,25 @@ target_load (const char *arg, int from_tty)
   (*current_target.to_load) (&current_target, arg, from_tty);
 }
 
-/* Possible terminal states.  */
+/* Define it.  */
 
-enum terminal_state
-  {
-    /* The inferior's terminal settings are in effect.  */
-    terminal_is_inferior = 0,
+enum target_terminal::terminal_state target_terminal::terminal_state
+  = target_terminal::terminal_is_ours;
 
-    /* Some of our terminal settings are in effect, enough to get
-       proper output.  */
-    terminal_is_ours_for_output = 1,
-
-    /* Our terminal settings are in effect, for output and input.  */
-    terminal_is_ours = 2
-  };
-
-static enum terminal_state terminal_state = terminal_is_ours;
-
-/* See target.h.  */
+/* See target/target.h.  */
 
 void
-target_terminal_init (void)
+target_terminal::init (void)
 {
   (*current_target.to_terminal_init) (&current_target);
 
   terminal_state = terminal_is_ours;
 }
 
-/* See target.h.  */
-
-int
-target_terminal_is_inferior (void)
-{
-  return (terminal_state == terminal_is_inferior);
-}
-
-/* See target.h.  */
-
-int
-target_terminal_is_ours (void)
-{
-  return (terminal_state == terminal_is_ours);
-}
-
-/* See target.h.  */
+/* See target/target.h.  */
 
 void
-target_terminal_inferior (void)
+target_terminal::inferior (void)
 {
   struct ui *ui = current_ui;
 
@@ -489,8 +462,8 @@ target_terminal_inferior (void)
 
   /* Since we always run the inferior in the main console (unless "set
      inferior-tty" is in effect), when some UI other than the main one
-     calls target_terminal_inferior/target_terminal_inferior, then we
-     leave the main UI's terminal settings as is.  */
+     calls target_terminal::inferior, then we leave the main UI's
+     terminal settings as is.  */
   if (ui != main_ui)
     return;
 
@@ -508,14 +481,14 @@ target_terminal_inferior (void)
     target_pass_ctrlc ();
 }
 
-/* See target.h.  */
+/* See target/target.h.  */
 
 void
-target_terminal_ours (void)
+target_terminal::ours ()
 {
   struct ui *ui = current_ui;
 
-  /* See target_terminal_inferior.  */
+  /* See target_terminal::inferior.  */
   if (ui != main_ui)
     return;
 
@@ -526,14 +499,14 @@ target_terminal_ours (void)
   terminal_state = terminal_is_ours;
 }
 
-/* See target.h.  */
+/* See target/target.h.  */
 
 void
-target_terminal_ours_for_output (void)
+target_terminal::ours_for_output ()
 {
   struct ui *ui = current_ui;
 
-  /* See target_terminal_inferior.  */
+  /* See target_terminal::inferior.  */
   if (ui != main_ui)
     return;
 
@@ -541,6 +514,14 @@ target_terminal_ours_for_output (void)
     return;
   (*current_target.to_terminal_ours_for_output) (&current_target);
   terminal_state = terminal_is_ours_for_output;
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal::info (const char *arg, int from_tty)
+{
+  (*current_target.to_terminal_info) (&current_target, arg, from_tty);
 }
 
 /* See target.h.  */
@@ -558,40 +539,6 @@ target_supports_terminal_ours (void)
     }
 
   return 0;
-}
-
-/* Restore the terminal to its previous state (helper for
-   make_cleanup_restore_target_terminal). */
-
-static void
-cleanup_restore_target_terminal (void *arg)
-{
-  enum terminal_state *previous_state = (enum terminal_state *) arg;
-
-  switch (*previous_state)
-    {
-    case terminal_is_ours:
-      target_terminal_ours ();
-      break;
-    case terminal_is_ours_for_output:
-      target_terminal_ours_for_output ();
-      break;
-    case terminal_is_inferior:
-      target_terminal_inferior ();
-      break;
-    }
-}
-
-/* See target.h. */
-
-struct cleanup *
-make_cleanup_restore_target_terminal (void)
-{
-  enum terminal_state *ts = XNEW (enum terminal_state);
-
-  *ts = terminal_state;
-
-  return make_cleanup_dtor (cleanup_restore_target_terminal, ts, xfree);
 }
 
 static void
@@ -1284,9 +1231,6 @@ memory_xfer_partial (struct target_ops *ops, enum target_object object,
     }
   else
     {
-      gdb_byte *buf;
-      struct cleanup *old_chain;
-
       /* A large write request is likely to be partially satisfied
 	 by memory_xfer_partial_1.  We will continually malloc
 	 and free a copy of the entire write request for breakpoint
@@ -1295,34 +1239,19 @@ memory_xfer_partial (struct target_ops *ops, enum target_object object,
 	 to mitigate this.  */
       len = std::min (ops->to_get_memory_xfer_limit (ops), len);
 
-      buf = (gdb_byte *) xmalloc (len);
-      old_chain = make_cleanup (xfree, buf);
-      memcpy (buf, writebuf, len);
-
-      breakpoint_xfer_memory (NULL, buf, writebuf, memaddr, len);
-      res = memory_xfer_partial_1 (ops, object, NULL, buf, memaddr, len,
+      gdb::byte_vector buf (writebuf, writebuf + len);
+      breakpoint_xfer_memory (NULL, buf.data (), writebuf, memaddr, len);
+      res = memory_xfer_partial_1 (ops, object, NULL, buf.data (), memaddr, len,
 				   xfered_len);
-
-      do_cleanups (old_chain);
     }
 
   return res;
 }
 
-static void
-restore_show_memory_breakpoints (void *arg)
+scoped_restore_tmpl<int>
+make_scoped_restore_show_memory_breakpoints (int show)
 {
-  show_memory_breakpoints = (uintptr_t) arg;
-}
-
-struct cleanup *
-make_show_memory_breakpoints_cleanup (int show)
-{
-  int current = show_memory_breakpoints;
-
-  show_memory_breakpoints = show;
-  return make_cleanup (restore_show_memory_breakpoints,
-		       (void *) (uintptr_t) current);
+  return make_scoped_restore (&show_memory_breakpoints, show);
 }
 
 /* For docs see target.h, to_xfer_partial.  */
@@ -2132,7 +2061,7 @@ target_remove_breakpoint (struct gdbarch *gdbarch,
 }
 
 static void
-target_info (char *args, int from_tty)
+info_target_command (char *args, int from_tty)
 {
   struct target_ops *t;
   int has_all_mem = 0;
@@ -2303,7 +2232,7 @@ default_target_wait (struct target_ops *ops,
   return minus_one_ptid;
 }
 
-char *
+const char *
 target_pid_to_str (ptid_t ptid)
 {
   return (*current_target.to_pid_to_str) (&current_target, ptid);
@@ -2313,6 +2242,15 @@ const char *
 target_thread_name (struct thread_info *info)
 {
   return current_target.to_thread_name (&current_target, info);
+}
+
+struct thread_info *
+target_thread_handle_to_thread_info (const gdb_byte *thread_handle,
+				     int handle_len,
+				     struct inferior *inf)
+{
+  return current_target.to_thread_handle_to_thread_info
+           (&current_target, thread_handle, handle_len, inf);
 }
 
 void
@@ -2439,9 +2377,7 @@ simple_search_memory (struct target_ops *ops,
 #define SEARCH_CHUNK_SIZE 16000
   const unsigned chunk_size = SEARCH_CHUNK_SIZE;
   /* Buffer to hold memory contents for searching.  */
-  gdb_byte *search_buf;
   unsigned search_buf_size;
-  struct cleanup *old_cleanups;
 
   search_buf_size = chunk_size + pattern_len - 1;
 
@@ -2449,20 +2385,17 @@ simple_search_memory (struct target_ops *ops,
   if (search_space_len < search_buf_size)
     search_buf_size = search_space_len;
 
-  search_buf = (gdb_byte *) malloc (search_buf_size);
-  if (search_buf == NULL)
-    error (_("Unable to allocate memory to perform the search."));
-  old_cleanups = make_cleanup (free_current_contents, &search_buf);
+  gdb::byte_vector search_buf (search_buf_size);
 
   /* Prime the search buffer.  */
 
   if (target_read (ops, TARGET_OBJECT_MEMORY, NULL,
-		   search_buf, start_addr, search_buf_size) != search_buf_size)
+		   search_buf.data (), start_addr, search_buf_size)
+      != search_buf_size)
     {
       warning (_("Unable to access %s bytes of target "
 		 "memory at %s, halting search."),
 	       pulongest (search_buf_size), hex_string (start_addr));
-      do_cleanups (old_cleanups);
       return -1;
     }
 
@@ -2478,15 +2411,14 @@ simple_search_memory (struct target_ops *ops,
       unsigned nr_search_bytes
 	= std::min (search_space_len, (ULONGEST) search_buf_size);
 
-      found_ptr = (gdb_byte *) memmem (search_buf, nr_search_bytes,
+      found_ptr = (gdb_byte *) memmem (search_buf.data (), nr_search_bytes,
 				       pattern, pattern_len);
 
       if (found_ptr != NULL)
 	{
-	  CORE_ADDR found_addr = start_addr + (found_ptr - search_buf);
+	  CORE_ADDR found_addr = start_addr + (found_ptr - search_buf.data ());
 
 	  *found_addrp = found_addr;
-	  do_cleanups (old_cleanups);
 	  return 1;
 	}
 
@@ -2507,20 +2439,19 @@ simple_search_memory (struct target_ops *ops,
 	  /* Copy the trailing part of the previous iteration to the front
 	     of the buffer for the next iteration.  */
 	  gdb_assert (keep_len == pattern_len - 1);
-	  memcpy (search_buf, search_buf + chunk_size, keep_len);
+	  memcpy (&search_buf[0], &search_buf[chunk_size], keep_len);
 
 	  nr_to_read = std::min (search_space_len - keep_len,
 				 (ULONGEST) chunk_size);
 
 	  if (target_read (ops, TARGET_OBJECT_MEMORY, NULL,
-			   search_buf + keep_len, read_addr,
+			   &search_buf[keep_len], read_addr,
 			   nr_to_read) != nr_to_read)
 	    {
 	      warning (_("Unable to access %s bytes of target "
 			 "memory at %s, halting search."),
 		       plongest (nr_to_read),
 		       hex_string (read_addr));
-	      do_cleanups (old_cleanups);
 	      return -1;
 	    }
 
@@ -2530,7 +2461,6 @@ simple_search_memory (struct target_ops *ops,
 
   /* Not found.  */
 
-  do_cleanups (old_cleanups);
   return 0;
 }
 
@@ -2624,7 +2554,7 @@ show_auto_connect_native_target (struct ui_file *file, int from_tty,
    called for errors); else, return NULL on error.  */
 
 static struct target_ops *
-find_default_run_target (char *do_mesg)
+find_default_run_target (const char *do_mesg)
 {
   struct target_ops *runable = NULL;
 
@@ -3291,7 +3221,7 @@ void
 target_announce_detach (int from_tty)
 {
   pid_t pid;
-  char *exec_file;
+  const char *exec_file;
 
   if (!from_tty)
     return;
@@ -3344,7 +3274,7 @@ generic_mourn_inferior (void)
 /* Convert a normal process ID to a string.  Returns the string in a
    static buffer.  */
 
-char *
+const char *
 normal_pid_to_str (ptid_t ptid)
 {
   static char buf[32];
@@ -3353,7 +3283,7 @@ normal_pid_to_str (ptid_t ptid)
   return buf;
 }
 
-static char *
+static const char *
 default_pid_to_str (struct target_ops *ops, ptid_t ptid)
 {
   return normal_pid_to_str (ptid);
@@ -3518,7 +3448,7 @@ str_comma_list_concat_elem (char *list, const char *elem)
 
 static char *
 do_option (int *target_options, char *ret,
-	   int opt, char *opt_str)
+	   int opt, const char *opt_str)
 {
   if ((*target_options & opt) != 0)
     {
@@ -3552,7 +3482,7 @@ target_fetch_registers (struct regcache *regcache, int regno)
 {
   current_target.to_fetch_registers (&current_target, regcache, regno);
   if (targetdebug)
-    regcache_debug_print_register ("target_fetch_registers", regcache, regno);
+    regcache->debug_print_register ("target_fetch_registers", regno);
 }
 
 void
@@ -3564,8 +3494,7 @@ target_store_registers (struct regcache *regcache, int regno)
   current_target.to_store_registers (&current_target, regcache, regno);
   if (targetdebug)
     {
-      regcache_debug_print_register ("target_store_registers", regcache,
-				     regno);
+      regcache->debug_print_register ("target_store_registers", regno);
     }
 }
 
@@ -3810,7 +3739,7 @@ target_goto_record (ULONGEST insn)
 /* See target.h.  */
 
 void
-target_insn_history (int size, int flags)
+target_insn_history (int size, gdb_disassembly_flags flags)
 {
   current_target.to_insn_history (&current_target, size, flags);
 }
@@ -3818,7 +3747,8 @@ target_insn_history (int size, int flags)
 /* See target.h.  */
 
 void
-target_insn_history_from (ULONGEST from, int size, int flags)
+target_insn_history_from (ULONGEST from, int size,
+			  gdb_disassembly_flags flags)
 {
   current_target.to_insn_history_from (&current_target, from, size, flags);
 }
@@ -3826,7 +3756,8 @@ target_insn_history_from (ULONGEST from, int size, int flags)
 /* See target.h.  */
 
 void
-target_insn_history_range (ULONGEST begin, ULONGEST end, int flags)
+target_insn_history_range (ULONGEST begin, ULONGEST end,
+			   gdb_disassembly_flags flags)
 {
   current_target.to_insn_history_range (&current_target, begin, end, flags);
 }
@@ -3940,9 +3871,7 @@ flash_erase_command (char *cmd, int from_tty)
           found_flash_region = true;
           target_flash_erase (m->lo, m->hi - m->lo);
 
-	  struct cleanup *cleanup_tuple
-	      = make_cleanup_ui_out_tuple_begin_end (current_uiout,
-						     "erased-regions");
+	  ui_out_emit_tuple tuple_emitter (current_uiout, "erased-regions");
 
           current_uiout->message (_("Erasing flash memory region at address "));
           current_uiout->field_fmt ("address", "%s", paddress (gdbarch,
@@ -3950,7 +3879,6 @@ flash_erase_command (char *cmd, int from_tty)
           current_uiout->message (", size = ");
           current_uiout->field_fmt ("size", "%s", hex_string (m->hi - m->lo));
           current_uiout->message ("\n");
-          do_cleanups (cleanup_tuple);
         }
     }
 
@@ -4147,8 +4075,8 @@ initialize_targets (void)
   init_dummy_target ();
   push_target (&dummy_target);
 
-  add_info ("target", target_info, targ_desc);
-  add_info ("files", target_info, targ_desc);
+  add_info ("target", info_target_command, targ_desc);
+  add_info ("files", info_target_command, targ_desc);
 
   add_setshow_zuinteger_cmd ("target", class_maintenance, &targetdebug, _("\
 Set target debugging."), _("\

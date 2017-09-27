@@ -50,13 +50,8 @@
 
 #include "record.h"
 #include "record-full.h"
-#include "features/i386/i386.c"
-#include "features/i386/i386-avx.c"
-#include "features/i386/i386-mpx.c"
-#include "features/i386/i386-avx-mpx.c"
-#include "features/i386/i386-avx-avx512.c"
-#include "features/i386/i386-avx-mpx-avx512-pku.c"
-#include "features/i386/i386-mmx.c"
+#include "target-descriptions.h"
+#include "arch/i386.h"
 
 #include "ax.h"
 #include "ax-gdb.h"
@@ -573,7 +568,7 @@ i386_svr4_dwarf_reg_to_regnum (struct gdbarch *gdbarch, int reg)
 /* Wrapper on i386_svr4_dwarf_reg_to_regnum to return
    num_regs + num_pseudo_regs for other debug formats.  */
 
-static int
+int
 i386_svr4_reg_to_regnum (struct gdbarch *gdbarch, int reg)
 {
   int regnum = i386_svr4_dwarf_reg_to_regnum (gdbarch, reg);
@@ -4009,11 +4004,9 @@ i386_print_insn (bfd_vma pc, struct disassemble_info *info)
   gdb_assert (disassembly_flavor == att_flavor
 	      || disassembly_flavor == intel_flavor);
 
-  /* FIXME: kettenis/20020915: Until disassembler_options is properly
-     constified, cast to prevent a compiler warning.  */
-  info->disassembler_options = (char *) disassembly_flavor;
+  info->disassembler_options = disassembly_flavor;
 
-  return print_insn_i386 (pc, info);
+  return default_print_insn (pc, info);
 }
 
 
@@ -4466,8 +4459,6 @@ i386_elf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 				      i386_stap_is_single_operand);
   set_gdbarch_stap_parse_special_token (gdbarch,
 					i386_stap_parse_special_token);
-
-  set_gdbarch_gnu_triplet_regexp (gdbarch, i386_gnu_triplet_regexp);
 }
 
 /* System V Release 4 (SVR4).  */
@@ -4491,33 +4482,6 @@ i386_svr4_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->jb_pc_offset = 20;
 }
 
-/* DJGPP.  */
-
-static void
-i386_go32_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
-{
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-
-  /* DJGPP doesn't have any special frames for signal handlers.  */
-  tdep->sigtramp_p = NULL;
-
-  tdep->jb_pc_offset = 36;
-
-  /* DJGPP does not support the SSE registers.  */
-  if (! tdesc_has_registers (info.target_desc))
-    tdep->tdesc = tdesc_i386_mmx;
-
-  /* Native compiler is GCC, which uses the SVR4 register numbering
-     even in COFF and STABS.  See the comment in i386_gdbarch_init,
-     before the calls to set_gdbarch_stab_reg_to_regnum and
-     set_gdbarch_sdb_reg_to_regnum.  */
-  set_gdbarch_stab_reg_to_regnum (gdbarch, i386_svr4_reg_to_regnum);
-  set_gdbarch_sdb_reg_to_regnum (gdbarch, i386_svr4_reg_to_regnum);
-
-  set_gdbarch_has_dos_based_file_system (gdbarch, 1);
-
-  set_gdbarch_gnu_triplet_regexp (gdbarch, i386_gnu_triplet_regexp);
-}
 
 
 /* i386 register groups.  In addition to the normal groups, add "mmx"
@@ -8580,7 +8544,7 @@ i386_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   /* Get the x86 target description from INFO.  */
   tdesc = info.target_desc;
   if (! tdesc_has_registers (tdesc))
-    tdesc = tdesc_i386;
+    tdesc = i386_target_description (X86_XSTATE_SSE_MASK);
   tdep->tdesc = tdesc;
 
   tdep->num_core_regs = I386_NUM_GREGS + I387_NUM_REGS;
@@ -8635,7 +8599,7 @@ i386_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   /* Hook in ABI-specific overrides, if they have been registered.
      Note: If INFO specifies a 64 bit arch, this is where we turn
      a 32-bit i386 into a 64-bit amd64.  */
-  info.tdep_info = tdesc_data;
+  info.tdesc_data = tdesc_data;
   gdbarch_init_osabi (info, gdbarch);
 
   if (!i386_validate_tdesc_p (tdep, tdesc_data))
@@ -8742,15 +8706,6 @@ i386_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-static enum gdb_osabi
-i386_coff_osabi_sniffer (bfd *abfd)
-{
-  if (strcmp (bfd_get_target (abfd), "coff-go32-exe") == 0
-      || strcmp (bfd_get_target (abfd), "coff-go32") == 0)
-    return GDB_OSABI_GO32;
-
-  return GDB_OSABI_UNKNOWN;
-}
 
 
 /* Return the target description for a specified XSAVE feature mask.  */
@@ -8758,21 +8713,20 @@ i386_coff_osabi_sniffer (bfd *abfd)
 const struct target_desc *
 i386_target_description (uint64_t xcr0)
 {
-  switch (xcr0 & X86_XSTATE_ALL_MASK)
-    {
-    case X86_XSTATE_AVX_MPX_AVX512_PKU_MASK:
-      return tdesc_i386_avx_mpx_avx512_pku;
-    case X86_XSTATE_AVX_AVX512_MASK:
-      return tdesc_i386_avx_avx512;
-    case X86_XSTATE_AVX_MPX_MASK:
-      return tdesc_i386_avx_mpx;
-    case X86_XSTATE_MPX_MASK:
-      return tdesc_i386_mpx;
-    case X86_XSTATE_AVX_MASK:
-      return tdesc_i386_avx;
-    default:
-      return tdesc_i386;
-    }
+  static target_desc *i386_tdescs \
+    [2/*SSE*/][2/*AVX*/][2/*MPX*/][2/*AVX512*/][2/*PKRU*/] = {};
+  target_desc **tdesc;
+
+  tdesc = &i386_tdescs[(xcr0 & X86_XSTATE_SSE) ? 1 : 0]
+    [(xcr0 & X86_XSTATE_AVX) ? 1 : 0]
+    [(xcr0 & X86_XSTATE_MPX) ? 1 : 0]
+    [(xcr0 & X86_XSTATE_AVX512) ? 1 : 0]
+    [(xcr0 & X86_XSTATE_PKRU) ? 1 : 0];
+
+  if (*tdesc == NULL)
+    *tdesc = i386_create_target_description (xcr0, false);
+
+  return *tdesc;
 }
 
 #define MPX_BASE_MASK (~(ULONGEST) 0xfff)
@@ -9030,9 +8984,6 @@ show_mpx_cmd (char *args, int from_tty)
   cmd_show_list (mpx_show_cmdlist, from_tty, "");
 }
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-void _initialize_i386_tdep (void);
-
 void
 _initialize_i386_tdep (void)
 {
@@ -9088,26 +9039,36 @@ Show Intel Memory Protection Extensions specific variables."),
  in the bound table.",
 	   &mpx_set_cmdlist);
 
-  gdbarch_register_osabi_sniffer (bfd_arch_i386, bfd_target_coff_flavour,
-				  i386_coff_osabi_sniffer);
-
   gdbarch_register_osabi (bfd_arch_i386, 0, GDB_OSABI_SVR4,
 			  i386_svr4_init_abi);
-  gdbarch_register_osabi (bfd_arch_i386, 0, GDB_OSABI_GO32,
-			  i386_go32_init_abi);
 
   /* Initialize the i386-specific register groups.  */
   i386_init_reggroups ();
 
-  /* Initialize the standard target descriptions.  */
-  initialize_tdesc_i386 ();
-  initialize_tdesc_i386_mmx ();
-  initialize_tdesc_i386_avx ();
-  initialize_tdesc_i386_mpx ();
-  initialize_tdesc_i386_avx_mpx ();
-  initialize_tdesc_i386_avx_avx512 ();
-  initialize_tdesc_i386_avx_mpx_avx512_pku ();
-
   /* Tell remote stub that we support XML target description.  */
   register_remote_support_xml ("i386");
+
+#if GDB_SELF_TEST
+  struct
+  {
+    const char *xml;
+    uint64_t mask;
+  } xml_masks[] = {
+    { "i386/i386.xml", X86_XSTATE_SSE_MASK },
+    { "i386/i386-mmx.xml", X86_XSTATE_X87_MASK },
+    { "i386/i386-avx.xml", X86_XSTATE_AVX_MASK },
+    { "i386/i386-mpx.xml", X86_XSTATE_MPX_MASK },
+    { "i386/i386-avx-mpx.xml", X86_XSTATE_AVX_MPX_MASK },
+    { "i386/i386-avx-avx512.xml", X86_XSTATE_AVX_AVX512_MASK },
+    { "i386/i386-avx-mpx-avx512-pku.xml",
+      X86_XSTATE_AVX_MPX_AVX512_PKU_MASK },
+  };
+
+  for (auto &a : xml_masks)
+    {
+      auto tdesc = i386_target_description (a.mask);
+
+      selftests::record_xml_tdesc (a.xml, tdesc);
+    }
+#endif /* GDB_SELF_TEST */
 }

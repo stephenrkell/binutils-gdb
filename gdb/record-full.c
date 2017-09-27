@@ -36,6 +36,7 @@
 #include "observer.h"
 #include "infrun.h"
 #include "common/gdb_unlinker.h"
+#include "common/byte-vector.h"
 
 #include <signal.h>
 
@@ -698,7 +699,7 @@ record_full_exec_insn (struct regcache *regcache,
     {
     case record_full_reg: /* reg */
       {
-        gdb_byte reg[MAX_REGISTER_SIZE];
+	gdb::byte_vector reg (entry->u.reg.len);
 
         if (record_debug > 1)
           fprintf_unfiltered (gdb_stdlog,
@@ -707,10 +708,10 @@ record_full_exec_insn (struct regcache *regcache,
                               host_address_to_string (entry),
                               entry->u.reg.num);
 
-        regcache_cooked_read (regcache, entry->u.reg.num, reg);
+        regcache_cooked_read (regcache, entry->u.reg.num, reg.data ());
         regcache_cooked_write (regcache, entry->u.reg.num, 
 			       record_full_get_loc (entry));
-        memcpy (record_full_get_loc (entry), reg, entry->u.reg.len);
+        memcpy (record_full_get_loc (entry), reg.data (), entry->u.reg.len);
       }
       break;
 
@@ -1217,7 +1218,7 @@ record_full_wait_1 (struct target_ops *ops,
          And in GDB replay mode, GDB doesn't need to be in terminal_inferior
          mode, because inferior will not executed.
          Then set it to terminal_ours to make GDB get the signal.  */
-      target_terminal_ours ();
+      target_terminal::ours ();
 
       /* In EXEC_FORWARD mode, record_full_list points to the tail of prev
          instruction.  */
@@ -2339,16 +2340,6 @@ netorder32 (uint32_t input)
   return ret;
 }
 
-static inline uint16_t
-netorder16 (uint16_t input)
-{
-  uint16_t ret;
-
-  store_unsigned_integer ((gdb_byte *) &ret, sizeof (ret), 
-			  BFD_ENDIAN_BIG, input);
-  return ret;
-}
-
 /* Restore the execution log from a core_bfd file.  */
 static void
 record_full_restore (void)
@@ -2788,7 +2779,7 @@ record_full_goto_insn (struct record_full_entry *entry,
 static void
 cmd_record_full_start (char *args, int from_tty)
 {
-  execute_command ("target record-full", from_tty);
+  execute_command ((char *) "target record-full", from_tty);
 }
 
 static void
@@ -2824,9 +2815,6 @@ show_record_full_command (char *args, int from_tty)
 {
   cmd_show_list (show_record_full_cmdlist, from_tty, "");
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_record_full;
 
 void
 _initialize_record_full (void)

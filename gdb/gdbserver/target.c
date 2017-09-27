@@ -24,14 +24,9 @@
 struct target_ops *the_target;
 
 int
-set_desired_thread (int use_general)
+set_desired_thread ()
 {
-  struct thread_info *found;
-
-  if (use_general == 1)
-    found = find_thread_ptid (general_thread);
-  else
-    found = find_thread_ptid (cont_thread);
+  thread_info *found = find_thread_ptid (general_thread);
 
   current_thread = found;
   return (current_thread != NULL);
@@ -143,7 +138,7 @@ done_accessing_memory (void)
 
   /* Restore the previous selected thread.  */
   general_thread = prev_general_thread;
-  current_thread = find_thread_ptid (general_thread);
+  switch_to_thread (general_thread);
 }
 
 int
@@ -386,4 +381,52 @@ default_breakpoint_kind_from_pc (CORE_ADDR *pcptr)
 
   (*the_target->sw_breakpoint_from_kind) (0, &size);
   return size;
+}
+
+/* Define it.  */
+
+enum target_terminal::terminal_state target_terminal::terminal_state
+  = target_terminal::terminal_is_ours;
+
+/* See target/target.h.  */
+
+void
+target_terminal::init ()
+{
+  /* Placeholder needed because of fork_inferior.  Not necessary on
+     GDBserver.  */
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal::inferior ()
+{
+  /* Placeholder needed because of fork_inferior.  Not necessary on
+     GDBserver.  */
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal::ours ()
+{
+  /* Placeholder needed because of fork_inferior.  Not necessary on
+     GDBserver.  */
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal::ours_for_output (void)
+{
+  /* Placeholder.  */
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal::info (const char *arg, int from_tty)
+{
+  /* Placeholder.  */
 }

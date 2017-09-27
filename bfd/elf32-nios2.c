@@ -4369,10 +4369,10 @@ nios2_elf32_relocate_section (bfd *output_bfd,
 		{
 		  _bfd_error_handler
 		    /* xgettext:c-format */
-		    (_("%B(%A+0x%lx): R_NIOS2_TLS_LE16 relocation not "
+		    (_("%B(%A+%#Lx): %s relocation not "
 		       "permitted in shared object"),
 		     input_bfd, input_section,
-		     (long) rel->r_offset, howto->name);
+		     rel->r_offset, howto->name);
 		  return FALSE;
 		}
 	      else
@@ -4734,7 +4734,7 @@ nios2_elf32_check_relocs (bfd *abfd, struct bfd_link_info *info,
 
 	  /* PR15323, ref flags aren't set for references in the same
 	     object.  */
-	  h->root.non_ir_ref = 1;
+	  h->root.non_ir_ref_regular = 1;
 	}
 
       r_type = ELF32_R_TYPE (rel->r_info);

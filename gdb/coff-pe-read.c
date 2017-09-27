@@ -54,7 +54,7 @@ struct read_pe_section_data
   enum minimal_symbol_type ms_type;	/* Type to assign symbols in
 					   section.  */
   unsigned int index;		/* BFD section number.  */
-  char *section_name;		/* Recorded section name.  */
+  const char *section_name;	/* Recorded section name.  */
 };
 
 #define IMAGE_SCN_CNT_CODE 0x20
@@ -697,10 +697,6 @@ show_debug_coff_pe_read (struct ui_file *file, int from_tty,
 {
   fprintf_filtered (file, _("Coff PE read debugging is %s.\n"), value);
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-
-void _initialize_coff_pe_read (void);
 
 /* Adds "Set/show debug coff_pe_read" commands.  */
 

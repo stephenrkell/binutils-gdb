@@ -34,7 +34,7 @@
    current file being executed.  */
 
 void
-mi_cmd_file_list_exec_source_file (char *command, char **argv, int argc)
+mi_cmd_file_list_exec_source_file (const char *command, char **argv, int argc)
 {
   struct symtab_and_line st;
   struct ui_out *uiout = current_uiout;
@@ -81,7 +81,7 @@ print_partial_file_name (const char *filename, const char *fullname,
 }
 
 void
-mi_cmd_file_list_exec_source_files (char *command, char **argv, int argc)
+mi_cmd_file_list_exec_source_files (const char *command, char **argv, int argc)
 {
   struct ui_out *uiout = current_uiout;
   struct compunit_symtab *cu;
@@ -114,7 +114,7 @@ mi_cmd_file_list_exec_source_files (char *command, char **argv, int argc)
 /* See mi-cmds.h.  */
 
 void
-mi_cmd_file_list_shared_libraries (char *command, char **argv, int argc)
+mi_cmd_file_list_shared_libraries (const char *command, char **argv, int argc)
 {
   struct ui_out *uiout = current_uiout;
   const char *pattern;
@@ -144,8 +144,7 @@ mi_cmd_file_list_shared_libraries (char *command, char **argv, int argc)
   update_solib_list (1);
 
   /* Print the table header.  */
-  struct cleanup *cleanup
-    = make_cleanup_ui_out_list_begin_end (uiout, "shared-libraries");
+  ui_out_emit_list list_emitter (uiout, "shared-libraries");
 
   ALL_SO_LIBS (so)
     {
@@ -154,12 +153,7 @@ mi_cmd_file_list_shared_libraries (char *command, char **argv, int argc)
       if (pattern != NULL && !re_exec (so->so_name))
 	continue;
 
-      struct cleanup *tuple_clean_up
-        = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
+      ui_out_emit_tuple tuple_emitter (uiout, NULL);
       mi_output_solib_attribs (uiout, so);
-
-      do_cleanups (tuple_clean_up);
     }
-
-  do_cleanups (cleanup);
 }

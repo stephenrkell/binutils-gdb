@@ -50,7 +50,7 @@ show_varobjdebug (struct ui_file *file, int from_tty,
 }
 
 /* String representations of gdb's format codes.  */
-char *varobj_format_string[] =
+const char *varobj_format_string[] =
   { "natural", "binary", "decimal", "hexadecimal", "octal", "zero-hexadecimal" };
 
 /* True if we want to allow Python-based pretty-printing.  */
@@ -2218,14 +2218,13 @@ value_of_root_1 (struct varobj **var_handle)
   struct value *new_val = NULL;
   struct varobj *var = *var_handle;
   int within_scope = 0;
-  struct cleanup *back_to;
 								 
   /*  Only root variables can be updated...  */
   if (!is_root_p (var))
     /* Not a root var.  */
     return NULL;
 
-  back_to = make_cleanup_restore_current_thread ();
+  scoped_restore_current_thread restore_thread;
 
   /* Determine whether the variable is still around.  */
   if (var->root->valid_block == NULL || var->root->floating)
@@ -2263,8 +2262,6 @@ value_of_root_1 (struct varobj **var_handle)
 	}
       END_CATCH
     }
-
-  do_cleanups (back_to);
 
   return new_val;
 }
@@ -2641,8 +2638,7 @@ varobj_invalidate (void)
 {
   all_root_varobjs (varobj_invalidate_iter, NULL);
 }
-
-extern void _initialize_varobj (void);
+
 void
 _initialize_varobj (void)
 {

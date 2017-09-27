@@ -143,9 +143,9 @@ read_table (const struct aarch64_opcode* table)
       /* F_PSEUDO needs to be used together with F_ALIAS to indicate an alias
 	 opcode is a programmer friendly pseudo instruction available only in
 	 the assembly code (thus will not show up in the disassembly).  */
-      assert (pseudo_opcode_p (ent) == FALSE || alias_opcode_p (ent) == TRUE);
+      assert (!pseudo_opcode_p (ent) || alias_opcode_p (ent));
       /* Skip alias (inc. pseudo) opcode.  */
-      if (alias_opcode_p (ent) == TRUE)
+      if (alias_opcode_p (ent))
 	{
 	  index++;
 	  continue;
@@ -393,6 +393,9 @@ print_decision_tree_1 (unsigned int indent, struct bittree* bittree)
 {
   /* PATTERN is only used to generate comment in the code.  */
   static char pattern[33] = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+  /* Low bits in PATTERN will be printed first which then look as the high
+     bits in comment.  We need to reverse the index to get correct print.  */
+  unsigned int msb = sizeof (pattern) - 2;
   assert (bittree != NULL);
 
   /* Leaf node located.  */
@@ -412,15 +415,15 @@ print_decision_tree_1 (unsigned int indent, struct bittree* bittree)
   /* Walk down the decoder tree.  */
   indented_print (indent, "if (((word >> %d) & 0x1) == 0)\n", bittree->bitno);
   indented_print (indent, "  {\n");
-  pattern[bittree->bitno] = '0';
+  pattern[msb - bittree->bitno] = '0';
   print_decision_tree_1 (indent + 4, bittree->bits[0]);
   indented_print (indent, "  }\n");
   indented_print (indent, "else\n");
   indented_print (indent, "  {\n");
-  pattern[bittree->bitno] = '1';
+  pattern[msb - bittree->bitno] = '1';
   print_decision_tree_1 (indent + 4, bittree->bits[1]);
   indented_print (indent, "  }\n");
-  pattern[bittree->bitno] = 'x';
+  pattern[msb - bittree->bitno] = 'x';
 }
 
 /* Generate aarch64_opcode_lookup in C code to the standard output.  */
@@ -704,7 +707,7 @@ find_alias_opcode (const aarch64_opcode *opcode)
       /* The mask of an alias opcode must be equal to or a super-set (i.e.
 	 more constrained) of that of the aliased opcode; so is the base
 	 opcode value.  */
-      if (alias_opcode_p (ent) == TRUE
+      if (alias_opcode_p (ent)
 	  && (ent->mask & opcode->mask) == opcode->mask
 	  && (opcode->mask & ent->opcode) == (opcode->mask & opcode->opcode))
 	{

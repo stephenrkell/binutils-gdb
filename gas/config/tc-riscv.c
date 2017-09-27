@@ -121,6 +121,18 @@ riscv_subset_supports (const char *feature)
 }
 
 static void
+riscv_clear_subsets (void)
+{
+  while (riscv_subsets != NULL)
+    {
+      struct riscv_subset *next = riscv_subsets->next;
+      free ((void *) riscv_subsets->name);
+      free (riscv_subsets);
+      riscv_subsets = next;
+    }
+}
+
+static void
 riscv_add_subset (const char *subset)
 {
   struct riscv_subset *s = xmalloc (sizeof *s);
@@ -135,9 +147,11 @@ riscv_add_subset (const char *subset)
 static void
 riscv_set_arch (const char *s)
 {
-  const char *all_subsets = "imafdc";
-  const char *extension = NULL;
+  const char *all_subsets = "imafdqc";
+  char *extension = NULL;
   const char *p = s;
+
+  riscv_clear_subsets();
 
   if (strncmp (p, "rv32", 4) == 0)
     {
@@ -159,7 +173,7 @@ riscv_set_arch (const char *s)
 
       case 'g':
 	p++;
-	for ( ; *all_subsets != 'c'; all_subsets++)
+	for ( ; *all_subsets != 'q'; all_subsets++)
 	  {
 	    const char subset[] = {*all_subsets, '\0'};
 	    riscv_add_subset (subset);
@@ -174,7 +188,8 @@ riscv_set_arch (const char *s)
     {
       if (*p == 'x')
 	{
-	  char *subset = xstrdup (p), *q = subset;
+	  char *subset = xstrdup (p);
+	  char *q = subset;
 
 	  while (*++q != '\0' && *q != '_')
 	    ;
@@ -186,7 +201,6 @@ riscv_set_arch (const char *s)
 	  extension = subset;
 	  riscv_add_subset (subset);
 	  p += strlen (subset);
-	  free (subset);
 	}
       else if (*p == '_')
 	p++;
@@ -197,15 +211,11 @@ riscv_set_arch (const char *s)
 	  all_subsets++;
 	  p++;
 	}
-      else if (*p == 'q')
-	{
-	  const char subset[] = {*p, 0};
-	  riscv_add_subset (subset);
-	  p++;
-	}
       else
 	as_fatal ("-march=%s: unsupported ISA subset `%c'", s, *p);
     }
+
+  free (extension);
 }
 
 /* Handle of the OPCODE hash table.  */
@@ -1431,8 +1441,8 @@ rvc_lui:
 	      my_getExpression (imm_expr, s);
 	      check_absolute_expr (ip, imm_expr);
 	      if ((unsigned long) imm_expr->X_add_number > 31)
-		as_warn (_("Improper shift amount (%lu)"),
-			 (unsigned long) imm_expr->X_add_number);
+		as_bad (_("Improper shift amount (%lu)"),
+			(unsigned long) imm_expr->X_add_number);
 	      INSERT_OPERAND (SHAMTW, *ip, imm_expr->X_add_number);
 	      imm_expr->X_op = O_absent;
 	      s = expr_end;
@@ -1442,8 +1452,8 @@ rvc_lui:
 	      my_getExpression (imm_expr, s);
 	      check_absolute_expr (ip, imm_expr);
 	      if ((unsigned long) imm_expr->X_add_number >= xlen)
-		as_warn (_("Improper shift amount (%lu)"),
-			 (unsigned long) imm_expr->X_add_number);
+		as_bad (_("Improper shift amount (%lu)"),
+			(unsigned long) imm_expr->X_add_number);
 	      INSERT_OPERAND (SHAMT, *ip, imm_expr->X_add_number);
 	      imm_expr->X_op = O_absent;
 	      s = expr_end;
@@ -1453,8 +1463,8 @@ rvc_lui:
 	      my_getExpression (imm_expr, s);
 	      check_absolute_expr (ip, imm_expr);
 	      if ((unsigned long) imm_expr->X_add_number > 31)
-		as_warn (_("Improper CSRxI immediate (%lu)"),
-			 (unsigned long) imm_expr->X_add_number);
+		as_bad (_("Improper CSRxI immediate (%lu)"),
+			(unsigned long) imm_expr->X_add_number);
 	      INSERT_OPERAND (RS1, *ip, imm_expr->X_add_number);
 	      imm_expr->X_op = O_absent;
 	      s = expr_end;
@@ -1468,8 +1478,8 @@ rvc_lui:
 		  my_getExpression (imm_expr, s);
 		  check_absolute_expr (ip, imm_expr);
 		  if ((unsigned long) imm_expr->X_add_number > 0xfff)
-		    as_warn (_("Improper CSR address (%lu)"),
-			     (unsigned long) imm_expr->X_add_number);
+		    as_bad (_("Improper CSR address (%lu)"),
+			    (unsigned long) imm_expr->X_add_number);
 		  INSERT_OPERAND (CSR, *ip, imm_expr->X_add_number);
 		  imm_expr->X_op = O_absent;
 		  s = expr_end;
@@ -1808,6 +1818,7 @@ riscv_after_parse_args (void)
     riscv_set_arch (xlen == 64 ? "rv64g" : "rv32g");
 
   /* Add the RVC extension, regardless of -march, to support .option rvc.  */
+  riscv_set_rvc (FALSE);
   if (riscv_subset_supports ("c"))
     riscv_set_rvc (TRUE);
   else
@@ -1856,6 +1867,7 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
   bfd_byte *buf = (bfd_byte *) (fixP->fx_frag->fr_literal + fixP->fx_where);
   bfd_boolean relaxable = FALSE;
   offsetT loc;
+  segT sub_segment;
 
   /* Remember value for tc_gen_reloc.  */
   fixP->fx_addnumber = *valP;
@@ -1904,8 +1916,25 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
 		      _("TLS relocation against a constant"));
       break;
 
-    case BFD_RELOC_64:
     case BFD_RELOC_32:
+      /* Use pc-relative relocation for FDE initial location.
+	 The symbol address in .eh_frame may be adjusted in
+	 _bfd_elf_discard_section_eh_frame, and the content of
+	 .eh_frame will be adjusted in _bfd_elf_write_section_eh_frame.
+	 Therefore, we cannot insert a relocation whose addend symbol is
+	 in .eh_frame. Othrewise, the value may be adjusted twice.*/
+      if (fixP->fx_addsy && fixP->fx_subsy
+	  && (sub_segment = S_GET_SEGMENT (fixP->fx_subsy))
+	  && strcmp (sub_segment->name, ".eh_frame") == 0
+	  && S_GET_VALUE (fixP->fx_subsy)
+	     == fixP->fx_frag->fr_address + fixP->fx_where)
+	{
+	  fixP->fx_r_type = BFD_RELOC_RISCV_32_PCREL;
+	  fixP->fx_subsy = NULL;
+	  break;
+	}
+      /* Fall through.  */
+    case BFD_RELOC_64:
     case BFD_RELOC_16:
     case BFD_RELOC_8:
     case BFD_RELOC_RISCV_CFA:
@@ -2245,30 +2274,21 @@ bfd_boolean
 riscv_frag_align_code (int n)
 {
   bfd_vma bytes = (bfd_vma) 1 << n;
-  bfd_vma min_text_alignment_order = riscv_opts.rvc ? 1 : 2;
-  bfd_vma min_text_alignment = (bfd_vma) 1 << min_text_alignment_order;
-
-  /* First, get back to minimal alignment.  */
-  frag_align_code (min_text_alignment_order, 0);
+  bfd_vma worst_case_bytes = bytes - 2;
+  char *nops = frag_more (worst_case_bytes);
+  expressionS ex;
 
   /* When not relaxing, riscv_handle_align handles code alignment.  */
   if (!riscv_opts.relax)
     return FALSE;
 
-  if (bytes > min_text_alignment)
-    {
-      bfd_vma worst_case_bytes = bytes - min_text_alignment;
-      char *nops = frag_more (worst_case_bytes);
-      expressionS ex;
+  ex.X_op = O_constant;
+  ex.X_add_number = worst_case_bytes;
 
-      ex.X_op = O_constant;
-      ex.X_add_number = worst_case_bytes;
+  riscv_make_nops (nops, worst_case_bytes);
 
-      riscv_make_nops (nops, worst_case_bytes);
-
-      fix_new_exp (frag_now, nops - frag_now->fr_literal, 0,
-		   &ex, FALSE, BFD_RELOC_RISCV_ALIGN);
-    }
+  fix_new_exp (frag_now, nops - frag_now->fr_literal, 0,
+	       &ex, FALSE, BFD_RELOC_RISCV_ALIGN);
 
   return TRUE;
 }

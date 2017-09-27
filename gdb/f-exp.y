@@ -72,7 +72,7 @@ int yyparse (void);
 
 static int yylex (void);
 
-void yyerror (char *);
+void yyerror (const char *);
 
 static void growbuf_by_size (int);
 
@@ -773,7 +773,7 @@ parse_number (struct parser_state *par_state,
 
 struct token
 {
-  char *oper;
+  const char *oper;
   int token;
   enum exp_opcode opcode;
 };
@@ -807,7 +807,7 @@ static const struct token dot_ops[] =
 
 struct f77_boolean_val 
 {
-  char *name;
+  const char *name;
   int value;
 }; 
 
@@ -1206,20 +1206,16 @@ yylex (void)
 int
 f_parse (struct parser_state *par_state)
 {
-  int result;
-  struct cleanup *c = make_cleanup_clear_parser_state (&pstate);
-
   /* Setting up the parser state.  */
+  scoped_restore pstate_restore = make_scoped_restore (&pstate);
   gdb_assert (par_state != NULL);
   pstate = par_state;
 
-  result = yyparse ();
-  do_cleanups (c);
-  return result;
+  return yyparse ();
 }
 
 void
-yyerror (char *msg)
+yyerror (const char *msg)
 {
   if (prev_lexptr)
     lexptr = prev_lexptr;

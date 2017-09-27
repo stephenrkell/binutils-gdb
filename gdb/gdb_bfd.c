@@ -961,14 +961,12 @@ print_one_bfd (void **slot, void *data)
   bfd *abfd = (struct bfd *) *slot;
   struct gdb_bfd_data *gdata = (struct gdb_bfd_data *) bfd_usrdata (abfd);
   struct ui_out *uiout = (struct ui_out *) data;
-  struct cleanup *inner;
 
-  inner = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
+  ui_out_emit_tuple tuple_emitter (uiout, NULL);
   uiout->field_int ("refcount", gdata->refc);
   uiout->field_string ("addr", host_address_to_string (abfd));
   uiout->field_string ("filename", bfd_get_filename (abfd));
   uiout->text ("\n");
-  do_cleanups (inner);
 
   return 1;
 }
@@ -978,22 +976,16 @@ print_one_bfd (void **slot, void *data)
 static void
 maintenance_info_bfds (char *arg, int from_tty)
 {
-  struct cleanup *cleanup;
   struct ui_out *uiout = current_uiout;
 
-  cleanup = make_cleanup_ui_out_table_begin_end (uiout, 3, -1, "bfds");
+  ui_out_emit_table table_emitter (uiout, 3, -1, "bfds");
   uiout->table_header (10, ui_left, "refcount", "Refcount");
   uiout->table_header (18, ui_left, "addr", "Address");
   uiout->table_header (40, ui_left, "filename", "Filename");
 
   uiout->table_body ();
   htab_traverse (all_bfds, print_one_bfd, uiout);
-
-  do_cleanups (cleanup);
 }
-
-/* -Wmissing-prototypes */
-extern initialize_file_ftype _initialize_gdb_bfd;
 
 void
 _initialize_gdb_bfd (void)

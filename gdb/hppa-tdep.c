@@ -613,7 +613,7 @@ typedef BP_MANIPULATION (hppa_break_insn) hppa_breakpoint;
 static const char *
 hppa32_register_name (struct gdbarch *gdbarch, int i)
 {
-  static char *names[] = {
+  static const char *names[] = {
     "flags",  "r1",      "rp",     "r3",
     "r4",     "r5",      "r6",     "r7",
     "r8",     "r9",      "r10",    "r11",
@@ -656,7 +656,7 @@ hppa32_register_name (struct gdbarch *gdbarch, int i)
 static const char *
 hppa64_register_name (struct gdbarch *gdbarch, int i)
 {
-  static char *names[] = {
+  static const char *names[] = {
     "flags",  "r1",      "rp",     "r3",
     "r4",     "r5",      "r6",     "r7",
     "r8",     "r9",      "r10",    "r11",
@@ -3122,8 +3122,6 @@ hppa_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   /* Helper for function argument information.  */
   set_gdbarch_fetch_pointer_argument (gdbarch, hppa_fetch_pointer_argument);
 
-  set_gdbarch_print_insn (gdbarch, print_insn_hppa);
-
   /* When a hardware watchpoint triggers, we'll move the inferior past
      it by removing all eventpoints; stepping past the instruction
      that caused the trigger; reinserting eventpoints; and checking
@@ -3188,9 +3186,6 @@ hppa_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
                       tdep->bytes_per_address);
   fprintf_unfiltered (file, "elf = %s\n", tdep->is_elf ? "yes" : "no");
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_hppa_tdep;
 
 void
 _initialize_hppa_tdep (void)

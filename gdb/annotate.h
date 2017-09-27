@@ -74,6 +74,16 @@ extern void annotate_arg_name_end (void);
 extern void annotate_arg_value (struct type *);
 extern void annotate_arg_end (void);
 
+/* Wrap calls to annotate_arg_begin and annotate_arg_end in an RAII
+   class. */
+struct annotate_arg_emitter
+{
+  annotate_arg_emitter () { annotate_arg_begin (); }
+  ~annotate_arg_emitter () { annotate_arg_end (); }
+
+  DISABLE_COPY_AND_ASSIGN (annotate_arg_emitter);
+};
+
 extern void annotate_source (char *, int, int, int,
 			     struct gdbarch *, CORE_ADDR);
 

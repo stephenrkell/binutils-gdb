@@ -21,6 +21,7 @@
 #define COMMON_UTILS_H
 
 #include <string>
+#include <vector>
 
 /* If possible, define FUNCTION_NAME, a macro containing the name of
    the function being defined.  Since this macro may not always be
@@ -92,15 +93,23 @@ extern char *skip_spaces (char *inp);
 
 /* A const-correct version of the above.  */
 
-extern const char *skip_spaces_const (const char *inp);
+extern const char *skip_spaces (const char *inp);
 
 /* Skip leading non-whitespace characters in INP, returning an updated
    pointer.  If INP is NULL, return NULL.  */
 
-#define skip_to_space(INP) ((char *) skip_to_space_const (INP))
+extern char *skip_to_space (char *inp);
 
 /* A const-correct version of the above.  */
 
-extern const char *skip_to_space_const (const char *inp);
+extern const char *skip_to_space (const char *inp);
+
+/* Assumes that V is an argv for a program, and iterates through
+   freeing all the elements.  */
+extern void free_vector_argv (std::vector<char *> &v);
+
+/* Given a vector of arguments ARGV, return a string equivalent to
+   joining all the arguments with a whitespace separating them.  */
+extern std::string stringify_argv (const std::vector<char *> &argv);
 
 #endif

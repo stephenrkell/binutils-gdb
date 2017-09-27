@@ -33,7 +33,7 @@
    the Intel manual for details.  */
 
 #include "sysdep.h"
-#include "dis-asm.h"
+#include "disassemble.h"
 #include "opintl.h"
 #include "opcode/i386.h"
 #include "libiberty.h"
@@ -110,6 +110,7 @@ static void CMP_Fixup (int, int);
 static void BadOp (void);
 static void REP_Fixup (int, int);
 static void BND_Fixup (int, int);
+static void NOTRACK_Fixup (int, int);
 static void HLE_Fixup1 (int, int);
 static void HLE_Fixup2 (int, int);
 static void HLE_Fixup3 (int, int);
@@ -473,6 +474,7 @@ fetch_data (struct disassemble_info *info, bfd_byte *addr)
 #define Evh3 { HLE_Fixup3, v_mode }
 
 #define BND { BND_Fixup, 0 }
+#define NOTRACK { NOTRACK_Fixup, 0 }
 
 #define cond_jump_flag { NULL, cond_jump_mode }
 #define loop_jcxz_flag { NULL, loop_jcxz_mode }
@@ -938,7 +940,6 @@ enum
   RM_0F01_REG_5,
   RM_0F01_REG_7,
   RM_0F1E_MOD_3_REG_7,
-  RM_0FAE_REG_5,
   RM_0FAE_REG_6,
   RM_0FAE_REG_7
 };
@@ -947,7 +948,7 @@ enum
 {
   PREFIX_90 = 0,
   PREFIX_MOD_0_0F01_REG_5,
-  PREFIX_MOD_3_0F01_REG_5_RM_1,
+  PREFIX_MOD_3_0F01_REG_5_RM_0,
   PREFIX_MOD_3_0F01_REG_5_RM_2,
   PREFIX_0F10,
   PREFIX_0F11,
@@ -995,6 +996,7 @@ enum
   PREFIX_MOD_0_0FAE_REG_4,
   PREFIX_MOD_3_0FAE_REG_4,
   PREFIX_MOD_0_0FAE_REG_5,
+  PREFIX_MOD_3_0FAE_REG_5,
   PREFIX_0FAE_REG_6,
   PREFIX_0FAE_REG_7,
   PREFIX_0FB8,
@@ -3438,7 +3440,7 @@ static const struct dis386 reg_table[][8] = {
     { "rcrA",	{ Eb, Ib }, 0 },
     { "shlA",	{ Eb, Ib }, 0 },
     { "shrA",	{ Eb, Ib }, 0 },
-    { Bad_Opcode },
+    { "shlA",	{ Eb, Ib }, 0 },
     { "sarA",	{ Eb, Ib }, 0 },
   },
   /* REG_C1 */
@@ -3449,7 +3451,7 @@ static const struct dis386 reg_table[][8] = {
     { "rcrQ",	{ Ev, Ib }, 0 },
     { "shlQ",	{ Ev, Ib }, 0 },
     { "shrQ",	{ Ev, Ib }, 0 },
-    { Bad_Opcode },
+    { "shlQ",	{ Ev, Ib }, 0 },
     { "sarQ",	{ Ev, Ib }, 0 },
   },
   /* REG_C6 */
@@ -3482,7 +3484,7 @@ static const struct dis386 reg_table[][8] = {
     { "rcrA",	{ Eb, I1 }, 0 },
     { "shlA",	{ Eb, I1 }, 0 },
     { "shrA",	{ Eb, I1 }, 0 },
-    { Bad_Opcode },
+    { "shlA",	{ Eb, I1 }, 0 },
     { "sarA",	{ Eb, I1 }, 0 },
   },
   /* REG_D1 */
@@ -3493,7 +3495,7 @@ static const struct dis386 reg_table[][8] = {
     { "rcrQ",	{ Ev, I1 }, 0 },
     { "shlQ",	{ Ev, I1 }, 0 },
     { "shrQ",	{ Ev, I1 }, 0 },
-    { Bad_Opcode },
+    { "shlQ",	{ Ev, I1 }, 0 },
     { "sarQ",	{ Ev, I1 }, 0 },
   },
   /* REG_D2 */
@@ -3504,7 +3506,7 @@ static const struct dis386 reg_table[][8] = {
     { "rcrA",	{ Eb, CL }, 0 },
     { "shlA",	{ Eb, CL }, 0 },
     { "shrA",	{ Eb, CL }, 0 },
-    { Bad_Opcode },
+    { "shlA",	{ Eb, CL }, 0 },
     { "sarA",	{ Eb, CL }, 0 },
   },
   /* REG_D3 */
@@ -3515,7 +3517,7 @@ static const struct dis386 reg_table[][8] = {
     { "rcrQ",	{ Ev, CL }, 0 },
     { "shlQ",	{ Ev, CL }, 0 },
     { "shrQ",	{ Ev, CL }, 0 },
-    { Bad_Opcode },
+    { "shlQ",	{ Ev, CL }, 0 },
     { "sarQ",	{ Ev, CL }, 0 },
   },
   /* REG_F6 */
@@ -3549,9 +3551,9 @@ static const struct dis386 reg_table[][8] = {
   {
     { "incQ",	{ Evh1 }, 0 },
     { "decQ",	{ Evh1 }, 0 },
-    { "call{&|}", { indirEv, BND }, 0 },
+    { "call{&|}", { NOTRACK, indirEv, BND }, 0 },
     { MOD_TABLE (MOD_FF_REG_3) },
-    { "jmp{&|}", { indirEv, BND }, 0 },
+    { "jmp{&|}", { NOTRACK, indirEv, BND }, 0 },
     { MOD_TABLE (MOD_FF_REG_5) },
     { "pushU",	{ stackEv }, 0 },
     { Bad_Opcode },
@@ -3786,16 +3788,16 @@ static const struct dis386 prefix_table[][4] = {
     { "rstorssp",	{ Mq }, PREFIX_OPCODE },
   },
 
-  /* PREFIX_MOD_3_0F01_REG_5_RM_1 */
+  /* PREFIX_MOD_3_0F01_REG_5_RM_0 */
   {
     { Bad_Opcode },
-    { "incsspK",	{ Skip_MODRM }, PREFIX_OPCODE },
+    { "setssbsy",	{ Skip_MODRM }, PREFIX_OPCODE },
   },
 
   /* PREFIX_MOD_3_0F01_REG_5_RM_2 */
   {
     { Bad_Opcode },
-    { "savessp",	{ Skip_MODRM }, PREFIX_OPCODE },
+    { "saveprevssp",	{ Skip_MODRM }, PREFIX_OPCODE },
   },
 
   /* PREFIX_0F10 */
@@ -4131,7 +4133,12 @@ static const struct dis386 prefix_table[][4] = {
   /* PREFIX_MOD_0_0FAE_REG_5 */
   {
     { "xrstor",		{ FXSAVE }, PREFIX_OPCODE },
-    { "setssbsy",	{ Mq }, PREFIX_OPCODE },
+  },
+
+  /* PREFIX_MOD_3_0FAE_REG_5 */
+  {
+    { "lfence",		{ Skip_MODRM }, 0 },
+    { "incsspK",	{ Rdq }, PREFIX_OPCODE },
   },
 
   /* PREFIX_0FAE_REG_6 */
@@ -6949,7 +6956,7 @@ static const struct dis386 x86_64_table[][2] = {
 
   /* X86_64_82 */
   {
-    /* Opcode 0x82 is an alias of of opcode 0x80 in 32-bit mode.  */
+    /* Opcode 0x82 is an alias of opcode 0x80 in 32-bit mode.  */
     { REG_TABLE (REG_80) },
   },
 
@@ -11654,7 +11661,7 @@ static const struct dis386 mod_table[][2] = {
   {
     /* MOD_0FAE_REG_5 */
     { PREFIX_TABLE (PREFIX_MOD_0_0FAE_REG_5) },
-    { RM_TABLE (RM_0FAE_REG_5) },
+    { PREFIX_TABLE (PREFIX_MOD_3_0FAE_REG_5) },
   },
   {
     /* MOD_0FAE_REG_6 */
@@ -12230,8 +12237,8 @@ static const struct dis386 rm_table[][8] = {
   },
   {
     /* RM_0F01_REG_5 */
+    { PREFIX_TABLE (PREFIX_MOD_3_0F01_REG_5_RM_0) },
     { Bad_Opcode },
-    { PREFIX_TABLE (PREFIX_MOD_3_0F01_REG_5_RM_1) },
     { PREFIX_TABLE (PREFIX_MOD_3_0F01_REG_5_RM_2) },
     { Bad_Opcode },
     { Bad_Opcode },
@@ -12259,10 +12266,6 @@ static const struct dis386 rm_table[][8] = {
     { "nopQ",		{ Ev }, 0 },
   },
   {
-    /* RM_0FAE_REG_5 */
-    { "lfence",		{ Skip_MODRM }, 0 },
-  },
-  {
     /* RM_0FAE_REG_6 */
     { "mfence",		{ Skip_MODRM }, 0 },
   },
@@ -12281,6 +12284,7 @@ static const struct dis386 rm_table[][8] = {
 #define XACQUIRE_PREFIX	(0xf2 | 0x200)
 #define XRELEASE_PREFIX	(0xf3 | 0x400)
 #define BND_PREFIX	(0xf2 | 0x400)
+#define NOTRACK_PREFIX	(0x3e | 0x100)
 
 static int
 ckprefix (void)
@@ -12499,6 +12503,8 @@ prefix_name (int pref, int sizeflag)
       return "xrelease";
     case BND_PREFIX:
       return "bnd";
+    case NOTRACK_PREFIX:
+      return "notrack";
     default:
       return NULL;
     }
@@ -15015,6 +15021,11 @@ OP_E_register (int bytemode, int sizeflag)
       names = address_mode == mode_64bit ? names64 : names32;
       break;
     case bnd_mode:
+      if (reg > 0x3)
+	{
+	  oappend ("(bad)");
+	  return;
+	}
       names = names_bnd;
       break;
     case indir_v_mode:
@@ -15559,6 +15570,11 @@ OP_G (int bytemode, int sizeflag)
       oappend (names64[modrm.reg + add]);
       break;
     case bnd_mode:
+      if (modrm.reg > 0x3)
+	{
+	  oappend ("(bad)");
+	  return;
+	}
       oappend (names_bnd[modrm.reg]);
       break;
     case v_mode:
@@ -16787,6 +16803,23 @@ BND_Fixup (int bytemode ATTRIBUTE_UNUSED, int sizeflag ATTRIBUTE_UNUSED)
 {
   if (prefixes & PREFIX_REPNZ)
     all_prefixes[last_repnz_prefix] = BND_PREFIX;
+}
+
+/* For NOTRACK-prefixed instructions, 0x3E prefix should be displayed as
+   "notrack".  */
+
+static void
+NOTRACK_Fixup (int bytemode ATTRIBUTE_UNUSED,
+	       int sizeflag ATTRIBUTE_UNUSED)
+{
+  if (active_seg_prefix == PREFIX_DS
+      && (address_mode != mode_64bit || last_data_prefix < 0))
+    {
+      /* NOTRACK prefix is only valid on indirect branch instructions.
+	 NB: DATA prefix is unsupported for Intel64.  */
+      active_seg_prefix = 0;
+      all_prefixes[last_seg_prefix] = NOTRACK_PREFIX;
+    }
 }
 
 /* Similar to OP_E.  But the 0xf2/0xf3 prefixes should be displayed as

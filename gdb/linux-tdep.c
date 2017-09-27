@@ -38,6 +38,7 @@
 #include "gdbcmd.h"
 #include "gdb_regex.h"
 #include "common/enum-flags.h"
+#include "common/gdb_optional.h"
 
 #include <ctype.h>
 
@@ -407,7 +408,7 @@ linux_has_shared_address_space (struct gdbarch *gdbarch)
 
 /* This is how we want PTIDs from core files to be printed.  */
 
-static char *
+static const char *
 linux_core_pid_to_str (struct gdbarch *gdbarch, ptid_t ptid)
 {
   static char buf[80];
@@ -439,7 +440,7 @@ read_mapping (const char *line,
     p++;
   *endaddr = strtoulst (p, &p, 16);
 
-  p = skip_spaces_const (p);
+  p = skip_spaces (p);
   *permissions = p;
   while (*p && !isspace (*p))
     p++;
@@ -447,7 +448,7 @@ read_mapping (const char *line,
 
   *offset = strtoulst (p, &p, 16);
 
-  p = skip_spaces_const (p);
+  p = skip_spaces (p);
   *device = p;
   while (*p && !isspace (*p))
     p++;
@@ -455,7 +456,7 @@ read_mapping (const char *line,
 
   *inode = strtoulst (p, &p, 10);
 
-  p = skip_spaces_const (p);
+  p = skip_spaces (p);
   *filename = p;
 }
 
@@ -493,6 +494,44 @@ decode_vmflags (char *p, struct smaps_vmflags *v)
     }
 }
 
+/* Regexes used by mapping_is_anonymous_p.  Put in a structure because
+   they're initialized lazily.  */
+
+struct mapping_regexes
+{
+  /* Matches "/dev/zero" filenames (with or without the "(deleted)"
+     string in the end).  We know for sure, based on the Linux kernel
+     code, that memory mappings whose associated filename is
+     "/dev/zero" are guaranteed to be MAP_ANONYMOUS.  */
+  compiled_regex dev_zero
+    {"^/dev/zero\\( (deleted)\\)\\?$", REG_NOSUB,
+     _("Could not compile regex to match /dev/zero filename")};
+
+  /* Matches "/SYSV%08x" filenames (with or without the "(deleted)"
+     string in the end).  These filenames refer to shared memory
+     (shmem), and memory mappings associated with them are
+     MAP_ANONYMOUS as well.  */
+  compiled_regex shmem_file
+    {"^/\\?SYSV[0-9a-fA-F]\\{8\\}\\( (deleted)\\)\\?$", REG_NOSUB,
+     _("Could not compile regex to match shmem filenames")};
+
+  /* A heuristic we use to try to mimic the Linux kernel's 'n_link ==
+     0' code, which is responsible to decide if it is dealing with a
+     'MAP_SHARED | MAP_ANONYMOUS' mapping.  In other words, if
+     FILE_DELETED matches, it does not necessarily mean that we are
+     dealing with an anonymous shared mapping.  However, there is no
+     easy way to detect this currently, so this is the best
+     approximation we have.
+
+     As a result, GDB will dump readonly pages of deleted executables
+     when using the default value of coredump_filter (0x33), while the
+     Linux kernel will not dump those pages.  But we can live with
+     that.  */
+  compiled_regex file_deleted
+    {" (deleted)$", REG_NOSUB,
+     _("Could not compile regex to match '<file> (deleted)'")};
+};
+
 /* Return 1 if the memory mapping is anonymous, 0 otherwise.
 
    FILENAME is the name of the file present in the first line of the
@@ -506,52 +545,16 @@ decode_vmflags (char *p, struct smaps_vmflags *v)
 static int
 mapping_is_anonymous_p (const char *filename)
 {
-  static regex_t dev_zero_regex, shmem_file_regex, file_deleted_regex;
+  static gdb::optional<mapping_regexes> regexes;
   static int init_regex_p = 0;
 
   if (!init_regex_p)
     {
-      struct cleanup *c = make_cleanup (null_cleanup, NULL);
-
       /* Let's be pessimistic and assume there will be an error while
 	 compiling the regex'es.  */
       init_regex_p = -1;
 
-      /* DEV_ZERO_REGEX matches "/dev/zero" filenames (with or
-	 without the "(deleted)" string in the end).  We know for
-	 sure, based on the Linux kernel code, that memory mappings
-	 whose associated filename is "/dev/zero" are guaranteed to be
-	 MAP_ANONYMOUS.  */
-      compile_rx_or_error (&dev_zero_regex, "^/dev/zero\\( (deleted)\\)\\?$",
-			   _("Could not compile regex to match /dev/zero "
-			     "filename"));
-      /* SHMEM_FILE_REGEX matches "/SYSV%08x" filenames (with or
-	 without the "(deleted)" string in the end).  These filenames
-	 refer to shared memory (shmem), and memory mappings
-	 associated with them are MAP_ANONYMOUS as well.  */
-      compile_rx_or_error (&shmem_file_regex,
-			   "^/\\?SYSV[0-9a-fA-F]\\{8\\}\\( (deleted)\\)\\?$",
-			   _("Could not compile regex to match shmem "
-			     "filenames"));
-      /* FILE_DELETED_REGEX is a heuristic we use to try to mimic the
-	 Linux kernel's 'n_link == 0' code, which is responsible to
-	 decide if it is dealing with a 'MAP_SHARED | MAP_ANONYMOUS'
-	 mapping.  In other words, if FILE_DELETED_REGEX matches, it
-	 does not necessarily mean that we are dealing with an
-	 anonymous shared mapping.  However, there is no easy way to
-	 detect this currently, so this is the best approximation we
-	 have.
-
-	 As a result, GDB will dump readonly pages of deleted
-	 executables when using the default value of coredump_filter
-	 (0x33), while the Linux kernel will not dump those pages.
-	 But we can live with that.  */
-      compile_rx_or_error (&file_deleted_regex, " (deleted)$",
-			   _("Could not compile regex to match "
-			     "'<file> (deleted)'"));
-      /* We will never release these regexes, so just discard the
-	 cleanups.  */
-      discard_cleanups (c);
+      regexes.emplace ();
 
       /* If we reached this point, then everything succeeded.  */
       init_regex_p = 1;
@@ -573,9 +576,9 @@ mapping_is_anonymous_p (const char *filename)
     }
 
   if (*filename == '\0'
-      || regexec (&dev_zero_regex, filename, 0, NULL, 0) == 0
-      || regexec (&shmem_file_regex, filename, 0, NULL, 0) == 0
-      || regexec (&file_deleted_regex, filename, 0, NULL, 0) == 0)
+      || regexes->dev_zero.exec (filename, 0, NULL, 0) == 0
+      || regexes->shmem_file.exec (filename, 0, NULL, 0) == 0
+      || regexes->file_deleted.exec (filename, 0, NULL, 0) == 0)
     return 1;
 
   return 0;
@@ -737,7 +740,7 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
       pid = current_inferior ()->pid;
     }
 
-  args = skip_spaces_const (args);
+  args = skip_spaces (args);
   if (args && args[0])
     error (_("Too many parameters: %s"), args);
 
@@ -867,7 +870,7 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
 	  printf_filtered (_("Process: %s\n"),
 			   pulongest (strtoulst (p, &p, 10)));
 
-	  p = skip_spaces_const (p);
+	  p = skip_spaces (p);
 	  if (*p == '(')
 	    {
 	      /* ps command also relies on no trailing fields
@@ -881,7 +884,7 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
 		}
 	    }
 
-	  p = skip_spaces_const (p);
+	  p = skip_spaces (p);
 	  if (*p)
 	    printf_filtered (_("State: %c\n"), *p++);
 
@@ -1122,6 +1125,26 @@ linux_core_info_proc (struct gdbarch *gdbarch, const char *args,
 
   if (!exe_f && !mappings_f)
     error (_("unable to handle request"));
+}
+
+/* Read siginfo data from the core, if possible.  Returns -1 on
+   failure.  Otherwise, returns the number of bytes read.  READBUF,
+   OFFSET, and LEN are all as specified by the to_xfer_partial
+   interface.  */
+
+static LONGEST
+linux_core_xfer_siginfo (struct gdbarch *gdbarch, gdb_byte *readbuf,
+			 ULONGEST offset, ULONGEST len)
+{
+  thread_section_name section_name (".note.linuxcore.siginfo", inferior_ptid);
+  asection *section = bfd_get_section_by_name (core_bfd, section_name.c_str ());
+  if (section == NULL)
+    return -1;
+
+  if (!bfd_get_section_contents (core_bfd, section, readbuf, offset, len))
+    return -1;
+
+  return len;
 }
 
 typedef int linux_find_memory_region_ftype (ULONGEST vaddr, ULONGEST size,
@@ -1503,16 +1526,12 @@ linux_make_mappings_corefile_notes (struct gdbarch *gdbarch, bfd *obfd,
 				    char *note_data, int *note_size)
 {
   struct cleanup *cleanup;
-  struct obstack data_obstack, filename_obstack;
   struct linux_make_mappings_data mapping_data;
   struct type *long_type
     = arch_integer_type (gdbarch, gdbarch_long_bit (gdbarch), 0, "long");
   gdb_byte buf[sizeof (ULONGEST)];
 
-  obstack_init (&data_obstack);
-  cleanup = make_cleanup_obstack_free (&data_obstack);
-  obstack_init (&filename_obstack);
-  make_cleanup_obstack_free (&filename_obstack);
+  auto_obstack data_obstack, filename_obstack;
 
   mapping_data.file_count = 0;
   mapping_data.data_obstack = &data_obstack;
@@ -1545,7 +1564,6 @@ linux_make_mappings_corefile_notes (struct gdbarch *gdbarch, bfd *obfd,
 				      obstack_object_size (&data_obstack));
     }
 
-  do_cleanups (cleanup);
   return note_data;
 }
 
@@ -1631,14 +1649,15 @@ linux_collect_thread_registers (const struct regcache *regcache,
   return data.note_data;
 }
 
-/* Fetch the siginfo data for the current thread, if it exists.  If
+/* Fetch the siginfo data for the specified thread, if it exists.  If
    there is no data, or we could not read it, return NULL.  Otherwise,
    return a newly malloc'd buffer holding the data and fill in *SIZE
    with the size of the data.  The caller is responsible for freeing
    the data.  */
 
 static gdb_byte *
-linux_get_siginfo_data (struct gdbarch *gdbarch, LONGEST *size)
+linux_get_siginfo_data (thread_info *thread, struct gdbarch *gdbarch,
+			LONGEST *size)
 {
   struct type *siginfo_type;
   gdb_byte *buf;
@@ -1648,6 +1667,9 @@ linux_get_siginfo_data (struct gdbarch *gdbarch, LONGEST *size)
   if (!gdbarch_get_siginfo_type_p (gdbarch))
     return NULL;
   
+  scoped_restore save_inferior_ptid = make_scoped_restore (&inferior_ptid);
+  inferior_ptid = thread->ptid;
+
   siginfo_type = gdbarch_get_siginfo_type (gdbarch);
 
   buf = (gdb_byte *) xmalloc (TYPE_LENGTH (siginfo_type));
@@ -1692,11 +1714,8 @@ linux_corefile_thread (struct thread_info *info,
 
   regcache = get_thread_arch_regcache (info->ptid, args->gdbarch);
 
-  old_chain = save_inferior_ptid ();
-  inferior_ptid = info->ptid;
   target_fetch_registers (regcache, -1);
-  siginfo_data = linux_get_siginfo_data (args->gdbarch, &siginfo_size);
-  do_cleanups (old_chain);
+  siginfo_data = linux_get_siginfo_data (info, args->gdbarch, &siginfo_size);
 
   old_chain = make_cleanup (xfree, siginfo_data);
 
@@ -2429,7 +2448,7 @@ linux_infcall_mmap (CORE_ADDR size, unsigned prot)
   arg[ARG_FD] = value_from_longest (builtin_type (gdbarch)->builtin_int, -1);
   arg[ARG_OFFSET] = value_from_longest (builtin_type (gdbarch)->builtin_int64,
 					0);
-  addr_val = call_function_by_hand (mmap_val, ARG_LAST, arg);
+  addr_val = call_function_by_hand (mmap_val, NULL, ARG_LAST, arg);
   retval = value_as_address (addr_val);
   if (retval == (CORE_ADDR) -1)
     error (_("Failed inferior mmap call for %s bytes, errno is changed."),
@@ -2458,7 +2477,7 @@ linux_infcall_munmap (CORE_ADDR addr, CORE_ADDR size)
   /* Assuming sizeof (unsigned long) == sizeof (size_t).  */
   arg[ARG_LENGTH] = value_from_ulongest
 		    (builtin_type (gdbarch)->builtin_unsigned_long, size);
-  retval_val = call_function_by_hand (munmap_val, ARG_LAST, arg);
+  retval_val = call_function_by_hand (munmap_val, NULL, ARG_LAST, arg);
   retval = value_as_long (retval_val);
   if (retval != 0)
     warning (_("Failed inferior munmap call at %s for %s bytes, "
@@ -2518,6 +2537,7 @@ linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_core_pid_to_str (gdbarch, linux_core_pid_to_str);
   set_gdbarch_info_proc (gdbarch, linux_info_proc);
   set_gdbarch_core_info_proc (gdbarch, linux_core_info_proc);
+  set_gdbarch_core_xfer_siginfo (gdbarch, linux_core_xfer_siginfo);
   set_gdbarch_find_memory_regions (gdbarch, linux_find_memory_regions);
   set_gdbarch_make_corefile_notes (gdbarch, linux_make_corefile_notes);
   set_gdbarch_has_shared_address_space (gdbarch,
@@ -2531,9 +2551,6 @@ linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_infcall_munmap (gdbarch, linux_infcall_munmap);
   set_gdbarch_get_siginfo_type (gdbarch, linux_get_siginfo_type);
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_linux_tdep;
 
 void
 _initialize_linux_tdep (void)

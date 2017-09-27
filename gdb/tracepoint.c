@@ -139,7 +139,7 @@ static struct traceframe_info *traceframe_info;
 static struct cmd_list_element *tfindlist;
 
 /* List of expressions to collect by default at each tracepoint hit.  */
-char *default_collect = "";
+char *default_collect;
 
 static int disconnected_tracing;
 
@@ -170,7 +170,6 @@ static void actions_command (char *, int);
 static void tstart_command (char *, int);
 static void tstop_command (char *, int);
 static void tstatus_command (char *, int);
-static void tfind_command (char *, int);
 static void tfind_pc_command (char *, int);
 static void tfind_tracepoint_command (char *, int);
 static void tfind_line_command (char *, int);
@@ -185,8 +184,6 @@ static char *mem2hex (gdb_byte *, char *, int);
 
 static struct command_line *
   all_tracepoint_actions_and_cleanup (struct breakpoint *t);
-
-extern void _initialize_tracepoint (void);
 
 static struct trace_status trace_status;
 
@@ -254,7 +251,7 @@ set_traceframe_context (struct frame_info *trace_frame)
 {
   CORE_ADDR trace_pc;
   struct symbol *traceframe_fun;
-  struct symtab_and_line traceframe_sal;
+  symtab_and_line traceframe_sal;
 
   /* Save as globals for internal use.  */
   if (trace_frame != NULL
@@ -270,7 +267,6 @@ set_traceframe_context (struct frame_info *trace_frame)
     }
   else
     {
-      init_sal (&traceframe_sal);
       traceframe_fun = NULL;
       set_internalvar_integer (lookup_internalvar ("trace_line"), -1);
     }
@@ -448,10 +444,6 @@ trace_variable_command (char *args, int from_tty)
 static void
 delete_trace_variable_command (char *args, int from_tty)
 {
-  int ix;
-  char **argv;
-  struct cleanup *back_to;
-
   if (args == NULL)
     {
       if (query (_("Delete all trace state variables? ")))
@@ -461,18 +453,15 @@ delete_trace_variable_command (char *args, int from_tty)
       return;
     }
 
-  argv = gdb_buildargv (args);
-  back_to = make_cleanup_freeargv (argv);
+  gdb_argv argv (args);
 
-  for (ix = 0; argv[ix] != NULL; ix++)
+  for (char *arg : argv)
     {
-      if (*argv[ix] == '$')
-	delete_trace_state_variable (argv[ix] + 1);
+      if (*arg == '$')
+	delete_trace_state_variable (arg + 1);
       else
-	warning (_("Name \"%s\" not prefixed with '$', ignoring"), argv[ix]);
+	warning (_("Name \"%s\" not prefixed with '$', ignoring"), arg);
     }
-
-  do_cleanups (back_to);
 
   dont_repeat ();
 }
@@ -483,7 +472,6 @@ tvariables_info_1 (void)
   struct trace_state_variable *tsv;
   int ix;
   int count = 0;
-  struct cleanup *back_to;
   struct ui_out *uiout = current_uiout;
 
   if (VEC_length (tsv_s, tvariables) == 0 && !uiout->is_mi_like_p ())
@@ -497,8 +485,7 @@ tvariables_info_1 (void)
     tsv->value_known = target_get_trace_state_variable_value (tsv->number,
 							      &(tsv->value));
 
-  back_to = make_cleanup_ui_out_table_begin_end (uiout, 3,
-                                                 count, "trace-variables");
+  ui_out_emit_table table_emitter (uiout, 3, count, "trace-variables");
   uiout->table_header (15, ui_left, "name", "Name");
   uiout->table_header (11, ui_left, "initial", "Initial");
   uiout->table_header (11, ui_left, "current", "Current");
@@ -507,15 +494,12 @@ tvariables_info_1 (void)
 
   for (ix = 0; VEC_iterate (tsv_s, tvariables, ix, tsv); ++ix)
     {
-      struct cleanup *back_to2;
-      char *c;
-      char *name;
+      const char *c;
 
-      back_to2 = make_cleanup_ui_out_tuple_begin_end (uiout, "variable");
+      ui_out_emit_tuple tuple_emitter (uiout, "variable");
 
-      name = concat ("$", tsv->name, (char *) NULL);
-      make_cleanup (xfree, name);
-      uiout->field_string ("name", name);
+      std::string name = std::string ("$") + tsv->name;
+      uiout->field_string ("name", name.c_str ());
       uiout->field_string ("initial", plongest (tsv->initial_value));
 
       if (tsv->value_known)
@@ -534,17 +518,13 @@ tvariables_info_1 (void)
       if (c)
         uiout->field_string ("current", c);
       uiout->text ("\n");
-
-      do_cleanups (back_to2);
     }
-
-  do_cleanups (back_to);
 }
 
 /* List all the trace state variables.  */
 
 static void
-tvariables_info (char *args, int from_tty)
+info_tvariables_command (char *args, int from_tty)
 {
   tvariables_info_1 ();
 }
@@ -638,7 +618,7 @@ decode_agent_options (const char *exp, int *trace_string)
   else
     error (_("Undefined collection format \"%c\"."), *exp);
 
-  exp = skip_spaces_const (exp);
+  exp = skip_spaces (exp);
 
   return exp;
 }
@@ -648,20 +628,17 @@ static void
 actions_command (char *args, int from_tty)
 {
   struct tracepoint *t;
-  struct command_line *l;
 
   t = get_tracepoint_by_number (&args, NULL);
   if (t)
     {
-      char *tmpbuf =
-	xstrprintf ("Enter actions for tracepoint %d, one per line.",
-		    t->base.number);
-      struct cleanup *cleanups = make_cleanup (xfree, tmpbuf);
+      std::string tmpbuf =
+	string_printf ("Enter actions for tracepoint %d, one per line.",
+		       t->number);
 
-      l = read_command_lines (tmpbuf, from_tty, 1,
-			      check_tracepoint_command, t);
-      do_cleanups (cleanups);
-      breakpoint_set_commands (&t->base, l);
+      command_line_up l = read_command_lines (&tmpbuf[0], from_tty, 1,
+					      check_tracepoint_command, t);
+      breakpoint_set_commands (t, std::move (l));
     }
   /* else just return */
 }
@@ -708,7 +685,7 @@ validate_actionline (const char *line, struct breakpoint *b)
   if (line == NULL)
     return;
 
-  p = skip_spaces_const (line);
+  p = skip_spaces (line);
 
   /* Symbol lookup etc.  */
   if (*p == '\0')	/* empty line: just prompt for another line.  */
@@ -731,7 +708,7 @@ validate_actionline (const char *line, struct breakpoint *b)
       do
 	{			/* Repeat over a comma-separated list.  */
 	  QUIT;			/* Allow user to bail out with ^C.  */
-	  p = skip_spaces_const (p);
+	  p = skip_spaces (p);
 
 	  if (*p == '$')	/* Look for special pseudo-symbols.  */
 	    {
@@ -747,7 +724,7 @@ validate_actionline (const char *line, struct breakpoint *b)
 	      /* else fall thru, treat p as an expression and parse it!  */
 	    }
 	  tmp_p = p;
-	  for (loc = t->base.loc; loc; loc = loc->next)
+	  for (loc = t->loc; loc; loc = loc->next)
 	    {
 	      p = tmp_p;
 	      expression_up exp = parse_exp_1 (&p, loc->address,
@@ -794,10 +771,10 @@ validate_actionline (const char *line, struct breakpoint *b)
       do
 	{			/* Repeat over a comma-separated list.  */
 	  QUIT;			/* Allow user to bail out with ^C.  */
-	  p = skip_spaces_const (p);
+	  p = skip_spaces (p);
 
 	  tmp_p = p;
-	  for (loc = t->base.loc; loc; loc = loc->next)
+	  for (loc = t->loc; loc; loc = loc->next)
 	    {
 	      p = tmp_p;
 
@@ -824,7 +801,7 @@ validate_actionline (const char *line, struct breakpoint *b)
     {
       char *endp;
 
-      p = skip_spaces_const (p);
+      p = skip_spaces (p);
       t->step_count = strtol (p, &endp, 0);
       if (endp == p || t->step_count == 0)
 	error (_("while-stepping step count `%s' is malformed."), line);
@@ -1334,7 +1311,7 @@ encode_actions_1 (struct command_line *action,
     {
       QUIT;			/* Allow user to bail out with ^C.  */
       action_exp = action->line;
-      action_exp = skip_spaces_const (action_exp);
+      action_exp = skip_spaces (action_exp);
 
       cmd = lookup_cmd (&action_exp, cmdlist, "", -1, 1);
       if (cmd == 0)
@@ -1350,7 +1327,7 @@ encode_actions_1 (struct command_line *action,
 	  do
 	    {			/* Repeat over a comma-separated list.  */
 	      QUIT;		/* Allow user to bail out with ^C.  */
-	      action_exp = skip_spaces_const (action_exp);
+	      action_exp = skip_spaces (action_exp);
 
 	      if (0 == strncasecmp ("$reg", action_exp, 4))
 		{
@@ -1510,7 +1487,7 @@ encode_actions_1 (struct command_line *action,
 	  do
 	    {			/* Repeat over a comma-separated list.  */
 	      QUIT;		/* Allow user to bail out with ^C.  */
-	      action_exp = skip_spaces_const (action_exp);
+	      action_exp = skip_spaces (action_exp);
 
 		{
 		  struct cleanup *old_chain1 = NULL;
@@ -2058,7 +2035,7 @@ trace_status_mi (int on_stop)
     }
   else
     {
-      char *stop_reason = NULL;
+      const char *stop_reason = NULL;
       int stopping_tracepoint = -1;
 
       if (!on_stop)
@@ -2255,7 +2232,7 @@ tfind_1 (enum trace_find_type type, int num,
   reinit_frame_cache ();
   target_dcache_invalidate ();
 
-  set_tracepoint_num (tp ? tp->base.number : target_tracept);
+  set_tracepoint_num (tp ? tp->number : target_tracept);
 
   if (target_frameno != get_traceframe_number ())
     observer_notify_traceframe_changed (target_frameno, tracepoint_number);
@@ -2343,7 +2320,7 @@ check_trace_running (struct trace_status *status)
 
 /* tfind command */
 static void
-tfind_command (char *args, int from_tty)
+tfind_command_1 (const char *args, int from_tty)
 { /* This should only be called with a numeric argument.  */
   int frameno = -1;
 
@@ -2377,18 +2354,24 @@ tfind_command (char *args, int from_tty)
   tfind_1 (tfind_number, frameno, 0, 0, from_tty);
 }
 
+static void
+tfind_command (char *args, int from_tty)
+{
+  tfind_command_1 (const_cast<char *> (args), from_tty);
+}
+
 /* tfind end */
 static void
 tfind_end_command (char *args, int from_tty)
 {
-  tfind_command ("-1", from_tty);
+  tfind_command_1 ("-1", from_tty);
 }
 
 /* tfind start */
 static void
 tfind_start_command (char *args, int from_tty)
 {
-  tfind_command ("0", from_tty);
+  tfind_command_1 ("0", from_tty);
 }
 
 /* tfind pc command */
@@ -2447,30 +2430,24 @@ tfind_tracepoint_command (char *args, int from_tty)
 static void
 tfind_line_command (char *args, int from_tty)
 {
-  static CORE_ADDR start_pc, end_pc;
-  struct symtabs_and_lines sals;
-  struct symtab_and_line sal;
-  struct cleanup *old_chain;
-
   check_trace_running (current_trace_status ());
 
+  symtab_and_line sal;
   if (args == 0 || *args == 0)
     {
       sal = find_pc_line (get_frame_pc (get_current_frame ()), 0);
-      sals.nelts = 1;
-      sals.sals = XNEW (struct symtab_and_line);
-      sals.sals[0] = sal;
     }
   else
     {
-      sals = decode_line_with_current_source (args, DECODE_LINE_FUNFIRSTLINE);
-      sal = sals.sals[0];
+      std::vector<symtab_and_line> sals
+	= decode_line_with_current_source (args, DECODE_LINE_FUNFIRSTLINE);
+      sal = sals[0];
     }
-  
-  old_chain = make_cleanup (xfree, sals.sals);
+
   if (sal.symtab == 0)
     error (_("No line number information available."));
 
+  CORE_ADDR start_pc, end_pc;
   if (sal.line > 0 && find_line_pc_range (sal, &start_pc, &end_pc))
     {
       if (start_pc == end_pc)
@@ -2505,7 +2482,6 @@ tfind_line_command (char *args, int from_tty)
     tfind_1 (tfind_range, 0, start_pc, end_pc - 1, from_tty);
   else
     tfind_1 (tfind_outside, 0, start_pc, end_pc - 1, from_tty);
-  do_cleanups (old_chain);
 }
 
 /* tfind range command */
@@ -2574,9 +2550,8 @@ tfind_outside_command (char *args, int from_tty)
 
 /* info scope command: list the locals for a scope.  */
 static void
-scope_info (char *args, int from_tty)
+info_scope_command (char *args, int from_tty)
 {
-  struct symtabs_and_lines sals;
   struct symbol *sym;
   struct bound_minimal_symbol msym;
   const struct block *block;
@@ -2586,26 +2561,25 @@ scope_info (char *args, int from_tty)
   int j, count = 0;
   struct gdbarch *gdbarch;
   int regno;
-  struct event_location *location;
-  struct cleanup *back_to;
 
   if (args == 0 || *args == 0)
     error (_("requires an argument (function, "
 	     "line or *addr) to define a scope"));
 
-  location = string_to_event_location (&args, current_language);
-  back_to = make_cleanup_delete_event_location (location);
-  sals = decode_line_1 (location, DECODE_LINE_FUNFIRSTLINE, NULL, NULL, 0);
-  if (sals.nelts == 0)
+  event_location_up location = string_to_event_location (&args,
+							 current_language);
+  std::vector<symtab_and_line> sals
+    = decode_line_1 (location.get (), DECODE_LINE_FUNFIRSTLINE,
+		     NULL, NULL, 0);
+  if (sals.empty ())
     {
       /* Presumably decode_line_1 has already warned.  */
-      do_cleanups (back_to);
       return;
     }
 
   /* Resolve line numbers to PC.  */
-  resolve_sal_pc (&sals.sals[0]);
-  block = block_for_pc (sals.sals[0].pc);
+  resolve_sal_pc (&sals[0]);
+  block = block_for_pc (sals[0].pc);
 
   while (block != 0)
     {
@@ -2738,7 +2712,6 @@ scope_info (char *args, int from_tty)
   if (count <= 0)
     printf_filtered ("Scope for %s contains no locals or arguments.\n",
 		     save_args);
-  do_cleanups (back_to);
 }
 
 /* Helper for trace_dump_command.  Dump the action list starting at
@@ -2760,7 +2733,7 @@ trace_dump_actions (struct command_line *action,
 
       QUIT;			/* Allow user to bail out with ^C.  */
       action_exp = action->line;
-      action_exp = skip_spaces_const (action_exp);
+      action_exp = skip_spaces (action_exp);
 
       /* The collection actions to be done while stepping are
          bracketed by the commands "while-stepping" and "end".  */
@@ -2803,7 +2776,7 @@ trace_dump_actions (struct command_line *action,
 		  QUIT;		/* Allow user to bail out with ^C.  */
 		  if (*action_exp == ',')
 		    action_exp++;
-		  action_exp = skip_spaces_const (action_exp);
+		  action_exp = skip_spaces (action_exp);
 
 		  next_comma = strchr (action_exp, ',');
 
@@ -2812,9 +2785,9 @@ trace_dump_actions (struct command_line *action,
 		  else if (0 == strncasecmp (action_exp, "$_ret", 5))
 		    ;
 		  else if (0 == strncasecmp (action_exp, "$loc", 4))
-		    locals_info (NULL, from_tty);
+		    info_locals_command (NULL, from_tty);
 		  else if (0 == strncasecmp (action_exp, "$arg", 4))
-		    args_info (NULL, from_tty);
+		    info_args_command (NULL, from_tty);
 		  else
 		    {		/* variable */
 		      if (next_comma != NULL)
@@ -2876,7 +2849,7 @@ get_traceframe_location (int *stepping_frame_p)
      locations, assume it is a direct hit rather than a while-stepping
      frame.  (FIXME this is not reliable, should record each frame's
      type.)  */
-  for (tloc = t->base.loc; tloc; tloc = tloc->next)
+  for (tloc = t->loc; tloc; tloc = tloc->next)
     if (tloc->address == regcache_read_pc (regcache))
       {
 	*stepping_frame_p = 0;
@@ -2886,7 +2859,7 @@ get_traceframe_location (int *stepping_frame_p)
   /* If this is a stepping frame, we don't know which location
      triggered.  The first is as good (or bad) a guess as any...  */
   *stepping_frame_p = 1;
-  return t->base.loc;
+  return t->loc;
 }
 
 /* Return all the actions, including default collect, of a tracepoint
@@ -2931,7 +2904,6 @@ tdump_command (char *args, int from_tty)
 {
   int stepping_frame = 0;
   struct bp_location *loc;
-  struct cleanup *old_chain;
   struct command_line *actions;
 
   /* This throws an error is not inspecting a trace frame.  */
@@ -2942,14 +2914,13 @@ tdump_command (char *args, int from_tty)
 
   /* This command only makes sense for the current frame, not the
      selected frame.  */
-  old_chain = make_cleanup_restore_current_thread ();
+  scoped_restore_current_thread restore_thread;
+
   select_frame (get_current_frame ());
 
   actions = all_tracepoint_actions_and_cleanup (loc->owner);
 
   trace_dump_actions (actions, 0, stepping_frame, from_tty);
-
-  do_cleanups (old_chain);
 }
 
 /* Encode a piece of a tracepoint's source-level definition in a form
@@ -2957,9 +2928,10 @@ tdump_command (char *args, int from_tty)
 /* This version does not do multiple encodes for long strings; it should
    return an offset to the next piece to encode.  FIXME  */
 
-extern int
+int
 encode_source_string (int tpnum, ULONGEST addr,
-		      char *srctype, const char *src, char *buf, int buf_size)
+		      const char *srctype, const char *src,
+		      char *buf, int buf_size)
 {
   if (80 + strlen (srctype) > buf_size)
     error (_("Buffer too small for source encoding"));
@@ -3238,7 +3210,7 @@ find_matching_tracepoint_location (struct uploaded_tp *utp)
       if (b->type == utp->type
 	  && t->step_count == utp->step
 	  && t->pass_count == utp->pass
-	  && cond_string_is_same (t->base.cond_string, utp->cond_string)
+	  && cond_string_is_same (t->cond_string, utp->cond_string)
 	  /* FIXME also test actions.  */
 	  )
 	{
@@ -3307,7 +3279,7 @@ merge_uploaded_tracepoints (struct uploaded_tp **uploaded_tps)
 	  if (t)
 	    printf_filtered (_("Created tracepoint %d for "
 			       "target's tracepoint %d at %s.\n"),
-			     t->base.number, utp->number,
+			     t->number, utp->number,
 			     paddress (get_current_arch (), utp->addr));
 	  else
 	    printf_filtered (_("Failed to create tracepoint for target's "
@@ -3610,7 +3582,7 @@ parse_tracepoint_status (char *p, struct breakpoint *bp,
 
   p = unpack_varlen_hex (p, &uval);
   if (tp)
-    tp->base.hit_count += uval;
+    tp->hit_count += uval;
   else
     utp->hit_count += uval;
   p = unpack_varlen_hex (p + 1, &uval);
@@ -3841,18 +3813,14 @@ print_one_static_tracepoint_marker (int count,
   char wrap_indent[80];
   char extra_field_indent[80];
   struct ui_out *uiout = current_uiout;
-  struct cleanup *bkpt_chain;
   VEC(breakpoint_p) *tracepoints;
 
-  struct symtab_and_line sal;
-
-  init_sal (&sal);
-
+  symtab_and_line sal;
   sal.pc = marker->address;
 
   tracepoints = static_tracepoints_here (marker->address);
 
-  bkpt_chain = make_cleanup_ui_out_tuple_begin_end (uiout, "marker");
+  ui_out_emit_tuple tuple_emitter (uiout, "marker");
 
   /* A counter field to help readability.  This is not a stable
      identifier!  */
@@ -3919,24 +3887,22 @@ print_one_static_tracepoint_marker (int count,
 
   if (!VEC_empty (breakpoint_p, tracepoints))
     {
-      struct cleanup *cleanup_chain;
       int ix;
       struct breakpoint *b;
 
-      cleanup_chain = make_cleanup_ui_out_tuple_begin_end (uiout,
-							   "tracepoints-at");
+      {
+	ui_out_emit_tuple tuple_emitter (uiout, "tracepoints-at");
 
-      uiout->text (extra_field_indent);
-      uiout->text (_("Probed by static tracepoints: "));
-      for (ix = 0; VEC_iterate(breakpoint_p, tracepoints, ix, b); ix++)
-	{
-	  if (ix > 0)
-	    uiout->text (", ");
-	  uiout->text ("#");
-	  uiout->field_int ("tracepoint-id", b->number);
-	}
-
-      do_cleanups (cleanup_chain);
+	uiout->text (extra_field_indent);
+	uiout->text (_("Probed by static tracepoints: "));
+	for (ix = 0; VEC_iterate(breakpoint_p, tracepoints, ix, b); ix++)
+	  {
+	    if (ix > 0)
+	      uiout->text (", ");
+	    uiout->text ("#");
+	    uiout->field_int ("tracepoint-id", b->number);
+	  }
+      }
 
       if (uiout->is_mi_like_p ())
 	uiout->field_int ("number-of-tracepoints",
@@ -3945,8 +3911,6 @@ print_one_static_tracepoint_marker (int count,
 	uiout->text ("\n");
     }
   VEC_free (breakpoint_p, tracepoints);
-
-  do_cleanups (bkpt_chain);
 }
 
 static void
@@ -3964,9 +3928,8 @@ info_static_tracepoint_markers_command (char *arg, int from_tty)
      don't work without in-process agent, so we don't bother users to type
      `set agent on' when to use static tracepoint.  */
 
-  old_chain
-    = make_cleanup_ui_out_table_begin_end (uiout, 5, -1,
-					   "StaticTracepointMarkersTable");
+  ui_out_emit_table table_emitter (uiout, 5, -1,
+				   "StaticTracepointMarkersTable");
 
   uiout->table_header (7, ui_left, "counter", "Cnt");
 
@@ -3982,7 +3945,7 @@ info_static_tracepoint_markers_command (char *arg, int from_tty)
   uiout->table_body ();
 
   markers = target_static_tracepoint_markers_by_strid (NULL);
-  make_cleanup (VEC_cleanup (static_tracepoint_marker_p), &markers);
+  old_chain = make_cleanup (VEC_cleanup (static_tracepoint_marker_p), &markers);
 
   for (i = 0;
        VEC_iterate (static_tracepoint_marker_p,
@@ -4237,7 +4200,7 @@ _initialize_tracepoint (void)
   traceframe_number = -1;
   tracepoint_number = -1;
 
-  add_info ("scope", scope_info,
+  add_info ("scope", info_scope_command,
 	    _("List the variables local to a scope"));
 
   add_cmd ("tracepoints", class_trace, NULL,
@@ -4260,7 +4223,7 @@ Arguments are the names of the variables to delete.\n\
 If no arguments are supplied, delete all variables."), &deletelist);
   /* FIXME add a trace variable completer.  */
 
-  add_info ("tvariables", tvariables_info, _("\
+  add_info ("tvariables", info_tvariables_command, _("\
 Status of trace state variables and their values.\n\
 "));
 

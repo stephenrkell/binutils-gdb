@@ -39,9 +39,10 @@
 #include "m32r-tdep.h"
 #include <algorithm>
 
-/* Local functions */
+/* The size of the argument registers (r0 - r3) in bytes.  */
+#define M32R_ARG_REGISTER_SIZE 4
 
-extern void _initialize_m32r_tdep (void);
+/* Local functions */
 
 static CORE_ADDR
 m32r_frame_align (struct gdbarch *gdbarch, CORE_ADDR sp)
@@ -202,7 +203,7 @@ m32r_sw_breakpoint_from_kind (struct gdbarch *gdbarch, int kind, int *size)
     }
 }
 
-char *m32r_register_names[] = {
+static const char *m32r_register_names[] = {
   "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
   "r8", "r9", "r10", "r11", "r12", "fp", "lr", "sp",
   "psw", "cbr", "spi", "spu", "bpc", "pc", "accl", "acch",
@@ -677,7 +678,7 @@ m32r_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
   enum type_code typecode;
   CORE_ADDR regval;
   gdb_byte *val;
-  gdb_byte valbuf[MAX_REGISTER_SIZE];
+  gdb_byte valbuf[M32R_ARG_REGISTER_SIZE];
   int len;
 
   /* First force sp to a 4-byte alignment.  */
@@ -905,8 +906,11 @@ m32r_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     return arches->gdbarch;
 
   /* Allocate space for the new architecture.  */
-  tdep = XNEW (struct gdbarch_tdep);
+  tdep = XCNEW (struct gdbarch_tdep);
   gdbarch = gdbarch_alloc (&info, tdep);
+
+  set_gdbarch_wchar_bit (gdbarch, 16);
+  set_gdbarch_wchar_signed (gdbarch, 0);
 
   set_gdbarch_read_pc (gdbarch, m32r_read_pc);
   set_gdbarch_unwind_sp (gdbarch, m32r_unwind_sp);
@@ -940,8 +944,6 @@ m32r_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   /* Return the unwound PC value.  */
   set_gdbarch_unwind_pc (gdbarch, m32r_unwind_pc);
-
-  set_gdbarch_print_insn (gdbarch, print_insn_m32r);
 
   /* Hook in ABI-specific overrides, if they have been registered.  */
   gdbarch_init_osabi (info, gdbarch);

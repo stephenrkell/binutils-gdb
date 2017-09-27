@@ -19,6 +19,9 @@
 #define COMMAND_H 1
 
 #include "gdb_vecs.h"
+#include "common/scoped_restore.h"
+
+struct completion_tracker;
 
 /* This file defines the public interface for any code wanting to
    create commands.  */
@@ -141,6 +144,12 @@ extern struct cmd_list_element *add_alias_cmd (const char *, const char *,
 					       enum command_class, int,
 					       struct cmd_list_element **);
 
+extern struct cmd_list_element *add_alias_cmd (const char *,
+					       cmd_list_element *,
+					       enum command_class, int,
+					       struct cmd_list_element **);
+
+
 extern struct cmd_list_element *add_prefix_cmd (const char *, enum command_class,
 						cmd_cfunc_ftype *fun,
 						const char *,
@@ -167,18 +176,30 @@ typedef void cmd_sfunc_ftype (char *args, int from_tty,
 extern void set_cmd_sfunc (struct cmd_list_element *cmd,
 			   cmd_sfunc_ftype *sfunc);
 
-typedef VEC (char_ptr) *completer_ftype (struct cmd_list_element *,
-					 const char *, const char *);
+/* A completion routine.  Add possible completions to tracker.
 
-typedef void completer_ftype_void (struct cmd_list_element *,
-				   const char *, const char *);
+   TEXT is the text beyond what was matched for the command itself
+   (leading whitespace is skipped).  It stops where we are supposed to
+   stop completing (rl_point) and is '\0' terminated.  WORD points in
+   the same buffer as TEXT, and completions should be returned
+   relative to this position.  For example, suppose TEXT is "foo" and
+   we want to complete to "foobar".  If WORD is "oo", return "oobar";
+   if WORD is "baz/foo", return "baz/foobar".  */
+typedef void completer_ftype (struct cmd_list_element *,
+			      completion_tracker &tracker,
+			      const char *text, const char *word);
+
+/* Same, but for set_cmd_completer_handle_brkchars.  */
+typedef void completer_handle_brkchars_ftype (struct cmd_list_element *,
+					      completion_tracker &tracker,
+					      const char *text, const char *word);
 
 extern void set_cmd_completer (struct cmd_list_element *, completer_ftype *);
 
 /* Set the completer_handle_brkchars callback.  */
 
 extern void set_cmd_completer_handle_brkchars (struct cmd_list_element *,
-					       completer_ftype_void *);
+					       completer_handle_brkchars_ftype *);
 
 /* HACK: cagney/2002-02-23: Code, mostly in tracepoints.c, grubs
    around in cmd objects to test the value of the commands sfunc().  */
@@ -204,7 +225,8 @@ extern enum cmd_types cmd_type (struct cmd_list_element *cmd);
 #define CMD_LIST_AMBIGUOUS ((struct cmd_list_element *) -1)
 
 extern struct cmd_list_element *lookup_cmd (const char **,
-					    struct cmd_list_element *, char *,
+					    struct cmd_list_element *,
+					    const char *,
 					    int, int);
 
 extern struct cmd_list_element *lookup_cmd_1 (const char **,
@@ -241,11 +263,13 @@ extern struct cmd_list_element *add_info (const char *,
 extern struct cmd_list_element *add_info_alias (const char *, const char *,
 						int);
 
-extern VEC (char_ptr) *complete_on_cmdlist (struct cmd_list_element *,
-					    const char *, const char *, int);
+extern void complete_on_cmdlist (struct cmd_list_element *,
+				 completion_tracker &tracker,
+				 const char *, const char *, int);
 
-extern VEC (char_ptr) *complete_on_enum (const char *const *enumlist,
-					 const char *, const char *);
+extern void complete_on_enum (completion_tracker &tracker,
+			      const char *const *enumlist,
+			      const char *, const char *);
 
 /* Functions that implement commands about CLI commands.  */
 

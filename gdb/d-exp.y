@@ -69,7 +69,7 @@ int yyparse (void);
 
 static int yylex (void);
 
-void yyerror (char *);
+void yyerror (const char *);
 
 static int type_aggregate_p (struct type *);
 
@@ -470,15 +470,14 @@ PrimaryExpression:
 			      struct block_symbol sym;
 			      const char *type_name = TYPE_SAFE_NAME (type);
 			      int type_name_len = strlen (type_name);
-			      char *name;
-
-			      name = xstrprintf ("%.*s.%.*s",
+			      std::string name
+				= string_printf ("%.*s.%.*s",
 						 type_name_len, type_name,
 						 $3.length, $3.ptr);
-			      make_cleanup (xfree, name);
 
 			      sym =
-				lookup_symbol (name, (const struct block *) NULL,
+				lookup_symbol (name.c_str (),
+					       (const struct block *) NULL,
 					       VAR_DOMAIN, NULL);
 			      if (sym.symbol)
 				{
@@ -489,13 +488,14 @@ PrimaryExpression:
 				  break;
 				}
 
-			      msymbol = lookup_bound_minimal_symbol (name);
+			      msymbol = lookup_bound_minimal_symbol (name.c_str ());
 			      if (msymbol.minsym != NULL)
 				write_exp_msymbol (pstate, msymbol);
 			      else if (!have_full_symbols () && !have_partial_symbols ())
 				error (_("No symbol table is loaded.  Use the \"file\" command."));
 			      else
-				error (_("No symbol \"%s\" in current context."), name);
+				error (_("No symbol \"%s\" in current context."),
+				       name.c_str ());
 			    }
 
 			  /* Check if the qualified name resolves as a member
@@ -648,6 +648,7 @@ type_aggregate_p (struct type *type)
 {
   return (TYPE_CODE (type) == TYPE_CODE_STRUCT
 	  || TYPE_CODE (type) == TYPE_CODE_UNION
+	  || TYPE_CODE (type) == TYPE_CODE_MODULE
 	  || (TYPE_CODE (type) == TYPE_CODE_ENUM
 	      && TYPE_DECLARED_CLASS (type)));
 }
@@ -956,7 +957,7 @@ parse_string_or_char (const char *tokptr, const char **outptr,
 
 struct token
 {
-  char *oper;
+  const char *oper;
   int token;
   enum exp_opcode opcode;
 };
@@ -1341,7 +1342,7 @@ static int popping;
 
 /* Temporary storage for yylex; this holds symbol names as they are
    built up.  */
-static struct obstack name_obstack;
+static auto_obstack name_obstack;
 
 /* Classify an IDENTIFIER token.  The contents of the token are in `yylval'.
    Updates yylval and returns the new token type.  BLOCK is the block
@@ -1479,7 +1480,7 @@ yylex (void)
      first try building up a name until we find the qualified module.  */
   if (current.token == UNKNOWN_NAME)
     {
-      obstack_free (&name_obstack, obstack_base (&name_obstack));
+      name_obstack.clear ();
       obstack_grow (&name_obstack, current.value.sval.ptr,
 		    current.value.sval.length);
 
@@ -1532,7 +1533,7 @@ yylex (void)
   if (current.token != TYPENAME && current.token != '.')
     goto do_pop;
 
-  obstack_free (&name_obstack, obstack_base (&name_obstack));
+  name_obstack.clear ();
   checkpoint = 0;
   if (current.token == '.')
     search_block = NULL;
@@ -1619,18 +1620,13 @@ yylex (void)
 int
 d_parse (struct parser_state *par_state)
 {
-  int result;
-  struct cleanup *back_to;
-
   /* Setting up the parser state.  */
+  scoped_restore pstate_restore = make_scoped_restore (&pstate);
   gdb_assert (par_state != NULL);
   pstate = par_state;
 
-  back_to = make_cleanup (null_cleanup, NULL);
-
-  make_cleanup_restore_integer (&yydebug);
-  make_cleanup_clear_parser_state (&pstate);
-  yydebug = parser_debug;
+  scoped_restore restore_yydebug = make_scoped_restore (&yydebug,
+							parser_debug);
 
   /* Initialize some state used by the lexer.  */
   last_was_structop = 0;
@@ -1638,16 +1634,13 @@ d_parse (struct parser_state *par_state)
 
   VEC_free (token_and_value, token_fifo);
   popping = 0;
-  obstack_init (&name_obstack);
-  make_cleanup_obstack_free (&name_obstack);
+  name_obstack.clear ();
 
-  result = yyparse ();
-  do_cleanups (back_to);
-  return result;
+  return yyparse ();
 }
 
 void
-yyerror (char *msg)
+yyerror (const char *msg)
 {
   if (prev_lexptr)
     lexptr = prev_lexptr;

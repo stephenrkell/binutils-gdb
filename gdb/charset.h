@@ -19,7 +19,7 @@
 #ifndef CHARSET_H
 #define CHARSET_H
 
-#include <vector>
+#include "common/def-vector.h"
 
 /* If the target program uses a different character set than the host,
    GDB has some support for translating between the two; GDB converts
@@ -93,10 +93,8 @@ class wchar_iterator
      buffer.  CHARSET is the name of the character set in which INPUT is
      encoded.  WIDTH is the number of bytes in a base character of
      CHARSET.
-   
-     This function either returns a new character set iterator, or calls
-     error.  The result can be freed using a cleanup; see
-     make_cleanup_wchar_iterator.  */
+
+     This constructor can throw on error.  */
   wchar_iterator (const gdb_byte *input, size_t bytes, const char *charset,
 		  size_t width);
 
@@ -146,7 +144,7 @@ class wchar_iterator
   size_t m_width;
 
   /* The output buffer.  */
-  std::vector<gdb_wchar_t> m_out;
+  gdb::def_vector<gdb_wchar_t> m_out;
 };
 
 

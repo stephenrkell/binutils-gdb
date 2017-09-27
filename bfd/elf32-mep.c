@@ -585,7 +585,7 @@ mep_elf_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
   old_flags = elf_elfheader (obfd)->e_flags;
 
 #ifdef DEBUG
-  _bfd_error_handler ("%B: old_flags = 0x%.8lx, new_flags = 0x%.8lx, init = %s",
+  _bfd_error_handler ("%B: old_flags = 0x%.8x, new_flags = 0x%.8x, init = %s",
 		      ibfd, old_flags, new_flags, elf_flags_init (obfd) ? "yes" : "no");
 #endif
 
@@ -617,7 +617,8 @@ mep_elf_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
       else
 	{
 	  /* xgettext:c-format */
-	  _bfd_error_handler (_("%B and %B are for different cores"), last_ibfd, ibfd);
+	  _bfd_error_handler (_("%B and %B are for different cores"),
+			      last_ibfd, ibfd);
 	  bfd_set_error (bfd_error_invalid_target);
 	  return FALSE;
 	}
@@ -635,7 +636,8 @@ mep_elf_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
       else
 	{
 	  /* xgettext:c-format */
-	  _bfd_error_handler (_("%B and %B are for different configurations"), last_ibfd, ibfd);
+	  _bfd_error_handler (_("%B and %B are for different configurations"),
+			      last_ibfd, ibfd);
 	  bfd_set_error (bfd_error_invalid_target);
 	  return FALSE;
 	}

@@ -1396,7 +1396,7 @@ v850_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
       return arches->gdbarch;
     }
-  tdep = XNEW (struct gdbarch_tdep);
+  tdep = XCNEW (struct gdbarch_tdep);
   tdep->e_flags = e_flags;
   tdep->e_machine = e_machine;
 
@@ -1463,8 +1463,6 @@ v850_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_push_dummy_call (gdbarch, v850_push_dummy_call);
   set_gdbarch_skip_prologue (gdbarch, v850_skip_prologue);
 
-  set_gdbarch_print_insn (gdbarch, print_insn_v850);
-
   set_gdbarch_frame_align (gdbarch, v850_frame_align);
   set_gdbarch_unwind_sp (gdbarch, v850_unwind_sp);
   set_gdbarch_unwind_pc (gdbarch, v850_unwind_pc);
@@ -1479,8 +1477,6 @@ v850_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   return gdbarch;
 }
-
-extern initialize_file_ftype _initialize_v850_tdep; /* -Wmissing-prototypes */
 
 void
 _initialize_v850_tdep (void)

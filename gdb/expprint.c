@@ -62,7 +62,7 @@ print_subexp_standard (struct expression *exp, int *pos,
   const struct op_print *op_print_tab;
   int pc;
   unsigned nargs;
-  char *op_str;
+  const char *op_str;
   int assign_modify = 0;
   enum exp_opcode opcode;
   enum precedence myprec = PREC_NULL;
@@ -131,6 +131,21 @@ print_subexp_standard (struct expression *exp, int *pos,
 	    fputs_filtered ("::", stream);
 	  }
 	fputs_filtered (SYMBOL_PRINT_NAME (exp->elts[pc + 2].symbol), stream);
+      }
+      return;
+
+    case OP_VAR_MSYM_VALUE:
+      {
+	(*pos) += 3;
+	fputs_filtered (MSYMBOL_PRINT_NAME (exp->elts[pc + 2].msymbol), stream);
+      }
+      return;
+
+    case OP_FUNC_STATIC_VAR:
+      {
+	tem = longest_to_int (exp->elts[pc + 1].longconst);
+	(*pos) += 3 + BYTES_TO_EXP_ELEM (tem + 1);
+	fputs_filtered (&exp->elts[pc + 1].string, stream);
       }
       return;
 
@@ -471,18 +486,6 @@ print_subexp_standard (struct expression *exp, int *pos,
 	fputs_filtered (")", stream);
       return;
 
-    case UNOP_MEMVAL_TLS:
-      (*pos) += 3;
-      if ((int) prec > (int) PREC_PREFIX)
-	fputs_filtered ("(", stream);
-      fputs_filtered ("{", stream);
-      type_print (exp->elts[pc + 2].type, "", stream, 0);
-      fputs_filtered ("} ", stream);
-      print_subexp (exp, pos, stream, PREC_PREFIX);
-      if ((int) prec > (int) PREC_PREFIX)
-	fputs_filtered (")", stream);
-      return;
-
     case BINOP_ASSIGN_MODIFY:
       opcode = exp->elts[pc + 1].opcode;
       (*pos) += 2;
@@ -540,11 +543,15 @@ print_subexp_standard (struct expression *exp, int *pos,
 
     case TYPE_INSTANCE:
       {
-	LONGEST count = exp->elts[pc + 1].longconst;
+	type_instance_flags flags
+	  = (type_instance_flag_value) longest_to_int (exp->elts[pc + 1].longconst);
+	LONGEST count = exp->elts[pc + 2].longconst;
 
+	/* The FLAGS.  */
+	(*pos)++;
 	/* The COUNT.  */
 	(*pos)++;
-	fputs_unfiltered ("TypesInstance(", stream);
+	fputs_unfiltered ("TypeInstance(", stream);
 	while (count-- > 0)
 	  {
 	    type_print (exp->elts[(*pos)++].type, "", stream, 0);
@@ -555,6 +562,12 @@ print_subexp_standard (struct expression *exp, int *pos,
 	/* Ending COUNT and ending TYPE_INSTANCE.  */
 	(*pos) += 2;
 	print_subexp (exp, pos, stream, PREC_PREFIX);
+
+	if (flags & TYPE_INSTANCE_FLAG_CONST)
+	  fputs_unfiltered (",const", stream);
+	if (flags & TYPE_INSTANCE_FLAG_VOLATILE)
+	  fputs_unfiltered (",volatile", stream);
+
 	fputs_unfiltered (")", stream);
 	return;
       }
@@ -649,7 +662,7 @@ print_subexp_standard (struct expression *exp, int *pos,
 /* Return the operator corresponding to opcode OP as
    a string.   NULL indicates that the opcode was not found in the
    current language table.  */
-char *
+const char *
 op_string (enum exp_opcode op)
 {
   int tem;
@@ -669,7 +682,7 @@ static int dump_subexp_body (struct expression *exp, struct ui_file *, int);
 
 /* Name for OPCODE, when it appears in expression EXP.  */
 
-char *
+const char *
 op_name (struct expression *exp, enum exp_opcode opcode)
 {
   return exp->language_defn->la_exp_desc->op_name (opcode);
@@ -678,7 +691,7 @@ op_name (struct expression *exp, enum exp_opcode opcode)
 /* Default name for the standard operator OPCODE (i.e., one defined in
    the definition of enum exp_opcode).  */
 
-char *
+const char *
 op_name_standard (enum exp_opcode opcode)
 {
   switch (opcode)
@@ -703,10 +716,9 @@ op_name_standard (enum exp_opcode opcode)
 
 void
 dump_raw_expression (struct expression *exp, struct ui_file *stream,
-		     char *note)
+		     const char *note)
 {
   int elt;
-  char *opcode_name;
   char *eltscan;
   int eltsize;
 
@@ -722,9 +734,10 @@ dump_raw_expression (struct expression *exp, struct ui_file *stream,
   for (elt = 0; elt < exp->nelts; elt++)
     {
       fprintf_filtered (stream, "\t%5d  ", elt);
-      opcode_name = op_name (exp, exp->elts[elt].opcode);
 
+      const char *opcode_name = op_name (exp, exp->elts[elt].opcode);
       fprintf_filtered (stream, "%20s  ", opcode_name);
+
       print_longest (stream, 'd', 0, exp->elts[elt].longconst);
       fprintf_filtered (stream, "  ");
 
@@ -876,6 +889,15 @@ dump_subexp_body_standard (struct expression *exp,
 			SYMBOL_PRINT_NAME (exp->elts[elt + 1].symbol));
       elt += 3;
       break;
+    case OP_VAR_MSYM_VALUE:
+      fprintf_filtered (stream, "Objfile @");
+      gdb_print_host_address (exp->elts[elt].objfile, stream);
+      fprintf_filtered (stream, ", msymbol @");
+      gdb_print_host_address (exp->elts[elt + 1].msymbol, stream);
+      fprintf_filtered (stream, " (%s)",
+			MSYMBOL_PRINT_NAME (exp->elts[elt + 1].msymbol));
+      elt += 3;
+      break;
     case OP_VAR_ENTRY_VALUE:
       fprintf_filtered (stream, "Entry value of symbol @");
       gdb_print_host_address (exp->elts[elt].symbol, stream);
@@ -945,16 +967,6 @@ dump_subexp_body_standard (struct expression *exp,
       fprintf_filtered (stream, ")");
       elt = dump_subexp (exp, stream, elt + 2);
       break;
-    case UNOP_MEMVAL_TLS:
-      fprintf_filtered (stream, "TLS type @");
-      gdb_print_host_address (exp->elts[elt + 1].type, stream);
-      fprintf_filtered (stream, " (__thread /* \"%s\" */ ",
-                        (exp->elts[elt].objfile == NULL ? "(null)"
-			 : objfile_name (exp->elts[elt].objfile)));
-      type_print (exp->elts[elt + 1].type, NULL, stream, 0);
-      fprintf_filtered (stream, ")");
-      elt = dump_subexp (exp, stream, elt + 3);
-      break;
     case OP_TYPE:
       fprintf_filtered (stream, "Type @");
       gdb_print_host_address (exp->elts[elt].type, stream);
@@ -1005,11 +1017,21 @@ dump_subexp_body_standard (struct expression *exp,
 	elt += 4 + BYTES_TO_EXP_ELEM (len + 1);
       }
       break;
+
+    case OP_FUNC_STATIC_VAR:
+      {
+	int len = longest_to_int (exp->elts[elt].longconst);
+	const char *var_name = &exp->elts[elt + 1].string;
+	fprintf_filtered (stream, "Field name: `%.*s'", len, var_name);
+	elt += 3 + BYTES_TO_EXP_ELEM (len + 1);
+      }
+      break;
+
     case TYPE_INSTANCE:
       {
-	LONGEST len;
-
-	len = exp->elts[elt++].longconst;
+	type_instance_flags flags
+	  = (type_instance_flag_value) longest_to_int (exp->elts[elt++].longconst);
+	LONGEST len = exp->elts[elt++].longconst;
 	fprintf_filtered (stream, "%s TypeInstance: ", plongest (len));
 	while (len-- > 0)
 	  {
@@ -1022,6 +1044,22 @@ dump_subexp_body_standard (struct expression *exp,
 	    if (len > 0)
 	      fputs_filtered (", ", stream);
 	  }
+
+	fprintf_filtered (stream, " Flags: %s (", hex_string (flags));
+	bool space = false;
+	auto print_one = [&] (const char *mod)
+	  {
+	    if (space)
+	      fputs_filtered (" ", stream);
+	    space = true;
+	    fprintf_filtered (stream, "%s", mod);
+	  };
+	if (flags & TYPE_INSTANCE_FLAG_CONST)
+	  print_one ("const");
+	if (flags & TYPE_INSTANCE_FLAG_VOLATILE)
+	  print_one ("volatile");
+	fprintf_filtered (stream, ")");
+
 	/* Ending LEN and ending TYPE_INSTANCE.  */
 	elt += 2;
 	elt = dump_subexp (exp, stream, elt);

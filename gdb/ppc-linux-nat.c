@@ -497,7 +497,7 @@ fetch_register (struct regcache *regcache, int tid, int regno)
   CORE_ADDR regaddr = ppc_register_u_addr (gdbarch, regno);
   int bytes_transferred;
   unsigned int offset;         /* Offset of registers within the u area.  */
-  gdb_byte buf[MAX_REGISTER_SIZE];
+  gdb_byte buf[PPC_MAX_REGISTER_SIZE];
 
   if (altivec_register_p (gdbarch, regno))
     {
@@ -979,7 +979,7 @@ store_register (const struct regcache *regcache, int tid, int regno)
   CORE_ADDR regaddr = ppc_register_u_addr (gdbarch, regno);
   int i;
   size_t bytes_to_transfer;
-  gdb_byte buf[MAX_REGISTER_SIZE];
+  gdb_byte buf[PPC_MAX_REGISTER_SIZE];
 
   if (altivec_register_p (gdbarch, regno))
     {
@@ -2472,8 +2472,6 @@ ppc_linux_read_description (struct target_ops *ops)
 
   return isa205? tdesc_powerpc_isa205_32l : tdesc_powerpc_32l;
 }
-
-void _initialize_ppc_linux_nat (void);
 
 void
 _initialize_ppc_linux_nat (void)

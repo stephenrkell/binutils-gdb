@@ -51,6 +51,7 @@ const struct rank EXACT_MATCH_BADNESS = {0,0};
 const struct rank INTEGER_PROMOTION_BADNESS = {1,0};
 const struct rank FLOAT_PROMOTION_BADNESS = {1,0};
 const struct rank BASE_PTR_CONVERSION_BADNESS = {1,0};
+const struct rank CV_CONVERSION_BADNESS = {1, 0};
 const struct rank INTEGER_CONVERSION_BADNESS = {2,0};
 const struct rank FLOAT_CONVERSION_BADNESS = {2,0};
 const struct rank INT_FLOAT_CONVERSION_BADNESS = {2,0};
@@ -58,8 +59,6 @@ const struct rank VOID_PTR_CONVERSION_BADNESS = {2,0};
 const struct rank BOOL_CONVERSION_BADNESS = {3,0};
 const struct rank BASE_CONVERSION_BADNESS = {2,0};
 const struct rank REFERENCE_CONVERSION_BADNESS = {2,0};
-const struct rank LVALUE_REFERENCE_TO_RVALUE_BINDING_BADNESS = {5,0};
-const struct rank DIFFERENT_REFERENCE_TYPE_BADNESS = {6,0};
 const struct rank NULL_POINTER_CONVERSION_BADNESS = {2,0};
 const struct rank NS_POINTER_CONVERSION_BADNESS = {10,0};
 const struct rank NS_INTEGER_POINTER_CONVERSION_BADNESS = {3,0};
@@ -548,6 +547,8 @@ lookup_function_type_with_arguments (struct type *type,
 	  gdb_assert (nparams == 0);
 	  TYPE_PROTOTYPED (fn) = 1;
 	}
+      else
+	TYPE_PROTOTYPED (fn) = 1;
     }
 
   TYPE_NFIELDS (fn) = nparams;
@@ -2769,6 +2770,16 @@ init_type (struct objfile *objfile, enum type_code code, int length,
   return type;
 }
 
+/* Allocate a TYPE_CODE_ERROR type structure associated with OBJFILE,
+   to use with variables that have no debug info.  NAME is the type
+   name.  */
+
+static struct type *
+init_nodebug_var_type (struct objfile *objfile, const char *name)
+{
+  return init_type (objfile, TYPE_CODE_ERROR, 0, name);
+}
+
 /* Allocate a TYPE_CODE_INT type structure associated with OBJFILE.
    BIT is the type size in bits.  If UNSIGNED_P is non-zero, set
    the type's TYPE_UNSIGNED flag.  NAME is the type name.  */
@@ -3619,57 +3630,51 @@ rank_one_type (struct type *parm, struct type *arg, struct value *value)
   if (TYPE_CODE (arg) == TYPE_CODE_TYPEDEF)
     arg = check_typedef (arg);
 
-  if (value != NULL)
+  if (TYPE_IS_REFERENCE (parm) && value != NULL)
     {
-      /* An rvalue argument cannot be bound to a non-const lvalue
-         reference parameter...  */
-      if (VALUE_LVAL (value) == not_lval
-          && TYPE_CODE (parm) == TYPE_CODE_REF
-          && !TYPE_CONST (parm->main_type->target_type))
-        return INCOMPATIBLE_TYPE_BADNESS;
-
-      /* ... and an lvalue argument cannot be bound to an rvalue
-         reference parameter.  [C++ 13.3.3.1.4p3]  */
-      if (VALUE_LVAL (value) != not_lval
-          && TYPE_CODE (parm) == TYPE_CODE_RVALUE_REF)
-        return INCOMPATIBLE_TYPE_BADNESS;
+      if (VALUE_LVAL (value) == not_lval)
+	{
+	  /* Rvalues should preferably bind to rvalue references or const
+	     lvalue references.  */
+	  if (TYPE_CODE (parm) == TYPE_CODE_RVALUE_REF)
+	    rank.subrank = REFERENCE_CONVERSION_RVALUE;
+	  else if (TYPE_CONST (TYPE_TARGET_TYPE (parm)))
+	    rank.subrank = REFERENCE_CONVERSION_CONST_LVALUE;
+	  else
+	    return INCOMPATIBLE_TYPE_BADNESS;
+	  return sum_ranks (rank, REFERENCE_CONVERSION_BADNESS);
+	}
+      else
+	{
+	  /* Lvalues should prefer lvalue overloads.  */
+	  if (TYPE_CODE (parm) == TYPE_CODE_RVALUE_REF)
+	    {
+	      rank.subrank = REFERENCE_CONVERSION_RVALUE;
+	      return sum_ranks (rank, REFERENCE_CONVERSION_BADNESS);
+	    }
+	}
     }
 
   if (types_equal (parm, arg))
-    return EXACT_MATCH_BADNESS;
-
-  /* An lvalue reference to a function should get higher priority than an
-     rvalue reference to a function.  */
-
-  if (value != NULL && TYPE_CODE (arg) == TYPE_CODE_RVALUE_REF
-      && TYPE_CODE (TYPE_TARGET_TYPE (arg)) == TYPE_CODE_FUNC)
     {
-      return (sum_ranks (rank_one_type (parm,
-              lookup_pointer_type (TYPE_TARGET_TYPE (arg)), NULL),
-              DIFFERENT_REFERENCE_TYPE_BADNESS));
-    }
+      struct type *t1 = parm;
+      struct type *t2 = arg;
 
-  /* If a conversion to one type of reference is an identity conversion, and a
-     conversion to the second type of reference is a non-identity conversion,
-     choose the first type.  */
+      /* For pointers and references, compare target type.  */
+      if (TYPE_CODE (parm) == TYPE_CODE_PTR || TYPE_IS_REFERENCE (parm))
+	{
+	  t1 = TYPE_TARGET_TYPE (parm);
+	  t2 = TYPE_TARGET_TYPE (arg);
+	}
 
-  if (value != NULL && TYPE_IS_REFERENCE (parm) && TYPE_IS_REFERENCE (arg)
-     && TYPE_CODE (parm) != TYPE_CODE (arg))
-    {
-      return (sum_ranks (rank_one_type (TYPE_TARGET_TYPE (parm),
-              TYPE_TARGET_TYPE (arg), NULL), DIFFERENT_REFERENCE_TYPE_BADNESS));
-    }
-
-  /* An rvalue should be first tried to bind to an rvalue reference, and then to
-     an lvalue reference.  */
-
-  if (value != NULL && TYPE_CODE (parm) == TYPE_CODE_REF
-      && VALUE_LVAL (value) == not_lval)
-    {
-      if (TYPE_IS_REFERENCE (arg))
-	arg = TYPE_TARGET_TYPE (arg);
-      return (sum_ranks (rank_one_type (TYPE_TARGET_TYPE (parm), arg, NULL),
-			 LVALUE_REFERENCE_TO_RVALUE_BINDING_BADNESS));
+      /* Make sure they are CV equal, too.  */
+      if (TYPE_CONST (t1) != TYPE_CONST (t2))
+	rank.subrank |= CV_CONVERSION_CONST;
+      if (TYPE_VOLATILE (t1) != TYPE_VOLATILE (t2))
+	rank.subrank |= CV_CONVERSION_VOLATILE;
+      if (rank.subrank != 0)
+	return sum_ranks (CV_CONVERSION_BADNESS, rank);
+      return EXACT_MATCH_BADNESS;
     }
 
   /* See through references, since we can almost make non-references
@@ -3711,10 +3716,23 @@ rank_one_type (struct type *parm, struct type *arg, struct value *value)
 
 	  return INCOMPATIBLE_TYPE_BADNESS;
 	case TYPE_CODE_ARRAY:
-	  if (types_equal (TYPE_TARGET_TYPE (parm),
-	                   TYPE_TARGET_TYPE (arg)))
-	    return EXACT_MATCH_BADNESS;
-	  return INCOMPATIBLE_TYPE_BADNESS;
+	  {
+	    struct type *t1 = TYPE_TARGET_TYPE (parm);
+	    struct type *t2 = TYPE_TARGET_TYPE (arg);
+
+	    if (types_equal (t1, t2))
+	      {
+		/* Make sure they are CV equal.  */
+		if (TYPE_CONST (t1) != TYPE_CONST (t2))
+		  rank.subrank |= CV_CONVERSION_CONST;
+		if (TYPE_VOLATILE (t1) != TYPE_VOLATILE (t2))
+		  rank.subrank |= CV_CONVERSION_VOLATILE;
+		if (rank.subrank != 0)
+		  return sum_ranks (CV_CONVERSION_BADNESS, rank);
+		return EXACT_MATCH_BADNESS;
+	      }
+	    return INCOMPATIBLE_TYPE_BADNESS;
+	  }
 	case TYPE_CODE_FUNC:
 	  return rank_one_type (TYPE_TARGET_TYPE (parm), arg, NULL);
 	case TYPE_CODE_INT:
@@ -4437,10 +4455,6 @@ recursive_dump_type (struct type *type, int spaces)
   if (TYPE_TARGET_STUB (type))
     {
       puts_filtered (" TYPE_TARGET_STUB");
-    }
-  if (TYPE_STATIC (type))
-    {
-      puts_filtered (" TYPE_STATIC");
     }
   if (TYPE_PROTOTYPED (type))
     {
@@ -5204,10 +5218,12 @@ gdbtypes_post_init (struct gdbarch *gdbarch)
 
   /* Wide character types.  */
   builtin_type->builtin_char16
-    = arch_integer_type (gdbarch, 16, 0, "char16_t");
+    = arch_integer_type (gdbarch, 16, 1, "char16_t");
   builtin_type->builtin_char32
-    = arch_integer_type (gdbarch, 32, 0, "char32_t");
-	
+    = arch_integer_type (gdbarch, 32, 1, "char32_t");
+  builtin_type->builtin_wchar
+    = arch_integer_type (gdbarch, gdbarch_wchar_bit (gdbarch),
+			 !gdbarch_wchar_signed (gdbarch), "wchar_t");
 
   /* Default data/code pointer types.  */
   builtin_type->builtin_data_ptr
@@ -5306,27 +5322,24 @@ objfile_type (struct objfile *objfile)
   objfile_type->nodebug_text_symbol
     = init_type (objfile, TYPE_CODE_FUNC, 1,
 		 "<text variable, no debug info>");
-  TYPE_TARGET_TYPE (objfile_type->nodebug_text_symbol)
-    = objfile_type->builtin_int;
   objfile_type->nodebug_text_gnu_ifunc_symbol
     = init_type (objfile, TYPE_CODE_FUNC, 1,
 		 "<text gnu-indirect-function variable, no debug info>");
+  /* Ifunc resolvers return a function address.  */
   TYPE_TARGET_TYPE (objfile_type->nodebug_text_gnu_ifunc_symbol)
-    = objfile_type->nodebug_text_symbol;
+    = init_integer_type (objfile, gdbarch_addr_bit (gdbarch), 1,
+			 "__IFUNC_RESOLVER_RET");
   TYPE_GNU_IFUNC (objfile_type->nodebug_text_gnu_ifunc_symbol) = 1;
   objfile_type->nodebug_got_plt_symbol
     = init_pointer_type (objfile, gdbarch_addr_bit (gdbarch),
 			 "<text from jump slot in .got.plt, no debug info>",
 			 objfile_type->nodebug_text_symbol);
   objfile_type->nodebug_data_symbol
-    = init_integer_type (objfile, gdbarch_int_bit (gdbarch), 0,
-			 "<data variable, no debug info>");
+    = init_nodebug_var_type (objfile, "<data variable, no debug info>");
   objfile_type->nodebug_unknown_symbol
-    = init_integer_type (objfile, TARGET_CHAR_BIT, 0,
-			 "<variable (not text or data), no debug info>");
+    = init_nodebug_var_type (objfile, "<variable (not text or data), no debug info>");
   objfile_type->nodebug_tls_symbol
-    = init_integer_type (objfile, gdbarch_int_bit (gdbarch), 0,
-			 "<thread local variable, no debug info>");
+    = init_nodebug_var_type (objfile, "<thread local variable, no debug info>");
 
   /* NOTE: on some targets, addresses and pointers are not necessarily
      the same.
@@ -5354,8 +5367,6 @@ objfile_type (struct objfile *objfile)
   set_objfile_data (objfile, objfile_type_data, objfile_type);
   return objfile_type;
 }
-
-extern initialize_file_ftype _initialize_gdbtypes;
 
 void
 _initialize_gdbtypes (void)

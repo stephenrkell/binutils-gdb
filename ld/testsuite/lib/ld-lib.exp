@@ -282,6 +282,11 @@ proc default_ld_compile { cc source object } {
     remote_file build delete "ld.tmp"
     remote_file host delete "ld.tmp"
     set exec_output [prune_warnings $exec_output]
+    # Versions of gcc up to and including pre-release gcc-7, at least on
+    # some targets, generate .section directives with incorrect type.
+    # Ignore warnings from the assembler about this.
+    regsub -all "(^|\n)\[^\n\]*: ignoring incorrect section type \[^\n\]*" $exec_output "" exec_output
+    regsub -all "^\[^\n\]*: Assembler messages:\n" $exec_output "" exec_output
     if [string match "" $exec_output] then {
 	if {![file exists $object]} then {
 	    regexp ".*/(\[^/\]*)$" $source all dobj
@@ -971,7 +976,7 @@ proc run_dump_test { name {extra_options {}} } {
                  && (($cmdret == 0) == ($check_ld(terminal) == 0)) \
                  && ((($check_ld(source) == "regex") \
                       && ($check_ld(regex) == "") == ($comp_output == "") \
-                      && [regexp $check_ld(regex) $comp_output]) \
+                      && [regexp -- $check_ld(regex) $comp_output]) \
                      || (($check_ld(source) == "file") \
                          && (![regexp_diff "tmpdir/ld.messages" "$srcdir/$subdir/$check_ld(file)"]))) } {
                 # We have the expected output from ld.
@@ -1421,9 +1426,6 @@ proc run_ld_link_exec_tests { ldtests args } {
 	    set objfile "tmpdir/$fileroot.o"
 	    lappend objfiles $objfile
 
-	    # We ignore warnings since some compilers may generate
-	    # incorrect section attributes and the assembler will warn
-	    # them.
 	    if { [ string match "c++" $lang ] } {
 		set cmd "$CXX -c $CXXFLAGS $cflags"
 	    } else {
@@ -1598,9 +1600,6 @@ proc run_cc_link_tests { ldtests } {
 	    set objfile "tmpdir/$fileroot.o"
 	    lappend objfiles $objfile
 
-	    # We ignore warnings since some compilers may generate
-	    # incorrect section attributes and the assembler will warn
-	    # them.
 	    if { [ string match "c++" $lang ] } {
 		set cmd "$CXX -c $CXXFLAGS $cflags"
 	    } else {
@@ -1857,6 +1856,25 @@ proc is_generic_elf { } {
 	return 1;
     }
     return 0;
+}
+
+proc is_underscore_target { } {
+    global is_underscore_target_saved
+    global target_triplet
+    global srcdir
+
+    if { ![info exists is_underscore_target_saved] } {
+	set cmd "targ=$target_triplet . $srcdir/../../bfd/config.bfd &&"
+	append cmd { echo "$targ_underscore"}
+	verbose -log "$cmd"
+	set status [catch {exec sh -c $cmd} result]
+	if { $status == 0 && [string match "yes" $result] } {
+	    set is_underscore_target_saved 1
+	} else {
+	    set is_underscore_target_saved 0
+	}
+    }
+    return $is_underscore_target_saved
 }
 
 # Returns true if the target ld supports the plugin API.
@@ -2210,4 +2228,68 @@ proc check_libdl_available { } {
 	file delete $src
     }
     return $libdl_available_saved
+}
+
+# Returns true if GNU2 TLS works.
+
+proc check_gnu2_tls_available { } {
+    global gnu2_tls_available_saved
+    global CC
+    global GNU2_CFLAGS
+
+    if {![info exists gnu2_tls_available_saved]} {
+        if { [which $CC] == 0 || "$GNU2_CFLAGS" == "" } {
+	    set gnu2_tls_available_saved 0
+	    return 0
+	}
+	# Check if GNU2 TLS works.
+	set flags "$GNU2_CFLAGS"
+	if [board_info [target_info name] exists cflags] {
+	    append flags " [board_info [target_info name] cflags]"
+	}
+	if [board_info [target_info name] exists ldflags] {
+	    append flags " [board_info [target_info name] ldflags]"
+	}
+
+	set basename "tmpdir/gnu2_tls[pid]"
+	set src1 ${basename}1.c
+	set output1 ${basename}.so
+	set f [open $src1 "w"]
+	puts $f "extern __thread int zzz;"
+	puts $f "int foo (void)"
+	puts $f "{"
+	puts $f "  return zzz;"
+	puts $f "}"
+	close $f
+	if [is_remote host] {
+	    set src1 [remote_download host $src1]
+	}
+	set src2 ${basename}2.c
+	set output2 ${basename}.exe
+	set f [open $src2 "w"]
+	puts $f "__thread int zzz = 20;"
+	puts $f "extern int foo (void);"
+	puts $f "int main (void)"
+	puts $f "{"
+	puts $f "  if (foo () != 20) __builtin_abort ();"
+	puts $f "  return 0; "
+	puts $f "}"
+	close $f
+	if [is_remote host] {
+	    set src2 [remote_download host $src2]
+	}
+	set gnu2_tls_available_saved [run_host_cmd_yesno "$CC" "-fPIC -shared $flags $src1 -o $output1"]
+	if { $gnu2_tls_available_saved == 1 } {
+	    set gnu2_tls_available_saved [run_host_cmd_yesno "$CC" "$flags $src2 $output1 -o $output2"]
+	    if { $gnu2_tls_available_saved == 1 } {
+		set gnu2_tls_available_saved [run_host_cmd_yesno "$output2" ""]
+	    }
+	}
+	remote_file host delete $src1
+	remote_file host delete $output1
+	remote_file host delete $src2
+	remote_file host delete $output2
+	file delete $src1 $src2
+    }
+    return $gnu2_tls_available_saved
 }

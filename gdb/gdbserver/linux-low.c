@@ -47,6 +47,9 @@
 #include "tracepoint.h"
 #include "hostio.h"
 #include <inttypes.h>
+#include "common-inferior.h"
+#include "nat/fork-inferior.h"
+#include "environ.h"
 #ifndef ELFMAG0
 /* Don't include <linux/elf.h> here.  If it got included by gdb_proc_service.h
    then ELFMAG0 will have been defined.  If it didn't get included by
@@ -567,7 +570,7 @@ handle_extended_wait (struct lwp_info **orig_event_lwp, int wstat)
 
 	  clone_all_breakpoints (child_thr, event_thr);
 
-	  tdesc = XNEW (struct target_desc);
+	  tdesc = allocate_target_description ();
 	  copy_target_description (tdesc, parent_proc->tdesc);
 	  child_proc->tdesc = tdesc;
 
@@ -652,6 +655,8 @@ handle_extended_wait (struct lwp_info **orig_event_lwp, int wstat)
 	  new_lwp->status_pending_p = 1;
 	  new_lwp->status_pending = status;
 	}
+
+      thread_db_notice_clone (get_thread_process (event_thr), ptid);
 
       /* Don't report the event.  */
       return 1;
@@ -946,59 +951,57 @@ add_lwp (ptid_t ptid)
   return lwp;
 }
 
+/* Callback to be used when calling fork_inferior, responsible for
+   actually initiating the tracing of the inferior.  */
+
+static void
+linux_ptrace_fun ()
+{
+  if (ptrace (PTRACE_TRACEME, 0, (PTRACE_TYPE_ARG3) 0,
+	      (PTRACE_TYPE_ARG4) 0) < 0)
+    trace_start_error_with_name ("ptrace");
+
+  if (setpgid (0, 0) < 0)
+    trace_start_error_with_name ("setpgid");
+
+  /* If GDBserver is connected to gdb via stdio, redirect the inferior's
+     stdout to stderr so that inferior i/o doesn't corrupt the connection.
+     Also, redirect stdin to /dev/null.  */
+  if (remote_connection_is_stdio ())
+    {
+      if (close (0) < 0)
+	trace_start_error_with_name ("close");
+      if (open ("/dev/null", O_RDONLY) < 0)
+	trace_start_error_with_name ("open");
+      if (dup2 (2, 1) < 0)
+	trace_start_error_with_name ("dup2");
+      if (write (2, "stdin/stdout redirected\n",
+		 sizeof ("stdin/stdout redirected\n") - 1) < 0)
+	{
+	  /* Errors ignored.  */;
+	}
+    }
+}
+
 /* Start an inferior process and returns its pid.
-   ALLARGS is a vector of program-name and args. */
+   PROGRAM is the name of the program to be started, and PROGRAM_ARGS
+   are its arguments.  */
 
 static int
-linux_create_inferior (char *program, char **allargs)
+linux_create_inferior (const char *program,
+		       const std::vector<char *> &program_args)
 {
   struct lwp_info *new_lwp;
   int pid;
   ptid_t ptid;
   struct cleanup *restore_personality
     = maybe_disable_address_space_randomization (disable_randomization);
+  std::string str_program_args = stringify_argv (program_args);
 
-#if defined(__UCLIBC__) && defined(HAS_NOMMU)
-  pid = vfork ();
-#else
-  pid = fork ();
-#endif
-  if (pid < 0)
-    perror_with_name ("fork");
-
-  if (pid == 0)
-    {
-      close_most_fds ();
-      ptrace (PTRACE_TRACEME, 0, (PTRACE_TYPE_ARG3) 0, (PTRACE_TYPE_ARG4) 0);
-
-      setpgid (0, 0);
-
-      /* If gdbserver is connected to gdb via stdio, redirect the inferior's
-	 stdout to stderr so that inferior i/o doesn't corrupt the connection.
-	 Also, redirect stdin to /dev/null.  */
-      if (remote_connection_is_stdio ())
-	{
-	  close (0);
-	  open ("/dev/null", O_RDONLY);
-	  dup2 (2, 1);
-	  if (write (2, "stdin/stdout redirected\n",
-		     sizeof ("stdin/stdout redirected\n") - 1) < 0)
-	    {
-	      /* Errors ignored.  */;
-	    }
-	}
-
-      restore_original_signals_state ();
-
-      execv (program, allargs);
-      if (errno == ENOENT)
-	execvp (program, allargs);
-
-      fprintf (stderr, "Cannot exec %s: %s.\n", program,
-	       strerror (errno));
-      fflush (stderr);
-      _exit (0177);
-    }
+  pid = fork_inferior (program,
+		       str_program_args.c_str (),
+		       get_environ ()->envp (), linux_ptrace_fun,
+		       NULL, NULL, NULL, NULL);
 
   do_cleanups (restore_personality);
 
@@ -1007,6 +1010,8 @@ linux_create_inferior (char *program, char **allargs)
   ptid = ptid_build (pid, pid, 0);
   new_lwp = add_lwp (ptid);
   new_lwp->must_set_ptrace_flags = 1;
+
+  post_fork_inferior (pid, program);
 
   return pid;
 }
@@ -2079,7 +2084,9 @@ handle_tracepoints (struct lwp_info *lwp)
   lwp_suspended_decr (lwp);
 
   gdb_assert (lwp->suspended == 0);
-  gdb_assert (!stabilizing_threads || lwp->collecting_fast_tracepoint);
+  gdb_assert (!stabilizing_threads
+	      || (lwp->collecting_fast_tracepoint
+		  != fast_tpoint_collect_result::not_collecting));
 
   if (tpoint_related_event)
     {
@@ -2091,10 +2098,10 @@ handle_tracepoints (struct lwp_info *lwp)
   return 0;
 }
 
-/* Convenience wrapper.  Returns true if LWP is presently collecting a
-   fast tracepoint.  */
+/* Convenience wrapper.  Returns information about LWP's fast tracepoint
+   collection status.  */
 
-static int
+static fast_tpoint_collect_result
 linux_fast_tracepoint_collecting (struct lwp_info *lwp,
 				  struct fast_tpoint_collect_status *status)
 {
@@ -2102,14 +2109,14 @@ linux_fast_tracepoint_collecting (struct lwp_info *lwp,
   struct thread_info *thread = get_lwp_thread (lwp);
 
   if (the_low_target.get_thread_area == NULL)
-    return 0;
+    return fast_tpoint_collect_result::not_collecting;
 
   /* Get the thread area address.  This is used to recognize which
      thread is which when tracing with the in-process agent library.
      We don't read anything from the address, and treat it as opaque;
      it's the address itself that we assume is unique per-thread.  */
   if ((*the_low_target.get_thread_area) (lwpid_of (thread), &thread_area) == -1)
-    return 0;
+    return fast_tpoint_collect_result::not_collecting;
 
   return fast_tracepoint_collecting (thread_area, lwp->stop_pc, status);
 }
@@ -2133,14 +2140,14 @@ maybe_move_out_of_jump_pad (struct lwp_info *lwp, int *wstat)
       && agent_loaded_p ())
     {
       struct fast_tpoint_collect_status status;
-      int r;
 
       if (debug_threads)
 	debug_printf ("Checking whether LWP %ld needs to move out of the "
 		      "jump pad.\n",
 		      lwpid_of (current_thread));
 
-      r = linux_fast_tracepoint_collecting (lwp, &status);
+      fast_tpoint_collect_result r
+	= linux_fast_tracepoint_collecting (lwp, &status);
 
       if (wstat == NULL
 	  || (WSTOPSIG (*wstat) != SIGILL
@@ -2150,9 +2157,10 @@ maybe_move_out_of_jump_pad (struct lwp_info *lwp, int *wstat)
 	{
 	  lwp->collecting_fast_tracepoint = r;
 
-	  if (r != 0)
+	  if (r != fast_tpoint_collect_result::not_collecting)
 	    {
-	      if (r == 1 && lwp->exit_jump_pad_bkpt == NULL)
+	      if (r == fast_tpoint_collect_result::before_insn
+		  && lwp->exit_jump_pad_bkpt == NULL)
 		{
 		  /* Haven't executed the original instruction yet.
 		     Set breakpoint there, and wait till it's hit,
@@ -2178,9 +2186,10 @@ maybe_move_out_of_jump_pad (struct lwp_info *lwp, int *wstat)
 	     reporting to GDB.  Otherwise, it's an IPA lib bug: just
 	     report the signal to GDB, and pray for the best.  */
 
-	  lwp->collecting_fast_tracepoint = 0;
+	  lwp->collecting_fast_tracepoint
+	    = fast_tpoint_collect_result::not_collecting;
 
-	  if (r != 0
+	  if (r != fast_tpoint_collect_result::not_collecting
 	      && (status.adjusted_insn_addr <= lwp->stop_pc
 		  && lwp->stop_pc < status.adjusted_insn_addr_end))
 	    {
@@ -2712,7 +2721,8 @@ linux_wait_for_event_filtered (ptid_t wait_ptid, ptid_t filter_ptid,
 
       if (stopping_threads == NOT_STOPPING_THREADS
 	  && requested_child->status_pending_p
-	  && requested_child->collecting_fast_tracepoint)
+	  && (requested_child->collecting_fast_tracepoint
+	      != fast_tpoint_collect_result::not_collecting))
 	{
 	  enqueue_one_deferred_signal (requested_child,
 				       &requested_child->status_pending);
@@ -3464,20 +3474,22 @@ linux_wait_1 (ptid_t ptid,
 	}
     }
 
-  if (event_child->collecting_fast_tracepoint)
+  if (event_child->collecting_fast_tracepoint
+      != fast_tpoint_collect_result::not_collecting)
     {
       if (debug_threads)
 	debug_printf ("LWP %ld was trying to move out of the jump pad (%d). "
 		      "Check if we're already there.\n",
 		      lwpid_of (current_thread),
-		      event_child->collecting_fast_tracepoint);
+		      (int) event_child->collecting_fast_tracepoint);
 
       trace_event = 1;
 
       event_child->collecting_fast_tracepoint
 	= linux_fast_tracepoint_collecting (event_child, NULL);
 
-      if (event_child->collecting_fast_tracepoint != 1)
+      if (event_child->collecting_fast_tracepoint
+	  != fast_tpoint_collect_result::before_insn)
 	{
 	  /* No longer need this breakpoint.  */
 	  if (event_child->exit_jump_pad_bkpt != NULL)
@@ -3504,7 +3516,8 @@ linux_wait_1 (ptid_t ptid,
 	    }
 	}
 
-      if (event_child->collecting_fast_tracepoint == 0)
+      if (event_child->collecting_fast_tracepoint
+	  == fast_tpoint_collect_result::not_collecting)
 	{
 	  if (debug_threads)
 	    debug_printf ("fast tracepoint finished "
@@ -3722,12 +3735,11 @@ linux_wait_1 (ptid_t ptid,
     {
       if (event_child->waitstatus.kind != TARGET_WAITKIND_IGNORE)
 	{
-	  char *str;
+	  std::string str
+	    = target_waitstatus_to_string (&event_child->waitstatus);
 
-	  str = target_waitstatus_to_string (&event_child->waitstatus);
 	  debug_printf ("LWP %ld: extended event with waitstatus %s\n",
-			lwpid_of (get_lwp_thread (event_child)), str);
-	  xfree (str);
+			lwpid_of (get_lwp_thread (event_child)), str.c_str ());
 	}
       if (current_thread->last_resume_kind == resume_step)
 	{
@@ -4189,7 +4201,8 @@ stuck_in_jump_pad_callback (struct inferior_list_entry *entry, void *data)
 	  && (gdb_breakpoint_here (lwp->stop_pc)
 	      || lwp->stop_reason == TARGET_STOPPED_BY_WATCHPOINT
 	      || thread->last_resume_kind == resume_step)
-	  && linux_fast_tracepoint_collecting (lwp, NULL));
+	  && (linux_fast_tracepoint_collecting (lwp, NULL)
+	      != fast_tpoint_collect_result::not_collecting));
 }
 
 static void
@@ -4317,19 +4330,14 @@ enqueue_pending_signal (struct lwp_info *lwp, int signal, siginfo_t *info)
 static void
 install_software_single_step_breakpoints (struct lwp_info *lwp)
 {
-  int i;
-  CORE_ADDR pc;
   struct thread_info *thread = get_lwp_thread (lwp);
   struct regcache *regcache = get_thread_regcache (thread, 1);
-  VEC (CORE_ADDR) *next_pcs = NULL;
   struct cleanup *old_chain = make_cleanup_restore_current_thread ();
 
-  make_cleanup (VEC_cleanup (CORE_ADDR), &next_pcs);
-
   current_thread = thread;
-  next_pcs = (*the_low_target.get_next_pcs) (regcache);
+  std::vector<CORE_ADDR> next_pcs = the_low_target.get_next_pcs (regcache);
 
-  for (i = 0; VEC_iterate (CORE_ADDR, next_pcs, i, pc); ++i)
+  for (CORE_ADDR pc : next_pcs)
     set_single_step_breakpoint (pc, current_ptid);
 
   do_cleanups (old_chain);
@@ -4371,7 +4379,8 @@ single_step (struct lwp_info* lwp)
 static int
 lwp_signal_can_be_delivered (struct lwp_info *lwp)
 {
-  return !lwp->collecting_fast_tracepoint;
+  return (lwp->collecting_fast_tracepoint
+	  == fast_tpoint_collect_result::not_collecting);
 }
 
 /* Resume execution of LWP.  If STEP is nonzero, single-step it.  If
@@ -4383,7 +4392,6 @@ linux_resume_one_lwp_throw (struct lwp_info *lwp,
 {
   struct thread_info *thread = get_lwp_thread (lwp);
   struct thread_info *saved_thread;
-  int fast_tp_collecting;
   int ptrace_request;
   struct process_info *proc = get_thread_process (thread);
 
@@ -4399,9 +4407,12 @@ linux_resume_one_lwp_throw (struct lwp_info *lwp,
 
   gdb_assert (lwp->waitstatus.kind == TARGET_WAITKIND_IGNORE);
 
-  fast_tp_collecting = lwp->collecting_fast_tracepoint;
+  fast_tpoint_collect_result fast_tp_collecting
+    = lwp->collecting_fast_tracepoint;
 
-  gdb_assert (!stabilizing_threads || fast_tp_collecting);
+  gdb_assert (!stabilizing_threads
+	      || (fast_tp_collecting
+		  != fast_tpoint_collect_result::not_collecting));
 
   /* Cancel actions that rely on GDB not changing the PC (e.g., the
      user used the "jump" command, or "set $pc = foo").  */
@@ -4457,7 +4468,7 @@ linux_resume_one_lwp_throw (struct lwp_info *lwp,
 
       if (can_hardware_single_step ())
 	{
-	  if (fast_tp_collecting == 0)
+	  if (fast_tp_collecting == fast_tpoint_collect_result::not_collecting)
 	    {
 	      if (step == 0)
 		warning ("BAD - reinserting but not stepping.");
@@ -4470,14 +4481,14 @@ linux_resume_one_lwp_throw (struct lwp_info *lwp,
       step = maybe_hw_step (thread);
     }
 
-  if (fast_tp_collecting == 1)
+  if (fast_tp_collecting == fast_tpoint_collect_result::before_insn)
     {
       if (debug_threads)
 	debug_printf ("lwp %ld wants to get out of fast tracepoint jump pad"
 		      " (exit-jump-pad-bkpt)\n",
 		      lwpid_of (thread));
     }
-  else if (fast_tp_collecting == 2)
+  else if (fast_tp_collecting == fast_tpoint_collect_result::at_insn)
     {
       if (debug_threads)
 	debug_printf ("lwp %ld wants to get out of fast tracepoint jump pad"
@@ -4702,7 +4713,6 @@ linux_set_resume_request (struct inferior_list_entry *entry, void *arg)
 	     does not yet know are new fork children.  */
 	  if (lwp->fork_relative != NULL)
 	    {
-	      struct inferior_list_entry *inf, *tmp;
 	      struct lwp_info *rel = lwp->fork_relative;
 
 	      if (rel->status_pending_p
@@ -5296,7 +5306,8 @@ proceed_one_lwp (struct inferior_list_entry *entry, void *except)
 
   if (thread->last_resume_kind == resume_stop
       && lwp->pending_signals_to_report == NULL
-      && lwp->collecting_fast_tracepoint == 0)
+      && (lwp->collecting_fast_tracepoint
+	  == fast_tpoint_collect_result::not_collecting))
     {
       /* We haven't reported this LWP as stopped yet (otherwise, the
 	 last_status.kind check above would catch it, and we wouldn't
@@ -5872,11 +5883,11 @@ static int
 linux_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
 {
   int pid = lwpid_of (current_thread);
-  register PTRACE_XFER_TYPE *buffer;
-  register CORE_ADDR addr;
-  register int count;
+  PTRACE_XFER_TYPE *buffer;
+  CORE_ADDR addr;
+  int count;
   char filename[64];
-  register int i;
+  int i;
   int ret;
   int fd;
 
@@ -5960,16 +5971,16 @@ linux_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
 static int
 linux_write_memory (CORE_ADDR memaddr, const unsigned char *myaddr, int len)
 {
-  register int i;
+  int i;
   /* Round starting address down to longword boundary.  */
-  register CORE_ADDR addr = memaddr & -(CORE_ADDR) sizeof (PTRACE_XFER_TYPE);
+  CORE_ADDR addr = memaddr & -(CORE_ADDR) sizeof (PTRACE_XFER_TYPE);
   /* Round ending address up; get number of longwords that makes.  */
-  register int count
+  int count
     = (((memaddr + len) - addr) + sizeof (PTRACE_XFER_TYPE) - 1)
     / sizeof (PTRACE_XFER_TYPE);
 
   /* Allocate buffer of that many longwords.  */
-  register PTRACE_XFER_TYPE *buffer = XALLOCAVEC (PTRACE_XFER_TYPE, count);
+  PTRACE_XFER_TYPE *buffer = XALLOCAVEC (PTRACE_XFER_TYPE, count);
 
   int pid = lwpid_of (current_thread);
 
@@ -6060,8 +6071,6 @@ linux_look_up_symbols (void)
 static void
 linux_request_interrupt (void)
 {
-  extern unsigned long signal_pid;
-
   /* Send a SIGINT to the process group.  This acts just like the user
      typed a ^C on the controlling terminal.  */
   kill (-signal_pid, SIGINT);
@@ -7281,7 +7290,6 @@ linux_qxfer_libraries_svr4 (const char *annex, unsigned char *readbuf,
 	    {
 	      /* 6x the size for xml_escape_text below.  */
 	      size_t len = 6 * strlen ((char *) libname);
-	      char *name;
 
 	      if (!header_done)
 		{
@@ -7300,12 +7308,11 @@ linux_qxfer_libraries_svr4 (const char *annex, unsigned char *readbuf,
 		  p = document + document_len;
 		}
 
-	      name = xml_escape_text ((char *) libname);
+	      std::string name = xml_escape_text ((char *) libname);
 	      p += sprintf (p, "<library name=\"%s\" lm=\"0x%lx\" "
 			    "l_addr=\"0x%lx\" l_ld=\"0x%lx\"/>",
-			    name, (unsigned long) lm_addr,
+			    name.c_str (), (unsigned long) lm_addr,
 			    (unsigned long) l_addr, (unsigned long) l_ld);
-	      free (name);
 	    }
 	}
 
@@ -7698,6 +7705,11 @@ static struct target_ops linux_target_ops = {
   linux_supports_software_single_step,
   linux_supports_catch_syscall,
   linux_get_ipa_tdesc_idx,
+#if USE_THREAD_DB
+  thread_db_thread_handle,
+#else
+  NULL,
+#endif
 };
 
 #ifdef HAVE_LINUX_REGSETS

@@ -2131,7 +2131,8 @@ gnu_ptrace_me (void)
 
 static void
 gnu_create_inferior (struct target_ops *ops, 
-		     char *exec_file, char *allargs, char **env,
+		     const char *exec_file, const std::string &allargs,
+		     char **env,
 		     int from_tty)
 {
   struct inf *inf = cur_inf ();
@@ -2141,6 +2142,11 @@ gnu_create_inferior (struct target_ops *ops,
 
   pid = fork_inferior (exec_file, allargs, env, gnu_ptrace_me,
                        NULL, NULL, NULL, NULL);
+
+  /* We have something that executes now.  We'll be running through
+     the shell at this point (if startup-with-shell is true), but the
+     pid shouldn't change.  */
+  add_thread_silent (pid_to_ptid (pid));
 
   /* Attach to the now stopped child, which is actually a shell...  */
   inf_debug (inf, "attaching to child: %d", pid);
@@ -2161,7 +2167,8 @@ gnu_create_inferior (struct target_ops *ops,
   thread_change_ptid (inferior_ptid,
 		      ptid_build (inf->pid, inf_pick_first_thread (), 0));
 
-  startup_inferior (START_INFERIOR_TRAPS_EXPECTED);
+  gdb_startup_inferior (pid, START_INFERIOR_TRAPS_EXPECTED);
+
   inf->pending_execs = 0;
   /* Get rid of the old shell threads.  */
   prune_threads ();
@@ -2223,7 +2230,7 @@ gnu_attach (struct target_ops *ops, const char *args, int from_tty)
 
   /* We have to initialize the terminal settings now, since the code
      below might try to restore them.  */
-  target_terminal_init ();
+  target_terminal::init ();
 
   /* If the process was stopped before we attached, make it continue the next
      time the user does a continue.  */
@@ -2652,7 +2659,7 @@ proc_string (struct proc *proc)
   return tid_str;
 }
 
-static char *
+static const char *
 gnu_pid_to_str (struct target_ops *ops, ptid_t ptid)
 {
   struct inf *inf = gnu_current_inf;
@@ -3472,11 +3479,6 @@ Prior to giving this command, gdb's thread suspend-counts are relative\n\
 to the thread's initial suspend-count when gdb notices the threads."),
 	   &thread_cmd_list);
 }
-
-
-
-/* -Wmissing-prototypes */
-extern initialize_file_ftype _initialize_gnu_nat;
 
 void
 _initialize_gnu_nat (void)

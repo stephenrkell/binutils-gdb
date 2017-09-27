@@ -314,11 +314,8 @@ struct quick_symbol_functions
 
 struct sym_probe_fns
 {
-  /* If non-NULL, return an array of probe objects.
-
-     The returned value does not have to be freed and it has lifetime of the
-     OBJFILE.  */
-  VEC (probe_p) *(*sym_get_probes) (struct objfile *);
+  /* If non-NULL, return a reference to vector of probe objects.  */
+  const std::vector<probe *> &(*sym_get_probes) (struct objfile *);
 };
 
 /* Structure to keep track of symbol reading functions for various
@@ -495,7 +492,7 @@ extern void find_lowest_section (bfd *, asection *, void *);
 
 extern gdb_bfd_ref_ptr symfile_bfd_open (const char *);
 
-extern int get_section_index (struct objfile *, char *);
+extern int get_section_index (struct objfile *, const char *);
 
 extern int print_symbol_loading_p (int from_tty, int mainline, int full);
 
@@ -556,7 +553,7 @@ extern int symfile_map_offsets_to_segments (bfd *,
 struct symfile_segment_data *get_symfile_segment_data (bfd *abfd);
 void free_symfile_segment_data (struct symfile_segment_data *data);
 
-extern struct cleanup *increment_reading_symtab (void);
+extern scoped_restore_tmpl<int> increment_reading_symtab (void);
 
 void expand_symtabs_matching
   (gdb::function_view<expand_symtabs_file_matcher_ftype> file_matcher,
@@ -645,5 +642,9 @@ extern void elfmdebug_build_psymtabs (struct objfile *,
 /* From minidebug.c.  */
 
 extern gdb_bfd_ref_ptr find_separate_debug_file_in_section (struct objfile *);
+
+/* True if we are printing debug output about separate debug info files.  */
+
+extern int separate_debug_file_debug;
 
 #endif /* !defined(SYMFILE_H) */

@@ -55,8 +55,6 @@
 #define N32_FLDI_SP \
 	N32_TYPE2 (LDC, 0, REG_SP, 0)
 
-extern void _initialize_nds32_tdep (void);
-
 /* Use an invalid address value as 'not available' marker.  */
 enum { REG_UNAVAIL = (CORE_ADDR) -1 };
 
@@ -445,11 +443,12 @@ nds32_pseudo_register_read (struct gdbarch *gdbarch,
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   gdb_byte reg_buf[8];
   int offset, fdr_regnum;
-  enum register_status status = REG_UNKNOWN;
+  enum register_status status;
 
-  /* Sanity check.  */
-  if (tdep->fpu_freg == -1 || tdep->use_pseudo_fsrs == 0)
-    return status;
+  /* This function is registered in nds32_gdbarch_init only after these are
+     set.  */
+  gdb_assert (tdep->fpu_freg != -1);
+  gdb_assert (tdep->use_pseudo_fsrs != 0);
 
   regnum -= gdbarch_num_regs (gdbarch);
 
@@ -466,9 +465,11 @@ nds32_pseudo_register_read (struct gdbarch *gdbarch,
       status = regcache_raw_read (regcache, fdr_regnum, reg_buf);
       if (status == REG_VALID)
 	memcpy (buf, reg_buf + offset, 4);
+
+      return status;
     }
 
-  return status;
+  gdb_assert_not_reached ("invalid pseudo register number");
 }
 
 /* Implement the "pseudo_register_write" gdbarch method.  */
@@ -482,9 +483,10 @@ nds32_pseudo_register_write (struct gdbarch *gdbarch,
   gdb_byte reg_buf[8];
   int offset, fdr_regnum;
 
-  /* Sanity check.  */
-  if (tdep->fpu_freg == -1 || tdep->use_pseudo_fsrs == 0)
-    return;
+  /* This function is registered in nds32_gdbarch_init only after these are
+     set.  */
+  gdb_assert (tdep->fpu_freg != -1);
+  gdb_assert (tdep->use_pseudo_fsrs != 0);
 
   regnum -= gdbarch_num_regs (gdbarch);
 
@@ -501,7 +503,10 @@ nds32_pseudo_register_write (struct gdbarch *gdbarch,
       regcache_raw_read (regcache, fdr_regnum, reg_buf);
       memcpy (reg_buf + offset, buf, 4);
       regcache_raw_write (regcache, fdr_regnum, reg_buf);
+      return;
     }
+
+  gdb_assert_not_reached ("invalid pseudo register number");
 }
 
 /* Helper function for NDS32 ABI.  Return true if FPRs can be used
@@ -2069,6 +2074,9 @@ nds32_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   gdbarch = gdbarch_alloc (&info, tdep);
 
+  set_gdbarch_wchar_bit (gdbarch, 16);
+  set_gdbarch_wchar_signed (gdbarch, 0);
+
   if (fpu_freg == -1)
     num_regs = NDS32_NUM_REGS;
   else if (use_pseudo_fsrs == 1)
@@ -2124,7 +2132,7 @@ nds32_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   nds32_add_reggroups (gdbarch);
 
   /* Hook in ABI-specific overrides, if they have been registered.  */
-  info.tdep_info = (void *) tdesc_data;
+  info.tdesc_data = tdesc_data;
   gdbarch_init_osabi (info, gdbarch);
 
   /* Override tdesc_register callbacks for system registers.  */
@@ -2150,8 +2158,6 @@ nds32_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   set_gdbarch_frame_align (gdbarch, nds32_frame_align);
   frame_base_set_default (gdbarch, &nds32_frame_base);
-
-  set_gdbarch_print_insn (gdbarch, print_insn_nds32);
 
   /* Handle longjmp.  */
   set_gdbarch_get_longjmp_target (gdbarch, nds32_get_longjmp_target);

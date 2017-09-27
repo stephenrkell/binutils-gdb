@@ -40,6 +40,9 @@
 /* The am33-2 has 64 registers.  */
 #define MN10300_MAX_NUM_REGS 64
 
+/* Big enough to hold the size of the largest register in bytes.  */
+#define MN10300_MAX_REGISTER_SIZE      64
+
 /* This structure holds the results of a prologue analysis.  */
 struct mn10300_prologue
 {
@@ -196,7 +199,7 @@ static void
 mn10300_extract_return_value (struct gdbarch *gdbarch, struct type *type,
 			      struct regcache *regcache, void *valbuf)
 {
-  gdb_byte buf[MAX_REGISTER_SIZE];
+  gdb_byte buf[MN10300_MAX_REGISTER_SIZE];
   int len = TYPE_LENGTH (type);
   int reg, regsz;
 
@@ -206,6 +209,7 @@ mn10300_extract_return_value (struct gdbarch *gdbarch, struct type *type,
     reg = 0;
 
   regsz = register_size (gdbarch, reg);
+  gdb_assert (regsz <= MN10300_MAX_REGISTER_SIZE);
   if (len <= regsz)
     {
       regcache_raw_read (regcache, reg, buf);
@@ -246,8 +250,8 @@ mn10300_return_value (struct gdbarch *gdbarch, struct value *function,
   return RETURN_VALUE_REGISTER_CONVENTION;
 }
 
-static char *
-register_name (int reg, char **regs, long sizeof_regs)
+static const char *
+register_name (int reg, const char **regs, long sizeof_regs)
 {
   if (reg < 0 || reg >= sizeof_regs / sizeof (regs[0]))
     return NULL;
@@ -258,7 +262,7 @@ register_name (int reg, char **regs, long sizeof_regs)
 static const char *
 mn10300_generic_register_name (struct gdbarch *gdbarch, int reg)
 {
-  static char *regs[] =
+  static const char *regs[] =
   { "d0", "d1", "d2", "d3", "a0", "a1", "a2", "a3",
     "sp", "pc", "mdr", "psw", "lir", "lar", "", "",
     "", "", "", "", "", "", "", "",
@@ -271,7 +275,7 @@ mn10300_generic_register_name (struct gdbarch *gdbarch, int reg)
 static const char *
 am33_register_name (struct gdbarch *gdbarch, int reg)
 {
-  static char *regs[] =
+  static const char *regs[] =
   { "d0", "d1", "d2", "d3", "a0", "a1", "a2", "a3",
     "sp", "pc", "mdr", "psw", "lir", "lar", "",
     "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
@@ -283,7 +287,7 @@ am33_register_name (struct gdbarch *gdbarch, int reg)
 static const char *
 am33_2_register_name (struct gdbarch *gdbarch, int reg)
 {
-  static char *regs[] =
+  static const char *regs[] =
   {
     "d0", "d1", "d2", "d3", "a0", "a1", "a2", "a3",
     "sp", "pc", "mdr", "psw", "lir", "lar", "mdrq", "r0",
@@ -1224,7 +1228,7 @@ mn10300_push_dummy_call (struct gdbarch *gdbarch,
   int stack_offset = 0;
   int argnum;
   const gdb_byte *val;
-  gdb_byte valbuf[MAX_REGISTER_SIZE];
+  gdb_byte valbuf[MN10300_MAX_REGISTER_SIZE];
 
   /* This should be a nop, but align the stack just in case something
      went wrong.  Stacks are four byte aligned on the mn10300.  */
@@ -1266,6 +1270,7 @@ mn10300_push_dummy_call (struct gdbarch *gdbarch,
 	{
 	  /* Change to pointer-to-type.  */
 	  arg_len = push_size;
+	  gdb_assert (push_size <= MN10300_MAX_REGISTER_SIZE);
 	  store_unsigned_integer (valbuf, push_size, byte_order,
 				  value_address (*args));
 	  val = &valbuf[0];
@@ -1395,7 +1400,7 @@ mn10300_gdbarch_init (struct gdbarch_info info,
   if (arches != NULL)
     return arches->gdbarch;
 
-  tdep = XNEW (struct gdbarch_tdep);
+  tdep = XCNEW (struct gdbarch_tdep);
   gdbarch = gdbarch_alloc (&info, tdep);
 
   switch (info.bfd_arch_info->mach)
@@ -1444,8 +1449,6 @@ mn10300_gdbarch_init (struct gdbarch_info info,
   set_gdbarch_sw_breakpoint_from_kind (gdbarch,
 				       mn10300_breakpoint::bp_from_kind);
   /* decr_pc_after_break?  */
-  /* Disassembly.  */
-  set_gdbarch_print_insn (gdbarch, print_insn_mn10300);
 
   /* Stage 2 */
   set_gdbarch_return_value (gdbarch, mn10300_return_value);
@@ -1472,9 +1475,6 @@ mn10300_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
   fprintf_unfiltered (file, "mn10300_dump_tdep: am33_mode = %d\n",
 		      tdep->am33_mode);
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_mn10300_tdep;
 
 void
 _initialize_mn10300_tdep (void)

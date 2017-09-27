@@ -157,7 +157,6 @@ static int sort_by_size = 0;	/* Sort by size of symbol.  */
 static int undefined_only = 0;	/* Print undefined symbols only.  */
 static int dynamic = 0;		/* Print dynamic symbols.  */
 static int show_version = 0;	/* Show the version number.  */
-static int show_stats = 0;	/* Show statistics.  */
 static int show_synthetic = 0;	/* Display synthesized symbols too.  */
 static int line_numbers = 0;	/* Print line numbers for symbols.  */
 static int allow_special_symbols = 0;  /* Allow special symbols.  */
@@ -221,7 +220,6 @@ static struct option long_options[] =
   {"reverse-sort", no_argument, &reverse_sort, 1},
   {"size-sort", no_argument, 0, OPTION_SIZE_SORT},
   {"special-syms", no_argument, &allow_special_symbols, 1},
-  {"stats", no_argument, &show_stats, 1},
   {"synthetic", no_argument, &show_synthetic, 1},
   {"target", required_argument, 0, OPTION_TARGET},
   {"defined-only", no_argument, &defined_only, 1},
@@ -1096,6 +1094,7 @@ display_rel_file (bfd *abfd, bfd *archive_bfd)
   void *minisyms;
   unsigned int size;
   struct size_sym *symsizes;
+  asymbol *synthsyms = NULL;
 
   if (! dynamic)
     {
@@ -1126,7 +1125,6 @@ display_rel_file (bfd *abfd, bfd *archive_bfd)
 
   if (show_synthetic && size == sizeof (asymbol *))
     {
-      asymbol *synthsyms;
       asymbol **static_syms = NULL;
       asymbol **dyn_syms = NULL;
       long static_count = 0;
@@ -1203,6 +1201,8 @@ display_rel_file (bfd *abfd, bfd *archive_bfd)
   else
     print_size_symbols (abfd, dynamic, symsizes, symcount, archive_bfd);
 
+  if (synthsyms)
+    free (synthsyms);
   free (minisyms);
   free (symsizes);
 }
@@ -1796,15 +1796,6 @@ main (int argc, char **argv)
     }
 
   END_PROGRESS (program_name);
-
-#ifdef HAVE_SBRK
-  if (show_stats)
-    {
-      char *lim = (char *) sbrk (0);
-
-      non_fatal (_("data size %ld"), (long) (lim - (char *) &environ));
-    }
-#endif
 
   exit (retval);
   return retval;

@@ -37,15 +37,17 @@
   (TC_FORCE_RELOCATION (FIX))
 #endif
 
-#ifndef TC_FORCE_RELOCATION_LOCAL
-#define TC_FORCE_RELOCATION_LOCAL(FIX)		\
+#define GENERIC_FORCE_RELOCATION_LOCAL(FIX)	\
   (!(FIX)->fx_pcrel				\
    || TC_FORCE_RELOCATION (FIX))
+#ifndef TC_FORCE_RELOCATION_LOCAL
+#define TC_FORCE_RELOCATION_LOCAL GENERIC_FORCE_RELOCATION_LOCAL
 #endif
 
+#define GENERIC_FORCE_RELOCATION_SUB_SAME(FIX, SEG)	\
+  (!SEG_NORMAL (SEG))
 #ifndef TC_FORCE_RELOCATION_SUB_SAME
-#define TC_FORCE_RELOCATION_SUB_SAME(FIX, SEG)	\
-  (! SEG_NORMAL (SEG))
+#define TC_FORCE_RELOCATION_SUB_SAME GENERIC_FORCE_RELOCATION_SUB_SAME
 #endif
 
 #ifndef md_register_arithmetic
@@ -463,6 +465,13 @@ cvt_frag_to_fill (segT sec ATTRIBUTE_UNUSED, fragS *fragP)
 	valueT value = S_GET_VALUE (fragP->fr_symbol);
 	int size;
 
+	if (!S_IS_DEFINED (fragP->fr_symbol))
+	  {
+	    as_bad_where (fragP->fr_file, fragP->fr_line,
+			  _("leb128 operand is an undefined symbol: %s"),
+			  S_GET_NAME (fragP->fr_symbol));
+	  }
+
 	size = output_leb128 (fragP->fr_literal + fragP->fr_fix, value,
 			      fragP->fr_subtype);
 
@@ -715,7 +724,7 @@ resolve_reloc_expr_symbols (void)
 	      as_bad_where (r->file, r->line, _("invalid reloc expression"));
 	      sec = NULL;
 	    }
-	  else if (sym != NULL)
+	  else if (sym != NULL && sec != NULL)
 	    {
 	      /* Convert relocs against local symbols to refer to the
 	         corresponding section symbol plus offset instead.  Keep
@@ -1902,6 +1911,8 @@ write_object_file (void)
   /* Relaxation has completed.  Freeze all syms.  */
   finalize_syms = 1;
 
+  dwarf2dbg_final_check ();
+
 #ifdef md_post_relax_hook
   md_post_relax_hook;
 #endif
@@ -2096,12 +2107,11 @@ write_object_file (void)
 
 	      if (S_IS_COMMON (symp)
 		  && !TC_FAKE_LABEL (sname)
-		  && !S_IS_WEAKREFR (symp)
-		  && (!S_IS_EXTERNAL (symp) || S_IS_LOCAL (symp)))
+		  && !S_IS_WEAKREFR (symp))
 		{
 		  expressionS *e = symbol_get_value_expression (symp);
 
-		  as_bad (_("Local symbol `%s' can't be equated to common symbol `%s'"),
+		  as_bad (_("`%s' can't be equated to common symbol `%s'"),
 			  sname, S_GET_NAME (e->X_add_symbol));
 		}
 	      if (S_GET_SEGMENT (symp) == reg_section)

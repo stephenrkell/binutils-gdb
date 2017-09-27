@@ -228,6 +228,20 @@ enum
   EF_PPC64_ABI = 3
 };
 
+// DT_PPC_OPT bits
+enum
+{
+  PPC_OPT_TLS = 1
+};
+
+// DT_PPC64_OPT bits
+enum
+{
+  PPC64_OPT_TLS = 1,
+  PPC64_OPT_MULTI_TOC = 2,
+  PPC64_OPT_LOCALENTRY = 4
+};
+
 enum
 {
   // The ELFv2 ABI uses three bits in the symbol st_other field of a

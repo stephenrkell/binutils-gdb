@@ -82,6 +82,11 @@ enum compile_i_scope_types
     COMPILE_I_PRINT_VALUE_SCOPE,
   };
 
+
+template<typename T>
+using RequireLongest = gdb::Requires<gdb::Or<std::is_same<T, LONGEST>,
+					     std::is_same<T, ULONGEST>>>;
+
 /* Just in case they're not defined in stdio.h.  */
 
 #ifndef SEEK_SET
@@ -150,12 +155,6 @@ extern void set_quit_flag (void);
 typedef void (quit_handler_ftype) (void);
 extern quit_handler_ftype *quit_handler;
 
-/* Override the current quit handler.  Sets NEW_QUIT_HANDLER as
-   current quit handler, and installs a cleanup that when run restores
-   the previous quit handler.  */
-struct cleanup *
-  make_cleanup_override_quit_handler (quit_handler_ftype *new_quit_handler);
-
 /* The default quit handler.  Checks whether Ctrl-C was pressed, and
    if so:
 
@@ -198,7 +197,8 @@ extern void quit_serial_event_clear (void);
    several languages.  For that reason, the constants here are sorted
    in the order we'll attempt demangling them.  For example: Rust uses
    C++ mangling, so must come after C++; Ada must come last (see
-   ada_sniff_from_mangled_name).  */
+   ada_sniff_from_mangled_name).  (Keep this order in sync with the
+   'languages' array in language.c.)  */
 
 enum language
   {
@@ -309,7 +309,7 @@ typedef void initialize_file_ftype (void);
 
 extern char *gdb_readline_wrapper (const char *);
 
-extern char *command_line_input (const char *, int, char *);
+extern char *command_line_input (const char *, int, const char *);
 
 extern void print_prompt (void);
 
@@ -324,7 +324,8 @@ extern int info_verbose;
 extern void set_next_address (struct gdbarch *, CORE_ADDR);
 
 extern int print_address_symbolic (struct gdbarch *, CORE_ADDR,
-				   struct ui_file *, int, char *);
+				   struct ui_file *, int,
+				   const char *);
 
 extern int build_address_symbolic (struct gdbarch *,
 				   CORE_ADDR addr,
@@ -392,66 +393,6 @@ enum lval_type
        by its creator.  */
     lval_computed
   };
-
-/* * Control types for commands.  */
-
-enum misc_command_type
-  {
-    ok_command,
-    end_command,
-    else_command,
-    nop_command
-  };
-
-enum command_control_type
-  {
-    simple_control,
-    break_control,
-    continue_control,
-    while_control,
-    if_control,
-    commands_control,
-    python_control,
-    compile_control,
-    guile_control,
-    while_stepping_control,
-    invalid_control
-  };
-
-/* * Structure for saved commands lines (for breakpoints, defined
-   commands, etc).  */
-
-struct command_line
-  {
-    struct command_line *next;
-    char *line;
-    enum command_control_type control_type;
-    union
-      {
-	struct
-	  {
-	    enum compile_i_scope_types scope;
-	    void *scope_data;
-	  }
-	compile;
-      }
-    control_u;
-    /* * The number of elements in body_list.  */
-    int body_count;
-    /* * For composite commands, the nested lists of commands.  For
-       example, for "if" command this will contain the then branch and
-       the else branch, if that is available.  */
-    struct command_line **body_list;
-  };
-
-extern struct command_line *read_command_lines (char *, int, int,
-						void (*)(char *, void *),
-						void *);
-extern struct command_line *read_command_lines_1 (char * (*) (void), int,
-						  void (*)(char *, void *),
-						  void *);
-
-extern void free_command_lines (struct command_line **);
 
 /* * Parameters of the "info proc" command.  */
 
@@ -622,11 +563,22 @@ enum { MAX_REGISTER_SIZE = 64 };
 
 /* In findvar.c.  */
 
-extern LONGEST extract_signed_integer (const gdb_byte *, int,
-				       enum bfd_endian);
+template<typename T, typename = RequireLongest<T>>
+T extract_integer (const gdb_byte *addr, int len, enum bfd_endian byte_order);
 
-extern ULONGEST extract_unsigned_integer (const gdb_byte *, int,
-					  enum bfd_endian);
+static inline LONGEST
+extract_signed_integer (const gdb_byte *addr, int len,
+			enum bfd_endian byte_order)
+{
+  return extract_integer<LONGEST> (addr, len, byte_order);
+}
+
+static inline ULONGEST
+extract_unsigned_integer (const gdb_byte *addr, int len,
+			  enum bfd_endian byte_order)
+{
+  return extract_integer<ULONGEST> (addr, len, byte_order);
+}
 
 extern int extract_long_unsigned_integer (const gdb_byte *, int,
 					  enum bfd_endian, LONGEST *);
@@ -634,16 +586,34 @@ extern int extract_long_unsigned_integer (const gdb_byte *, int,
 extern CORE_ADDR extract_typed_address (const gdb_byte *buf,
 					struct type *type);
 
-extern void store_signed_integer (gdb_byte *, int,
-				  enum bfd_endian, LONGEST);
+/* All 'store' functions accept a host-format integer and store a
+   target-format integer at ADDR which is LEN bytes long.  */
 
-extern void store_unsigned_integer (gdb_byte *, int,
-				    enum bfd_endian, ULONGEST);
+template<typename T, typename = RequireLongest<T>>
+extern void store_integer (gdb_byte *addr, int len, enum bfd_endian byte_order,
+			   T val);
+
+static inline void
+store_signed_integer (gdb_byte *addr, int len,
+		      enum bfd_endian byte_order, LONGEST val)
+{
+  return store_integer (addr, len, byte_order, val);
+}
+
+static inline void
+store_unsigned_integer (gdb_byte *addr, int len,
+			enum bfd_endian byte_order, ULONGEST val)
+{
+  return store_integer (addr, len, byte_order, val);
+}
 
 extern void store_typed_address (gdb_byte *buf, struct type *type,
 				 CORE_ADDR addr);
 
-
+extern void copy_integer_to_size (gdb_byte *dest, int dest_size,
+				  const gdb_byte *source, int source_size,
+				  bool is_signed, enum bfd_endian byte_order);
+
 /* From valops.c */
 
 extern int watchdog;
@@ -678,7 +648,7 @@ extern int (*deprecated_query_hook) (const char *, va_list)
 extern void (*deprecated_warning_hook) (const char *, va_list)
      ATTRIBUTE_FPTR_PRINTF(1,0);
 extern void (*deprecated_interactive_hook) (void);
-extern void (*deprecated_readline_begin_hook) (char *, ...)
+extern void (*deprecated_readline_begin_hook) (const char *, ...)
      ATTRIBUTE_FPTR_PRINTF_1;
 extern char *(*deprecated_readline_hook) (const char *);
 extern void (*deprecated_readline_end_hook) (void);

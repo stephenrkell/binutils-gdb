@@ -151,14 +151,28 @@ bfd_open_from_target_memory (CORE_ADDR addr, ULONGEST size, char *target)
 			      mem_bfd_iovec_stat);
 }
 
+struct jit_reader
+{
+  jit_reader (struct gdb_reader_funcs *f, gdb_dlhandle_up &&h)
+    : functions (f), handle (std::move (h))
+  {
+  }
+
+  ~jit_reader ()
+  {
+    functions->destroy (functions);
+  }
+
+  DISABLE_COPY_AND_ASSIGN (jit_reader);
+
+  struct gdb_reader_funcs *functions;
+  gdb_dlhandle_up handle;
+};
+
 /* One reader that has been loaded successfully, and can potentially be used to
    parse debug info.  */
 
-static struct jit_reader
-{
-  struct gdb_reader_funcs *functions;
-  void *handle;
-} *loaded_jit_reader = NULL;
+static struct jit_reader *loaded_jit_reader = NULL;
 
 typedef struct gdb_reader_funcs * (reader_init_fn_type) (void);
 static const char *reader_init_fn_sym = "gdb_init_reader";
@@ -168,17 +182,13 @@ static const char *reader_init_fn_sym = "gdb_init_reader";
 static struct jit_reader *
 jit_reader_load (const char *file_name)
 {
-  void *so;
   reader_init_fn_type *init_fn;
-  struct jit_reader *new_reader = NULL;
   struct gdb_reader_funcs *funcs = NULL;
-  struct cleanup *old_cleanups;
 
   if (jit_debug)
     fprintf_unfiltered (gdb_stdlog, _("Opening shared object %s.\n"),
                         file_name);
-  so = gdb_dlopen (file_name);
-  old_cleanups = make_cleanup_dlclose (so);
+  gdb_dlhandle_up so = gdb_dlopen (file_name);
 
   init_fn = (reader_init_fn_type *) gdb_dlsym (so, reader_init_fn_sym);
   if (!init_fn)
@@ -192,12 +202,7 @@ jit_reader_load (const char *file_name)
   if (funcs->reader_version != GDB_READER_INTERFACE_VERSION)
     error (_("Reader version does not match GDB version."));
 
-  new_reader = XCNEW (struct jit_reader);
-  new_reader->functions = funcs;
-  new_reader->handle = so;
-
-  discard_cleanups (old_cleanups);
-  return new_reader;
+  return new jit_reader (funcs, std::move (so));
 }
 
 /* Provides the jit-reader-load command.  */
@@ -205,29 +210,20 @@ jit_reader_load (const char *file_name)
 static void
 jit_reader_load_command (char *args, int from_tty)
 {
-  char *so_name;
-  struct cleanup *prev_cleanup;
-
   if (args == NULL)
     error (_("No reader name provided."));
-  args = tilde_expand (args);
-  prev_cleanup = make_cleanup (xfree, args);
+  gdb::unique_xmalloc_ptr<char> file (tilde_expand (args));
 
   if (loaded_jit_reader != NULL)
     error (_("JIT reader already loaded.  Run jit-reader-unload first."));
 
-  if (IS_ABSOLUTE_PATH (args))
-    so_name = args;
-  else
-    {
-      so_name = xstrprintf ("%s%s%s", jit_reader_dir, SLASH_STRING, args);
-      make_cleanup (xfree, so_name);
-    }
+  if (!IS_ABSOLUTE_PATH (file.get ()))
+    file.reset (xstrprintf ("%s%s%s", jit_reader_dir, SLASH_STRING,
+			    file.get ()));
 
-  loaded_jit_reader = jit_reader_load (so_name);
+  loaded_jit_reader = jit_reader_load (file.get ());
   reinit_frame_cache ();
   jit_inferior_created_hook ();
-  do_cleanups (prev_cleanup);
 }
 
 /* Provides the jit-reader-unload command.  */
@@ -240,10 +236,8 @@ jit_reader_unload_command (char *args, int from_tty)
 
   reinit_frame_cache ();
   jit_inferior_exit_hook (current_inferior ());
-  loaded_jit_reader->functions->destroy (loaded_jit_reader->functions);
 
-  gdb_dlclose (loaded_jit_reader->handle);
-  xfree (loaded_jit_reader);
+  delete loaded_jit_reader;
   loaded_jit_reader = NULL;
 }
 
@@ -1173,7 +1167,7 @@ jit_dealloc_cache (struct frame_info *this_frame, void *cache)
   struct jit_unwind_private *priv_data = (struct jit_unwind_private *) cache;
 
   gdb_assert (priv_data->regcache != NULL);
-  regcache_xfree (priv_data->regcache);
+  delete priv_data->regcache;
   xfree (priv_data);
 }
 
@@ -1211,7 +1205,7 @@ jit_frame_sniffer (const struct frame_unwind *self,
 
   *cache = XCNEW (struct jit_unwind_private);
   priv_data = (struct jit_unwind_private *) *cache;
-  priv_data->regcache = regcache_xmalloc (gdbarch, aspace);
+  priv_data->regcache = new regcache (gdbarch, aspace);
   priv_data->this_frame = this_frame;
 
   callbacks.priv_data = priv_data;
@@ -1505,10 +1499,6 @@ jit_gdbarch_data_init (struct obstack *obstack)
 
   return data;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-
-extern void _initialize_jit (void);
 
 void
 _initialize_jit (void)

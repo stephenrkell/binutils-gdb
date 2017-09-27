@@ -408,10 +408,10 @@ mcore_elf_relocate_section (bfd * output_bfd,
 
 #ifdef DEBUG
   _bfd_error_handler
-    ("mcore_elf_relocate_section called for %B section %A, %ld relocations%s",
+    ("mcore_elf_relocate_section called for %B section %A, %u relocations%s",
      input_bfd,
      input_section,
-     (long) input_section->reloc_count,
+     input_section->reloc_count,
      (bfd_link_relocatable (info)) ? " (relocatable)" : "");
 #endif
 
@@ -629,7 +629,7 @@ mcore_elf_check_relocs (bfd * abfd,
 
 	  /* PR15323, ref flags aren't set for references in the same
 	     object.  */
-	  h->root.non_ir_ref = 1;
+	  h->root.non_ir_ref_regular = 1;
 	}
 
       switch (ELF32_R_TYPE (rel->r_info))

@@ -1,7 +1,128 @@
 		What has changed in GDB?
 	     (Organized release by release)
 
-*** Changes since GDB 7.12
+*** Changes since GDB 8.0
+
+* GDB now supports access to the guarded-storage-control registers and the
+  software-based guarded-storage broadcast control registers on IBM z14.
+
+* On Unix systems, GDB now supports transmitting environment variables
+  that are to be set or unset to GDBserver.  These variables will
+  affect the environment to be passed to the remote inferior.
+
+  To inform GDB of environment variables that are to be transmitted to
+  GDBserver, use the "set environment" command.  Only user set
+  environment variables are sent to GDBserver.
+
+  To inform GDB of environment variables that are to be unset before
+  the remote inferior is started by the GDBserver, use the "unset
+  environment" command.
+
+* Python Scripting
+
+  ** New events gdb.new_inferior, gdb.inferior_deleted, and
+     gdb.new_thread are emitted.  See the manual for further
+     description of these.
+
+* New features in the GDB remote stub, GDBserver
+
+  ** New "--selftest" command line option runs some GDBserver self
+     tests.  These self tests are disabled in releases.
+
+  ** On Unix systems, GDBserver now does globbing expansion and variable
+     substitution in inferior command line arguments.
+
+     This is done by starting inferiors using a shell, like GDB does.
+     See "set startup-with-shell" in the user manual for how to disable
+     this from GDB when using "target extended-remote".  When using
+     "target remote", you can disable the startup with shell by using the
+     new "--no-startup-with-shell" GDBserver command line option.
+
+  ** On Unix systems, GDBserver now supports receiving environment
+     variables that are to be set or unset from GDB.  These variables
+     will affect the environment to be passed to the inferior.
+
+* New remote packets
+
+QEnvironmentHexEncoded
+  Inform GDBserver of an environment variable that is to be passed to
+  the inferior when starting it.
+
+QEnvironmentUnset
+  Inform GDBserver of an environment variable that is to be unset
+  before starting the remote inferior.
+
+QEnvironmentReset
+  Inform GDBserver that the environment should be reset (i.e.,
+  user-set environment variables should be unset).
+
+QStartupWithShell
+  Indicates whether the inferior must be started with a shell or not.
+
+* The "maintenance print c-tdesc" command now takes an optional
+  argument which is the file name of XML target description.
+
+* The "maintenance selftest" command now takes an optional argument to
+  filter the tests to be run.
+
+* New commands
+
+set|show compile-gcc
+  Set and show compilation command used for compiling and injecting code
+  with the 'compile' commands.
+
+set debug separate-debug-file
+show debug separate-debug-file
+  Control the display of debug output about separate debug file search.
+
+maint info selftests
+  List the registered selftests.
+
+starti
+  Start the debugged program stopping at the first instruction.
+
+* TUI Single-Key mode now supports two new shortcut keys: `i' for stepi and
+  `o' for nexti.
+
+* Safer/improved support for debugging with no debug info
+
+  GDB no longer assumes functions with no debug information return
+  'int'.
+
+  This means that GDB now refuses to call such functions unless you
+  tell it the function's type, by either casting the call to the
+  declared return type, or by casting the function to a function
+  pointer of the right type, and calling that:
+
+    (gdb) p getenv ("PATH")
+    'getenv' has unknown return type; cast the call to its declared return type
+    (gdb) p (char *) getenv ("PATH")
+    $1 = 0x7fffffffe "/usr/local/bin:/"...
+    (gdb) p ((char * (*) (const char *)) getenv) ("PATH")
+    $2 = 0x7fffffffe "/usr/local/bin:/"...
+
+  Similarly, GDB no longer assumes that global variables with no debug
+  info have type 'int', and refuses to print the variable's value
+  unless you tell it the variable's type:
+
+    (gdb) p var
+    'var' has unknown type; cast it to its declared type
+    (gdb) p (float) var
+    $3 = 3.14
+
+* New native configurations
+
+FreeBSD/aarch64			aarch64*-*-freebsd*
+
+* New targets
+
+FreeBSD/aarch64			aarch64*-*-freebsd*
+
+* Removed targets and native configurations
+
+Solaris 2.0-9			i?86-*-solaris2.[0-9], sparc*-*-solaris2.[0-9]
+
+*** Changes in GDB 8.0
 
 * GDB now supports access to the PKU register on GNU/Linux. The register is
   added by the Memory Protection Keys for Userspace feature which will be
@@ -70,16 +191,33 @@
 
 FreeBSD/mips			mips*-*-freebsd
 
-
 * New targets
 
 Synopsys ARC			arc*-*-elf32
 FreeBSD/mips			mips*-*-freebsd
 
+* Removed targets and native configurations
+
+Alpha running FreeBSD         alpha*-*-freebsd*
+Alpha running GNU/kFreeBSD    alpha*-*-kfreebsd*-gnu
+
 * New commands
 
 flash-erase
   Erases all the flash memory regions reported by the target.
+
+maint print arc arc-instruction address
+  Print internal disassembler information about instruction at a given address.
+
+* New options
+
+set disassembler-options
+show disassembler-options
+  Controls the passing of target specific information to the disassembler.
+  If it is necessary to specify more than one disassembler option then
+  multiple options can be placed together into a comma separated list.
+  The default value is the empty string.  Currently, the only supported
+  targets are ARM, PowerPC and S/390.
 
 * New MI commands
 
@@ -90,16 +228,6 @@ flash-erase
 -file-list-shared-libraries
   List the shared libraries in the program.  This is
   equivalent to the CLI command "info shared".
-
-* New commands
-
-set disassembler-options
-show disassembler-options
-  Controls the passing of target specific information to the disassembler.
-  If it is necessary to specify more than one disassembler option then
-  multiple options can be placed together into a comma separated list.
-  The default value is the empty string.  Currently, the only supported
-  targets are ARM, PowerPC and S/390.
 
 *** Changes in GDB 7.12
 

@@ -761,7 +761,6 @@ typy_lookup_type (struct demangle_component *demangled,
 		  const struct block *block)
 {
   struct type *type, *rtype = NULL;
-  char *type_name = NULL;
   enum demangle_component_type demangled_type;
 
   /* Save the type: typy_lookup_type() may (indirectly) overwrite
@@ -816,11 +815,8 @@ typy_lookup_type (struct demangle_component *demangled,
     return rtype;
 
   /* We don't have a type, so lookup the type.  */
-  type_name = cp_comp_to_string (demangled, 10);
-  type = typy_lookup_typename (type_name, block);
-  xfree (type_name);
-
-  return type;
+  gdb::unique_xmalloc_ptr<char> type_name = cp_comp_to_string (demangled, 10);
+  return typy_lookup_typename (type_name.get (), block);
 }
 
 /* This is a helper function for typy_template_argument that is used
@@ -1347,14 +1343,14 @@ type_object_to_type (PyObject *obj)
 PyObject *
 gdbpy_lookup_type (PyObject *self, PyObject *args, PyObject *kw)
 {
-  static char *keywords[] = { "name", "block", NULL };
+  static const char *keywords[] = { "name", "block", NULL };
   const char *type_name = NULL;
   struct type *type = NULL;
   PyObject *block_obj = NULL;
   const struct block *block = NULL;
 
-  if (! PyArg_ParseTupleAndKeywords (args, kw, "s|O", keywords,
-				     &type_name, &block_obj))
+  if (!gdb_PyArg_ParseTupleAndKeywords (args, kw, "s|O", keywords,
+					&type_name, &block_obj))
     return NULL;
 
   if (block_obj)
@@ -1413,7 +1409,7 @@ gdbpy_initialize_types (void)
 
 
 
-static PyGetSetDef type_object_getset[] =
+static gdb_PyGetSetDef type_object_getset[] =
 {
   { "code", typy_get_code, NULL,
     "The code for this type.", NULL },
@@ -1587,7 +1583,7 @@ PyTypeObject type_object_type =
   0,				  /* tp_new */
 };
 
-static PyGetSetDef field_object_getset[] =
+static gdb_PyGetSetDef field_object_getset[] =
 {
   { "__dict__", gdb_py_generic_dict, NULL,
     "The __dict__ for this field.", &field_object_type },

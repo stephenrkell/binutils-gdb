@@ -48,6 +48,7 @@
 #include "cli/cli-script.h"
 #include "format.h"
 #include "source.h"
+#include "common/byte-vector.h"
 
 #ifdef TUI
 #include "tui/tui.h"		/* For tui_active et al.   */
@@ -156,10 +157,6 @@ static int display_number;
   for (B = display_chain;			\
        B ? (TMP = B->next, 1): 0;		\
        B = TMP)
-
-/* Prototypes for exported functions.  */
-
-void _initialize_printcmd (void);
 
 /* Prototypes for local functions.  */
 
@@ -356,42 +353,11 @@ print_scalar_formatted (const gdb_byte *valaddr, struct type *type,
 			int size, struct ui_file *stream)
 {
   struct gdbarch *gdbarch = get_type_arch (type);
-  LONGEST val_long = 0;
   unsigned int len = TYPE_LENGTH (type);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
 
   /* String printing should go through val_print_scalar_formatted.  */
   gdb_assert (options->format != 's');
-
-  if (len > sizeof(LONGEST)
-      && (TYPE_CODE (type) == TYPE_CODE_INT
-	  || TYPE_CODE (type) == TYPE_CODE_ENUM))
-    {
-      switch (options->format)
-	{
-	case 'o':
-	  print_octal_chars (stream, valaddr, len, byte_order);
-	  return;
-	case 'u':
-	case 'd':
-	  print_decimal_chars (stream, valaddr, len, byte_order);
-	  return;
-	case 't':
-	  print_binary_chars (stream, valaddr, len, byte_order);
-	  return;
-	case 'x':
-	  print_hex_chars (stream, valaddr, len, byte_order);
-	  return;
-	case 'c':
-	  print_char_chars (stream, type, valaddr, len, byte_order);
-	  return;
-	default:
-	  break;
-	};
-    }
-
-  if (options->format != 'f')
-    val_long = unpack_long (type, valaddr);
 
   /* If the value is a pointer, and pointers and addresses are not the
      same, then at this point, the value's length (in target bytes) is
@@ -402,60 +368,96 @@ print_scalar_formatted (const gdb_byte *valaddr, struct type *type,
   /* If we are printing it as unsigned, truncate it in case it is actually
      a negative signed value (e.g. "print/u (short)-1" should print 65535
      (if shorts are 16 bits) instead of 4294967295).  */
-  if (options->format != 'd' || TYPE_UNSIGNED (type))
+  if (options->format != 'c'
+      && (options->format != 'd' || TYPE_UNSIGNED (type)))
     {
-      if (len < sizeof (LONGEST))
-	val_long &= ((LONGEST) 1 << HOST_CHAR_BIT * len) - 1;
+      if (len < TYPE_LENGTH (type) && byte_order == BFD_ENDIAN_BIG)
+	valaddr += TYPE_LENGTH (type) - len;
+    }
+
+  if (size != 0 && (options->format == 'x' || options->format == 't'))
+    {
+      /* Truncate to fit.  */
+      unsigned newlen;
+      switch (size)
+	{
+	case 'b':
+	  newlen = 1;
+	  break;
+	case 'h':
+	  newlen = 2;
+	  break;
+	case 'w':
+	  newlen = 4;
+	  break;
+	case 'g':
+	  newlen = 8;
+	  break;
+	default:
+	  error (_("Undefined output size \"%c\"."), size);
+	}
+      if (newlen < len && byte_order == BFD_ENDIAN_BIG)
+	valaddr += len - newlen;
+      len = newlen;
+    }
+
+  /* Historically gdb has printed floats by first casting them to a
+     long, and then printing the long.  PR cli/16242 suggests changing
+     this to using C-style hex float format.  */
+  gdb::byte_vector converted_float_bytes;
+  if (TYPE_CODE (type) == TYPE_CODE_FLT
+      && (options->format == 'o'
+	  || options->format == 'x'
+	  || options->format == 't'
+	  || options->format == 'z'
+	  || options->format == 'd'
+	  || options->format == 'u'))
+    {
+      LONGEST val_long = unpack_long (type, valaddr);
+      converted_float_bytes.resize (TYPE_LENGTH (type));
+      store_signed_integer (converted_float_bytes.data (), TYPE_LENGTH (type),
+			    byte_order, val_long);
+      valaddr = converted_float_bytes.data ();
     }
 
   switch (options->format)
     {
-    case 'x':
-      if (!size)
-	{
-	  /* No size specified, like in print.  Print varying # of digits.  */
-	  print_longest (stream, 'x', 1, val_long);
-	}
-      else
-	switch (size)
-	  {
-	  case 'b':
-	  case 'h':
-	  case 'w':
-	  case 'g':
-	    print_longest (stream, size, 1, val_long);
-	    break;
-	  default:
-	    error (_("Undefined output size \"%c\"."), size);
-	  }
-      break;
-
-    case 'd':
-      print_longest (stream, 'd', 1, val_long);
-      break;
-
-    case 'u':
-      print_longest (stream, 'u', 0, val_long);
-      break;
-
     case 'o':
-      if (val_long)
-	print_longest (stream, 'o', 1, val_long);
-      else
-	fprintf_filtered (stream, "0");
+      print_octal_chars (stream, valaddr, len, byte_order);
+      break;
+    case 'd':
+      print_decimal_chars (stream, valaddr, len, true, byte_order);
+      break;
+    case 'u':
+      print_decimal_chars (stream, valaddr, len, false, byte_order);
+      break;
+    case 0:
+      if (TYPE_CODE (type) != TYPE_CODE_FLT)
+	{
+	  print_decimal_chars (stream, valaddr, len, !TYPE_UNSIGNED (type),
+			       byte_order);
+	  break;
+	}
+      /* FALLTHROUGH */
+    case 'f':
+      type = float_type_from_length (type);
+      print_floating (valaddr, type, stream);
       break;
 
-    case 'a':
-      {
-	CORE_ADDR addr = unpack_pointer (type, valaddr);
-
-	print_address (gdbarch, addr, stream);
-      }
+    case 't':
+      print_binary_chars (stream, valaddr, len, byte_order, size > 0);
       break;
-
+    case 'x':
+      print_hex_chars (stream, valaddr, len, byte_order, size > 0);
+      break;
+    case 'z':
+      print_hex_chars (stream, valaddr, len, byte_order, true);
+      break;
     case 'c':
       {
 	struct value_print_options opts = *options;
+
+	LONGEST val_long = unpack_long (type, valaddr);
 
 	opts.format = 0;
 	if (TYPE_UNSIGNED (type))
@@ -467,64 +469,12 @@ print_scalar_formatted (const gdb_byte *valaddr, struct type *type,
       }
       break;
 
-    case 'f':
-      type = float_type_from_length (type);
-      print_floating (valaddr, type, stream);
-      break;
-
-    case 0:
-      internal_error (__FILE__, __LINE__,
-		      _("failed internal consistency check"));
-
-    case 't':
-      /* Binary; 't' stands for "two".  */
+    case 'a':
       {
-	char bits[8 * (sizeof val_long) + 1];
-	char buf[8 * (sizeof val_long) + 32];
-	char *cp = bits;
-	int width;
+	CORE_ADDR addr = unpack_pointer (type, valaddr);
 
-	if (!size)
-	  width = 8 * (sizeof val_long);
-	else
-	  switch (size)
-	    {
-	    case 'b':
-	      width = 8;
-	      break;
-	    case 'h':
-	      width = 16;
-	      break;
-	    case 'w':
-	      width = 32;
-	      break;
-	    case 'g':
-	      width = 64;
-	      break;
-	    default:
-	      error (_("Undefined output size \"%c\"."), size);
-	    }
-
-	bits[width] = '\0';
-	while (width-- > 0)
-	  {
-	    bits[width] = (val_long & 1) ? '1' : '0';
-	    val_long >>= 1;
-	  }
-	if (!size)
-	  {
-	    while (*cp && *cp == '0')
-	      cp++;
-	    if (*cp == '\0')
-	      cp--;
-	  }
-	strncpy (buf, cp, sizeof (bits));
-	fputs_filtered (buf, stream);
+	print_address (gdbarch, addr, stream);
       }
-      break;
-
-    case 'z':
-      print_hex_chars (stream, valaddr, len, byte_order);
       break;
 
     default:
@@ -560,7 +510,7 @@ set_next_address (struct gdbarch *gdbarch, CORE_ADDR addr)
 int
 print_address_symbolic (struct gdbarch *gdbarch, CORE_ADDR addr,
 			struct ui_file *stream,
-			int do_demangle, char *leadin)
+			int do_demangle, const char *leadin)
 {
   char *name = NULL;
   char *filename = NULL;
@@ -806,9 +756,8 @@ find_instruction_backward (struct gdbarch *gdbarch, CORE_ADDR addr,
   /* The vector PCS is used to store instruction addresses within
      a pc range.  */
   CORE_ADDR loop_start, loop_end, p;
-  VEC (CORE_ADDR) *pcs = NULL;
+  std::vector<CORE_ADDR> pcs;
   struct symtab_and_line sal;
-  struct cleanup *cleanup = make_cleanup (VEC_cleanup (CORE_ADDR), &pcs);
 
   *inst_read = 0;
   loop_start = loop_end = addr;
@@ -822,7 +771,7 @@ find_instruction_backward (struct gdbarch *gdbarch, CORE_ADDR addr,
      instructions from INST_COUNT, and go to the next iteration.  */
   do
     {
-      VEC_truncate (CORE_ADDR, pcs, 0);
+      pcs.clear ();
       sal = find_pc_sect_line (loop_start, NULL, 1);
       if (sal.line <= 0)
         {
@@ -844,12 +793,12 @@ find_instruction_backward (struct gdbarch *gdbarch, CORE_ADDR addr,
          LOOP_START to LOOP_END.  */
       for (p = loop_start; p < loop_end;)
         {
-          VEC_safe_push (CORE_ADDR, pcs, p);
+	  pcs.push_back (p);
           p += gdb_insn_length (gdbarch, p);
         }
 
-      inst_count -= VEC_length (CORE_ADDR, pcs);
-      *inst_read += VEC_length (CORE_ADDR, pcs);
+      inst_count -= pcs.size ();
+      *inst_read += pcs.size ();
     }
   while (inst_count > 0);
 
@@ -875,9 +824,7 @@ find_instruction_backward (struct gdbarch *gdbarch, CORE_ADDR addr,
      The case when the length of PCS is 0 means that we reached an area for
      which line info is not available.  In such case, we return LOOP_START,
      which was the lowest instruction address that had line info.  */
-  p = VEC_length (CORE_ADDR, pcs) > 0
-    ? VEC_index (CORE_ADDR, pcs, -inst_count)
-    : loop_start;
+  p = pcs.size () > 0 ? pcs[-inst_count] : loop_start;
 
   /* INST_READ includes all instruction addresses in a pc range.  Need to
      exclude the beginning part up to the address we're returning.  That
@@ -885,7 +832,6 @@ find_instruction_backward (struct gdbarch *gdbarch, CORE_ADDR addr,
   if (inst_count < 0)
     *inst_read += inst_count;
 
-  do_cleanups (cleanup);
   return p;
 }
 
@@ -952,8 +898,6 @@ find_string_backward (struct gdbarch *gdbarch,
                       int *strings_counted)
 {
   const int chunk_size = 0x20;
-  gdb_byte *buffer = NULL;
-  struct cleanup *cleanup = NULL;
   int read_error = 0;
   int chars_read = 0;
   int chars_to_read = chunk_size;
@@ -962,14 +906,13 @@ find_string_backward (struct gdbarch *gdbarch,
   CORE_ADDR string_start_addr = addr;
 
   gdb_assert (char_size == 1 || char_size == 2 || char_size == 4);
-  buffer = (gdb_byte *) xmalloc (chars_to_read * char_size);
-  cleanup = make_cleanup (xfree, buffer);
+  gdb::byte_vector buffer (chars_to_read * char_size);
   while (count > 0 && read_error == 0)
     {
       int i;
 
       addr -= chars_to_read * char_size;
-      chars_read = read_memory_backward (gdbarch, addr, buffer,
+      chars_read = read_memory_backward (gdbarch, addr, buffer.data (),
                                          chars_to_read * char_size);
       chars_read /= char_size;
       read_error = (chars_read == chars_to_read) ? 0 : 1;
@@ -978,7 +921,7 @@ find_string_backward (struct gdbarch *gdbarch,
         {
           int offset = (chars_to_read - i - 1) * char_size;
 
-          if (integer_is_zero (buffer + offset, char_size)
+          if (integer_is_zero (&buffer[offset], char_size)
               || chars_counted == options->print_max)
             {
               /* Found '\0' or reached print_max.  As OFFSET is the offset to
@@ -1001,7 +944,6 @@ find_string_backward (struct gdbarch *gdbarch,
       string_start_addr -= chars_counted * char_size;
     }
 
-  do_cleanups (cleanup);
   return string_start_addr;
 }
 
@@ -1344,7 +1286,7 @@ set_command (char *exp, int from_tty)
 }
 
 static void
-sym_info (char *arg, int from_tty)
+info_symbol_command (char *arg, int from_tty)
 {
   struct minimal_symbol *msymbol;
   struct objfile *objfile;
@@ -1437,7 +1379,7 @@ sym_info (char *arg, int from_tty)
 }
 
 static void
-address_info (char *exp, int from_tty)
+info_address_command (char *exp, int from_tty)
 {
   struct gdbarch *gdbarch;
   int regno;
@@ -2104,7 +2046,7 @@ disable_current_display (void)
 }
 
 static void
-display_info (char *ignore, int from_tty)
+info_display_command (char *ignore, int from_tty)
 {
   struct display *d;
 
@@ -2309,8 +2251,6 @@ printf_wide_c_string (struct ui_file *stream, const char *format,
 					 "wchar_t", NULL, 0);
   int wcwidth = TYPE_LENGTH (wctype);
   gdb_byte *buf = (gdb_byte *) alloca (wcwidth);
-  struct obstack output;
-  struct cleanup *inner_cleanup;
 
   tem = value_as_address (value);
 
@@ -2329,8 +2269,7 @@ printf_wide_c_string (struct ui_file *stream, const char *format,
     read_memory (tem, str, j);
   memset (&str[j], 0, wcwidth);
 
-  obstack_init (&output);
-  inner_cleanup = make_cleanup_obstack_free (&output);
+  auto_obstack output;
 
   convert_between_encodings (target_wide_charset (gdbarch),
 			     host_charset (),
@@ -2339,7 +2278,6 @@ printf_wide_c_string (struct ui_file *stream, const char *format,
   obstack_grow_str0 (&output, "");
 
   fprintf_filtered (stream, format, obstack_base (&output));
-  do_cleanups (inner_cleanup);
 }
 
 /* Subroutine of ui_printf to simplify it.
@@ -2509,7 +2447,7 @@ ui_printf (const char *arg, struct ui_file *stream)
   if (s == 0)
     error_no_arg (_("format-control string and values to print"));
 
-  s = skip_spaces_const (s);
+  s = skip_spaces (s);
 
   /* A format string should follow, enveloped in double quotes.  */
   if (*s++ != '"')
@@ -2522,14 +2460,14 @@ ui_printf (const char *arg, struct ui_file *stream)
   if (*s++ != '"')
     error (_("Bad format string, non-terminated '\"'."));
   
-  s = skip_spaces_const (s);
+  s = skip_spaces (s);
 
   if (*s != ',' && *s != 0)
     error (_("Invalid argument syntax"));
 
   if (*s == ',')
     s++;
-  s = skip_spaces_const (s);
+  s = skip_spaces (s);
 
   {
     int nargs = 0;
@@ -2585,8 +2523,6 @@ ui_printf (const char *arg, struct ui_file *stream)
 	      struct type *wctype = lookup_typename (current_language, gdbarch,
 						     "wchar_t", NULL, 0);
 	      struct type *valtype;
-	      struct obstack output;
-	      struct cleanup *inner_cleanup;
 	      const gdb_byte *bytes;
 
 	      valtype = value_type (val_args[i]);
@@ -2596,8 +2532,7 @@ ui_printf (const char *arg, struct ui_file *stream)
 
 	      bytes = value_contents (val_args[i]);
 
-	      obstack_init (&output);
-	      inner_cleanup = make_cleanup_obstack_free (&output);
+	      auto_obstack output;
 
 	      convert_between_encodings (target_wide_charset (gdbarch),
 					 host_charset (),
@@ -2608,7 +2543,6 @@ ui_printf (const char *arg, struct ui_file *stream)
 
 	      fprintf_filtered (stream, current_substring,
                                 obstack_base (&output));
-	      do_cleanups (inner_cleanup);
 	    }
 	    break;
 	  case double_arg:
@@ -2735,10 +2669,10 @@ _initialize_printcmd (void)
 
   observer_attach_free_objfile (clear_dangling_display_expressions);
 
-  add_info ("address", address_info,
+  add_info ("address", info_address_command,
 	    _("Describe where symbol SYM is stored."));
 
-  add_info ("symbol", sym_info, _("\
+  add_info ("symbol", info_symbol_command, _("\
 Describe what symbol is at location ADDR.\n\
 Only for symbols with fixed locations (global or static scope)."));
 
@@ -2762,7 +2696,7 @@ with this command or \"print\"."));
 	   _("Print line number and file of definition of variable."));
 #endif
 
-  add_info ("display", display_info, _("\
+  add_info ("display", info_display_command, _("\
 Expressions to display when program stops, with code numbers."));
 
   add_cmd ("undisplay", class_vars, undisplay_command, _("\

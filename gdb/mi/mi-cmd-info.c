@@ -25,7 +25,7 @@
 /* Implement the "-info-ada-exceptions" GDB/MI command.  */
 
 void
-mi_cmd_info_ada_exceptions (char *command, char **argv, int argc)
+mi_cmd_info_ada_exceptions (const char *command, char **argv, int argc)
 {
   struct ui_out *uiout = current_uiout;
   struct gdbarch *gdbarch = get_current_arch ();
@@ -51,21 +51,18 @@ mi_cmd_info_ada_exceptions (char *command, char **argv, int argc)
   exceptions = ada_exceptions_list (regexp);
   old_chain = make_cleanup (VEC_cleanup (ada_exc_info), &exceptions);
 
-  make_cleanup_ui_out_table_begin_end
-    (uiout, 2, VEC_length (ada_exc_info, exceptions), "ada-exceptions");
+  ui_out_emit_table table_emitter (uiout, 2,
+				   VEC_length (ada_exc_info, exceptions),
+				   "ada-exceptions");
   uiout->table_header (1, ui_left, "name", "Name");
   uiout->table_header (1, ui_left, "address", "Address");
   uiout->table_body ();
 
   for (ix = 0; VEC_iterate(ada_exc_info, exceptions, ix, info); ix++)
     {
-      struct cleanup *sub_chain;
-
-      sub_chain = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
+      ui_out_emit_tuple tuple_emitter (uiout, NULL);
       uiout->field_string ("name", info->name);
       uiout->field_core_addr ("address", gdbarch, info->addr);
-
-      do_cleanups (sub_chain);
     }
 
   do_cleanups (old_chain);
@@ -74,12 +71,11 @@ mi_cmd_info_ada_exceptions (char *command, char **argv, int argc)
 /* Implement the "-info-gdb-mi-command" GDB/MI command.  */
 
 void
-mi_cmd_info_gdb_mi_command (char *command, char **argv, int argc)
+mi_cmd_info_gdb_mi_command (const char *command, char **argv, int argc)
 {
   const char *cmd_name;
   struct mi_cmd *cmd;
   struct ui_out *uiout = current_uiout;
-  struct cleanup *old_chain;
 
   /* This command takes exactly one argument.  */
   if (argc != 1)
@@ -95,21 +91,20 @@ mi_cmd_info_gdb_mi_command (char *command, char **argv, int argc)
 
   cmd = mi_lookup (cmd_name);
 
-  old_chain = make_cleanup_ui_out_tuple_begin_end (uiout, "command");
+  ui_out_emit_tuple tuple_emitter (uiout, "command");
   uiout->field_string ("exists", cmd != NULL ? "true" : "false");
-  do_cleanups (old_chain);
 }
 
 void
-mi_cmd_info_os (char *command, char **argv, int argc)
+mi_cmd_info_os (const char *command, char **argv, int argc)
 {
   switch (argc)
     {
     case 0:
-      info_osdata_command ("", 0);
+      info_osdata (NULL);
       break;
     case 1:
-      info_osdata_command (argv[0], 0);
+      info_osdata (argv[0]);
       break;
     default:
       error (_("Usage: -info-os [INFOTYPE]"));

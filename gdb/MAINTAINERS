@@ -153,8 +153,7 @@ Joel Brobecker			brobecker@adacore.com
 Kevin Buettner			kevinb@redhat.com
 Andrew Cagney			cagney@gnu.org
 Doug Evans			dje@google.com
-Daniel Jacobowitz		drow@false.org
-Mark Kettenis           	kettenis@gnu.org
+Simon Marchi			simon.marchi@ericsson.com
 Yao Qi				yao.qi@arm.com
 Stan Shebs			stanshebs@google.com
 Ulrich Weigand			Ulrich.Weigand@de.ibm.com
@@ -253,7 +252,6 @@ the native maintainer when resolving ABI issues.
 	h8300		--target=h8300-elf ,-Werror
 
 	i386		--target=i386-elf ,-Werror
-			Mark Kettenis           kettenis@gnu.org
 
 	ia64		--target=ia64-linux-gnu ,-Werror
 			(--target=ia64-elf broken)
@@ -270,7 +268,6 @@ the native maintainer when resolving ABI issues.
 	m68k		--target=m68k-elf ,-Werror
 
 	m88k		--target=m88k-openbsd ,-Werror
-			Mark Kettenis		kettenis@gnu.org
 
 	mcore		Deleted
 
@@ -335,7 +332,6 @@ the native maintainer when resolving ABI issues.
 			Corinna Vinschen	vinschen@redhat.com
 
 	xtensa		--target=xtensa-elf
-			Maxim Grigoriev		maxim2405@gmail.com
 
 All developers recognized by this file can make arbitrary changes to
 OBSOLETE targets.
@@ -356,26 +352,19 @@ their platform.
 
 Darwin			Tristan Gingold		gingold@adacore.com
 djgpp native		Eli Zaretskii		eliz@gnu.org
+FreeBSD			John Baldwin		jhb@freebsd.org
 GNU Hurd		Alfred M. Szmidt	ams@gnu.org
-GNU/Linux/x86 native & host
-			Mark Kettenis		kettenis@gnu.org
-GNU/Linux MIPS native & host
-			Daniel Jacobowitz	drow@false.org
 GNU/Linux m68k		Andreas Schwab		schwab@linux-m68k.org
-FreeBSD native & host	Mark Kettenis		kettenis@gnu.org
 
 
 
 Core: Generic components used by all of GDB
-
-threads			Mark Kettenis		kettenis@gnu.org
 
 linespec		Keith Seitz             keiths@redhat.com
 
 language support
   Ada			Joel Brobecker		brobecker@adacore.com
 			Paul Hilfinger		hilfinger@gnat.com
-  C++			Daniel Jacobowitz	drow@false.org
   D			Iain Buclaw		ibuclaw@gdcproject.org
   Objective C support   Adam Fedor		fedor@gnu.org
   Rust			Tom Tromey		tom@tromey.com
@@ -555,6 +544,7 @@ Matt Hiller					hiller@redhat.com
 Kazu Hirata					kazu@cs.umass.edu
 James Hogan					james.hogan@imgtec.com
 Jeff Holcomb					jeffh@redhat.com
+Stafford Horne					shorne@gmail.com
 Don Howard					dhoward@redhat.com
 Nick Hudson					nick.hudson@dsl.pipex.com
 Martin Hunt					hunt@redhat.com
@@ -566,6 +556,7 @@ Daniel Jacobowitz				drow@false.org
 Andreas Jaeger					aj@suse.de
 Janis Johnson					janisjo@codesourcery.com
 Jeff Johnston					jjohnstn@redhat.com
+Ruslan Kabatsayev				b7.10110111@gmail.com
 Geoff Keating					geoffk@redhat.com
 Mark Kettenis					kettenis@gnu.org
 Marc Khouzam					marc.khouzam@ericsson.com
@@ -592,7 +583,6 @@ Michal Ludvig                                   mludvig@suse.cz
 Edjunior B. Machado				emachado@linux.vnet.ibm.com
 Luis Machado					lgustavo@codesourcery.com
 Jose E. Marchesi                                jose.marchesi@oracle.com
-Simon Marchi					simon.marchi@ericsson.com
 Glen McCready					gkm@redhat.com
 Greg McGary					greg@mcgary.org
 Roland McGrath					roland@hack.frob.com
@@ -638,10 +628,12 @@ Aleksandar Ristovski				aristovski@qnx.com
 Tom Rix						trix@redhat.com
 Nick Roberts					nickrob@snap.net.nz
 Pierre-Marie de Rodat				derodat@adacore.com
+Xavier Roirand 					roirand@adacore.com
 Bob Rossi 					bob_rossi@cox.net
 Theodore A. Roth				troth@openavr.org
 Ian Roxborough					irox@redhat.com
 Maciej W. Rozycki				macro@linux-mips.org
+Kamil Rytarowski				n54@gmx.com
 Grace Sainsbury					graces@redhat.com
 Kei Sakamoto					sakamoto.kei@renesas.com
 Mark Salter					msalter@redhat.com
@@ -724,7 +716,8 @@ Fernando Nasser (testsuite/, mi, cli, KOD)      fnasser at redhat dot com
 Mark Salter (testsuite/lib+config)		msalter at redhat dot com
 Jim Kingdon (web pages)				kingdon at panix dot com
 Jim Ingham (gdbtk, libgui)			jingham at apple dot com
-Mark Kettenis (hurd native)			kettenis at gnu dot org
+Mark Kettenis (global, i386-elf, m88k-openbsd,
+  GNU/Linux x86, FreeBSD, hurd native, threads) kettenis at gnu dot org
 Ian Roxborough (in-tree tcl, tk, itcl)		irox at redhat dot com
 Robert Lipe (SCO/Unixware)			rjl at sco dot com
 Peter Schauer (global, AIX, xcoffsolib,
@@ -736,6 +729,9 @@ Fred Fish (global)
 Jim Blandy (global)				jimb@red-bean.com
 Michael Snyder (global)
 Christopher Faylor (MS Windows, host & native)
+Daniel Jacobowitz (global, GNU/Linux MIPS,
+  C++, GDBserver)				drow at false dot org
+Maxim Grigoriev (xtensa)			maxim2405 at gmail dot com
 
 
 Folks that have been caught up in a paper trail:

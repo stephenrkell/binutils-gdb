@@ -30,6 +30,7 @@
 #include "gdbthread.h"
 #include "regcache.h"
 #include "inf-child.h"
+#include "nat/fork-inferior.h"
 #include "filestuff.h"
 
 #if defined (NEW_PROC_API)
@@ -122,8 +123,8 @@ static void procfs_pass_signals (struct target_ops *self,
 				 int, unsigned char *);
 static void procfs_kill_inferior (struct target_ops *ops);
 static void procfs_mourn_inferior (struct target_ops *ops);
-static void procfs_create_inferior (struct target_ops *, char *,
-				    char *, char **, int);
+static void procfs_create_inferior (struct target_ops *, const char *,
+				    const std::string &, char **, int);
 static ptid_t procfs_wait (struct target_ops *,
 			   ptid_t, struct target_waitstatus *, int);
 static enum target_xfer_status procfs_xfer_memory (gdb_byte *,
@@ -135,7 +136,7 @@ static target_xfer_partial_ftype procfs_xfer_partial;
 static int procfs_thread_alive (struct target_ops *ops, ptid_t);
 
 static void procfs_update_thread_list (struct target_ops *ops);
-static char *procfs_pid_to_str (struct target_ops *, ptid_t);
+static const char *procfs_pid_to_str (struct target_ops *, ptid_t);
 
 static int proc_find_memory_regions (struct target_ops *self,
 				     find_memory_region_ftype, void *);
@@ -421,7 +422,7 @@ static procinfo *find_procinfo (int pid, int tid);
 static procinfo *create_procinfo (int pid, int tid);
 static void destroy_procinfo (procinfo * p);
 static void do_destroy_procinfo_cleanup (void *);
-static void dead_procinfo (procinfo * p, char *msg, int killp);
+static void dead_procinfo (procinfo * p, const char *msg, int killp);
 static int open_procinfo_files (procinfo * p, int which);
 static void close_procinfo_files (procinfo * p);
 static int sysset_t_size (procinfo *p);
@@ -429,7 +430,7 @@ static sysset_t *sysset_t_alloc (procinfo * pi);
 #ifdef DYNAMIC_SYSCALLS
 static void load_syscalls (procinfo *pi);
 static void free_syscalls (procinfo *pi);
-static int find_syscall (procinfo *pi, char *name);
+static int find_syscall (procinfo *pi, const char *name);
 #endif /* DYNAMIC_SYSCALLS */
 
 static int iterate_over_mappings
@@ -801,7 +802,7 @@ enum { NOKILL, KILL };
    destroys the data structure.  */
 
 static void
-dead_procinfo (procinfo *pi, char *msg, int kill_p)
+dead_procinfo (procinfo *pi, const char *msg, int kill_p)
 {
   char procfile[80];
 
@@ -982,7 +983,7 @@ free_syscalls (procinfo *pi)
    If no match is found, return -1.  */
 
 static int
-find_syscall (procinfo *pi, char *name)
+find_syscall (procinfo *pi, const char *name)
 {
   int i;
 
@@ -1020,14 +1021,14 @@ static int proc_iterate_over_threads
    void *ptr);
 
 static void
-proc_warn (procinfo *pi, char *func, int line)
+proc_warn (procinfo *pi, const char *func, int line)
 {
   sprintf (errmsg, "procfs: %s line %d, %s", func, line, pi->pathname);
   print_sys_errmsg (errmsg, errno);
 }
 
 static void
-proc_error (procinfo *pi, char *func, int line)
+proc_error (procinfo *pi, const char *func, int line)
 {
   sprintf (errmsg, "procfs: %s line %d, %s", func, line, pi->pathname);
   perror_with_name (errmsg);
@@ -3066,7 +3067,7 @@ procfs_detach (struct target_ops *ops, const char *args, int from_tty)
 
   if (from_tty)
     {
-      char *exec_file;
+      const char *exec_file;
 
       exec_file = get_exec_file (0);
       if (exec_file == NULL)
@@ -4377,7 +4378,7 @@ procfs_init_inferior (struct target_ops *ops, int pid)
   thread_change_ptid (pid_to_ptid (pid),
 		      ptid_build (pid, lwpid, 0));
 
-  startup_inferior (START_INFERIOR_TRAPS_EXPECTED);
+  gdb_startup_inferior (pid, START_INFERIOR_TRAPS_EXPECTED);
 
 #ifdef SYS_syssgi
   /* On mips-irix, we need to stop the inferior early enough during
@@ -4526,8 +4527,8 @@ procfs_set_exec_trap (void)
    inf-ptrace?  */
 
 static void
-procfs_create_inferior (struct target_ops *ops, char *exec_file,
-			char *allargs, char **env, int from_tty)
+procfs_create_inferior (struct target_ops *ops, const char *exec_file,
+			const std::string &allargs, char **env, int from_tty)
 {
   char *shell_file = getenv ("SHELL");
   char *tryname;
@@ -4557,11 +4558,11 @@ procfs_create_inferior (struct target_ops *ops, char *exec_file,
 	 if the caller is the superuser; failing to use it loses if
 	 there are ACLs or some such.  */
 
-      char *p;
-      char *p1;
+      const char *p;
+      const char *p1;
       /* FIXME-maybe: might want "set path" command so user can change what
 	 path is used from within GDB.  */
-      char *path = getenv ("PATH");
+      const char *path = getenv ("PATH");
       int len;
       struct stat statbuf;
 
@@ -4603,6 +4604,11 @@ procfs_create_inferior (struct target_ops *ops, char *exec_file,
 
   pid = fork_inferior (exec_file, allargs, env, procfs_set_exec_trap,
 		       NULL, NULL, shell_file, NULL);
+
+  /* We have something that executes now.  We'll be running through
+     the shell at this point (if startup-with-shell is true), but the
+     pid shouldn't change.  */
+  add_thread_silent (pid_to_ptid (pid));
 
   procfs_init_inferior (ops, pid);
 }
@@ -4691,7 +4697,7 @@ procfs_thread_alive (struct target_ops *ops, ptid_t ptid)
 /* Convert PTID to a string.  Returns the string in a static
    buffer.  */
 
-static char *
+static const char *
 procfs_pid_to_str (struct target_ops *ops, ptid_t ptid)
 {
   static char buf[80];
@@ -5095,7 +5101,6 @@ procfs_info_proc (struct target_ops *ops, const char *args,
   struct cleanup *old_chain;
   procinfo *process  = NULL;
   procinfo *thread   = NULL;
-  char    **argv     = NULL;
   char     *tmp      = NULL;
   int       pid      = 0;
   int       tid      = 0;
@@ -5116,24 +5121,19 @@ procfs_info_proc (struct target_ops *ops, const char *args,
     }
 
   old_chain = make_cleanup (null_cleanup, 0);
-  if (args)
+  gdb_argv built_argv (args);
+  for (char *arg : built_argv)
     {
-      argv = gdb_buildargv (args);
-      make_cleanup_freeargv (argv);
-    }
-  while (argv != NULL && *argv != NULL)
-    {
-      if (isdigit (argv[0][0]))
+      if (isdigit (arg[0]))
 	{
-	  pid = strtoul (argv[0], &tmp, 10);
+	  pid = strtoul (arg, &tmp, 10);
 	  if (*tmp == '/')
 	    tid = strtoul (++tmp, NULL, 10);
 	}
-      else if (argv[0][0] == '/')
+      else if (arg[0] == '/')
 	{
-	  tid = strtoul (argv[0] + 1, NULL, 10);
+	  tid = strtoul (arg + 1, NULL, 10);
 	}
-      argv++;
     }
   if (pid == 0)
     pid = ptid_get_pid (inferior_ptid);
@@ -5267,10 +5267,6 @@ proc_untrace_sysexit_cmd (char *args, int from_tty)
   proc_trace_syscalls (args, from_tty, PR_SYSEXIT, FLAG_RESET);
 }
 
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern void _initialize_procfs (void);
-
 void
 _initialize_procfs (void)
 {
@@ -5317,7 +5313,6 @@ procfs_do_thread_registers (bfd *obfd, ptid_t ptid,
   gdb_gregset_t gregs;
   gdb_fpregset_t fpregs;
   unsigned long merged_pid;
-  struct cleanup *old_chain;
 
   merged_pid = ptid_get_lwp (ptid) << 16 | ptid_get_pid (ptid);
 
@@ -5326,7 +5321,7 @@ procfs_do_thread_registers (bfd *obfd, ptid_t ptid,
      once it is implemented in this platform:
      gdbarch_iterate_over_regset_sections().  */
 
-  old_chain = save_inferior_ptid ();
+  scoped_restore save_inferior_ptid = make_scoped_restore (&inferior_ptid);
   inferior_ptid = ptid;
   target_fetch_registers (regcache, -1);
 
@@ -5352,8 +5347,6 @@ procfs_do_thread_registers (bfd *obfd, ptid_t ptid,
 					      note_size,
 					      &fpregs,
 					      sizeof (fpregs));
-
-  do_cleanups (old_chain);
 
   return note_data;
 }

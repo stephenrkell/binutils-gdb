@@ -27,7 +27,7 @@ evpy_dealloc (PyObject *self)
   Py_TYPE (self)->tp_free (self);
 }
 
-PyObject *
+gdbpy_ref<>
 create_event_object (PyTypeObject *py_type)
 {
   gdbpy_ref<event_object> event_obj (PyObject_New (event_object, py_type));
@@ -38,7 +38,7 @@ create_event_object (PyTypeObject *py_type)
   if (!event_obj->dict)
     return NULL;
 
-  return (PyObject*) event_obj.release ();
+  return gdbpy_ref<> ((PyObject *) event_obj.release ());
 }
 
 /* Add the attribute ATTR to the event object EVENT.  In
@@ -47,7 +47,7 @@ create_event_object (PyTypeObject *py_type)
    function acquires a new reference to ATTR.  */
 
 int
-evpy_add_attribute (PyObject *event, char *name, PyObject *attr)
+evpy_add_attribute (PyObject *event, const char *name, PyObject *attr)
 {
   return PyObject_SetAttrString (event, name, attr);
 }
@@ -67,7 +67,7 @@ gdbpy_initialize_event (void)
 
 int
 gdbpy_initialize_event_generic (PyTypeObject *type,
-                                char *name)
+                                const char *name)
 {
   if (PyType_Ready (type) < 0)
     return -1;
@@ -114,7 +114,7 @@ evpy_emit_event (PyObject *event,
   return 0;
 }
 
-static PyGetSetDef event_object_getset[] =
+static gdb_PyGetSetDef event_object_getset[] =
 {
   { "__dict__", gdb_py_generic_dict, NULL,
     "The __dict__ for this event.", &event_object_type },

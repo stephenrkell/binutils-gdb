@@ -1,3 +1,797 @@
+2017-09-27  Nick Clifton  <nickc@redhat.com>
+
+	PR 22219
+	* dwarf.c (process_debug_info): Add a check for a negative
+	cu_length field.
+
+2017-09-27  Alan Modra  <amodra@gmail.com>
+
+	PR 22216
+	* readelf.c (process_symbol_table): Check that DT_HASH symbol
+	chains are only visited once, and report an error if not.  Display
+	invalid symbol index if chain is out of range.  Use the same logic
+	when calculating histograms rather than the PR 17531 fix.  Delete
+	bogus check that chained index is less than number of buckets.
+
+2017-09-26  Nick Clifton  <nickc@redhat.com>
+
+	PR 22154
+	* dwarf.c (get_line_filename_and_dirname): Add extra checks for
+	buffer overruns.
+
+2017-09-26  Nick Clifton  <nickc@redhat.com>
+
+	* README-how-to-make-a-release: New file.
+
+2017-09-26  Alan Modra  <amodra@gmail.com>
+
+	PR 21732
+	* dwarf.c (READ_ULEB): Don't use DWARF_VMA_FMT in translated string.
+	(READ_SLEB): Likewise.
+	* readelf.c (bfd_vmatoa): New function.
+	(get_data, get_dynamic_data): Use it for printing error messages.
+
+2017-09-25  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR binutils/22203
+	* nm.c (display_rel_file): Free memory returned from
+	bfd_get_synthetic_symtab.
+
+2017-09-22  Alexandre Oliva <aoliva@redhat.com>
+
+	* dwarf.h (debug_info): Add loc_views and num_loc_views.
+	* dwarf.c (vm1): New constant.
+	(print_dwarf_view): New function.
+	(read_and_display_attr_value): Support DW_AT_GNU_locviews.
+	(process_debug_info): Keep num_loc_offsets and num_loc_views
+	in sync.
+	(display_view_pair_list): New function.
+	(display_loc_list_dwo): Take vstart_ptr; update it.  Dump
+	location view pairs before the range they apply to, when a
+	viewlist augments the loc list.
+	(display_loc_list): Likewise.  Check view numbers in range
+	tests.
+	(display_loclists_list): Likewise.  Handle view pair entries,
+	and warn on trailing ones.
+	(loc_views): New variable.
+	(loc_offsets_compar): Compare loc_views if loc_offsets are the
+	same.
+	(display_debug_loc): Check and sort loc_views too.  Accept
+	loc_view as expected_start.  Skip if lists and views are the
+	same.  Dump locview list separately in order, and pass the
+	locview list base to each list dump function.  Warn and skip
+	overlap and hole checking if we find loclists and locviews to
+	not be adjacent.
+	* testsuite/binutils-all/locview-1.s: New.
+	* testsuite/binutils-all/readelf.locview-1: New.
+	* testsuite/binutils-all/locview-2.s: New.
+	* testsuite/binutils-all/readelf.locview-2: New.
+	* testsuite/binutils-all/readelf.exp: Run new tests.  Fix
+	option spelling in pr18374 fail message.  XFAIL dw5 test on
+	nds32*-elf.
+
+2017-09-22  Alan Modra  <amodra@gmail.com>
+
+	* testsuite/binutils-all/readelf.exp: Don't perror and exit on
+	bintest.s assembly failure.  Report tests unresolved instead.
+	Likewise for version note test, pr18374, decompress, and dw5
+	tests.
+	(readelf_test): Set testname to include both option and binary
+	file name.  Use for pass/fail.
+
+2017-09-21  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* readelf.c (get_machine_flags) <E_MIPS_MACH_5900>: New case.
+
+2017-09-05  Nick Clifton  <nickc@redhat.com>
+
+	PR 21995
+	* readelf.c (process_mips_specific): Add checks for a NULL data
+	pointer.
+
+2017-09-05  Alexander Fedotov <alexander.fedotov@nxp.com>
+	    Edmar Wienskoski <edmar.wienskoski@nxp.com
+
+	* readelf.c (get_elf_section_flags): Add VLE.
+	(process_section_headers): Add VLE key to details.
+
+2017-08-25  Alan Modra  <amodra@gmail.com>
+
+	PR 21994
+	* readelf.c (process_version_sections <SHT_GNU_verdef>): Check
+	vd_aux and vda_next for sanity.  Delete "end".  Correct overflow
+	checks.
+	(process_version_sections <SHT_GNU_verneed>): Correct overflow
+	check.  Don't report invalid vna_next on overflow.  Do report
+	invalid vna_next on size less than aux info.
+
+2017-08-23  Alan Modra  <amodra@gmail.com>
+
+	PR 21990
+	* readelf.c (process_version_sections <SHT_GNU_verneed>): Check
+	for invalid vn_next field before adding to idx.  Use unsigned
+	long for index vars.  Move index checks.
+	<SHT_GNU_verdef>: Likewise for vd_next.
+
+2017-08-17  Nick Clifton  <nickc@redhat.com>
+
+	* testsuite/binutils-all/note-3-64.s: New test.  Checks assembly
+	and decoding of version2 GNU build attribute notes.
+	* testsuite/binutils-all/note-3-32.s: New test.  32-bit version of
+	the above test.
+	* testsuite/binutils-all/note-3-64.d: New test driver.
+	* testsuite/binutils-all/note-3-32.d: New test driver.
+	* testsuite/binutils-all/objcopy.exp: Run the new test.
+	* readelf.c (is_64bit_abs_reloc): Add R_SPARC_64.
+
+2017-08-14  Gustavo Romero  <gromero@linux.vnet.ibm.com>
+
+	* readelf.c (get_note_type): Handle PPC note types available
+	since Linux 4.8.
+
+2017-08-12  Alan Modra  <amodra@gmail.com>
+
+	* readelf.c (process_note): Qualify NT_GNU_BUILD_ATTRIBUTE notes
+	by name data.
+
+2017-08-08  Nick Clifton  <nickc@redhat.com>
+
+	PR 21909
+	* prdbg.c (pr_int_type): Increase size of local string buffer.
+	(pr_float_type): Likewise.
+	(pr_bool_type): Likewise.
+
+2017-08-02  Nick Clifton  <nickc@redhat.com>
+
+	PR 21702
+	* arsup.c (ar_addmod): Add plugin support for the MRI ADDMOD
+	command.
+
+2017-08-02  Nick Clifton  <nickc@redhat.com>
+
+	* testsuite/binutils-all/objdump.exp (cpus_expected): Add am33-2.
+
+2017-08-02  Alan Modra  <amodra@gmail.com>
+
+	* readelf.c (is_32bit_abs_reloc): Add R_IA64_SECREL32MSB and
+	R_IA64_DIR32MSB.
+	(is_64bit_abs_reloc): Add R_IA64_DIR64MSB.
+	(is_64bit_pcrel_reloc): Add R_IA64_PCREL64MSB.
+
+2017-08-01  Nick Clifton  <nickc@redhat.com>
+
+	* po/sv.po: Updated Swedish translation.
+
+2017-07-31  Marty Plummer  <ntzrmtthihu777@gmail.com>
+
+	PR 21861
+	* winduni.c (codepages): Use cp1252 for codepage 0.
+
+2017-07-25  Nick Clifton  <nickc@redhat.com>
+
+	PR 21820
+	* readelf.c (dump_section_as_strings): Do not fail if the section
+	was empty.
+	(dump_section_as_bytes): Likewise.
+
+2017-07-24  Nick Clifton  <nickc@redhat.com>
+
+	PR 21813
+	* rddbg.c (read_symbol_stabs_debugging_info): Check for an empty
+	string whilst concatenating symbol names.
+
+2017-07-21  Nick Clifton  <nickc@redhat.com>
+
+	* po/fr.po: Updated French translation.
+
+2017-07-21  Simon Marchi  <simon.marchi@ericsson.com>
+
+	* dwarf.c (last_pointer_size, warned_about_missing_comp_units):
+	Remove.
+	(load_debug_info): Remove assignments to those two variables.
+
+2017-07-21  Alexandre Oliva  <aoliva@redhat.com>
+
+	* dwarf.c (struct State_Machine_Registers): Add view field.
+	(reset_state_machine): Reset view.
+	(process_extended_line_op): Reset view when appropriate.
+	(display_debug_lines_raw): Increment or reset view when appropriate.
+	Print nonzero views.  Support print view resets, disabled by default.
+	(display_debug_lines_decoded): Likewise.  Disambiguate op_code tests,
+	enabling printing of end_sequence.
+	* testsuite/binutils-all/dw2-1.W: Add nonzero views.
+	* testsuite/binutils-all/dw2-3.W: Likewise.
+	* testsuite/binutils-all/dw2-3gabi.W: Likewise.
+	* testsuite/binutils-all/dw5.W: Add end sequence lines.
+	* testsuite/binutils-all/i386/compressed-1a.d: Add nonzero views.
+	* testsuite/binutils-all/libdw2-compressedgabi.out: Likewise.
+	* testsuite/binutils-all/objdump.W: Likewise.
+	* testsuite/binutils-all/objdump.WL: Add end sequence lines.
+	* testsuite/binutils-all/x86-64/compressed-1a.d: Add nonzero views.
+
+2017-07-19  Tristan Gingold  <gingold@adacore.com>
+
+	* nm.c (show_stats): Remove variable.
+	(long_options): Remove --stats option.
+	(main): Remove handling of --stats.
+
+2017-07-18  Nick Clifton  <nickc@redhat.com>
+
+	PR 21775
+	* coffgrok.c: Fix spelling typos.
+	* readelf.c: Likewise.
+	* stabs.c: Likewise.
+	* testsuite/binutils-all/objcopy.exp: Likewise.
+
+2017-07-18  Nick Clifton  <nickc@redhat.com>
+
+	* po/sv.po: Updated Swedish translation.
+
+2017-07-18  Hans-Peter Nilsson  <hp@bitrange.com>
+
+	* dwarf.c (display_debug_names): Initialize hash_prev.
+
+2017-07-17  Nick Clifton  <nickc@redhat.com>
+
+	PR 21433
+	* ar.c (main): Skip check for no files on the command line when
+	running in MRI mode.
+
+2017-07-13  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* testsuite/binutils-all/objdump.exp: Always delete $testarchive
+	first.
+
+2017-07-12  Alan Modra  <amodra@gmail.com>
+
+	* po/bg.po: Update from translationproject.org/latest/binutils/.
+	* po/ca.po: Likewise.
+	* po/da.po: Likewise.
+	* po/es.po: Likewise.
+	* po/fi.po: Likewise.
+	* po/fr.po: Likewise.
+	* po/hr.po: Likewise.
+	* po/id.po: Likewise.
+	* po/it.po: Likewise.
+	* po/ja.po: Likewise.
+	* po/ro.po: Likewise.
+	* po/ru.po: Likewise.
+	* po/sk.po: Likewise.
+	* po/sr.po: Likewise.
+	* po/sv.po: Likewise.
+	* po/tr.po: Likewise.
+	* po/uk.po: Likewise.
+	* po/vi.po: Likewise.
+	* po/zh_CN.po: Likewise.
+	* po/zh_TW.po: Likewise.
+
+2017-07-12  Nick Clifton  <nickc@redhat.com>
+
+	Fix compile time warnings using gcc 7.1.1.
+	* dwarf.c (dwarf_vmatoa_1): Do not pass a NULL string pointer to
+	sprintf.
+	* srconv.c (walk_tree_type): Initialise the spare field of the
+	IT_dty structure.
+
+2017-07-11  Andreas Schwab  <schwab@suse.de>
+
+	* readelf.c (process_note): Print newline after description data
+	in narrow mode.
+	(print_core_note): Print newline if nothing was printed in wide
+	mode.
+
+2017-07-09  Rafael Fontenelle <rafaelff@gnome.org>
+
+	* dwarf.c (display_formatted_table): Fix error message typo.
+
+2017-07-07  John Baldwin  <jhb@FreeBSD.org>
+
+	* readelf.c (get_freebsd_elfcore_note_type): Handle
+	NT_FREEBSD_PTLWPINFO.
+
+2017-07-05  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* dwarf.c (display_debug_names): Replace index with xindex.
+
+2017-07-04  Tristan Gingold  <gingold@adacore.com>
+
+	* configure: Regenerate.
+
+2017-07-04  Tristan Gingold  <gingold@adacore.com>
+
+	* NEWS: Add marker for 2.29.
+
+2017-07-03  Tristan Gingold  <gingold@adacore.com>
+
+	* po/binutils.pot: Regenerate.
+
+2017-07-03  Alan Modra  <amodra@gmail.com>
+
+	* strings.c (filename_and_size_t): Delete.
+	(strings_a_section): Don't check section size against file size.
+	Use bdf_malloc_and_get_section.  Report an error on failures.
+	Replace arg param with filename and got_a_section param.
+	(got_a_section): Move to..
+	(strings_object_file): ..an auto var here.  Iterate over sections
+	rather than calling bfd_map_over_sections.  Adjust strings_a_section
+	call.
+
+2017-07-02  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* dwarf.c: Include assert.h.
+	(MAX, MIN, get_IDX_name, display_debug_names): New.
+	(debug_displays): Add .debug_names.
+	* dwarf.h: (enum dwarf_section_display_enum): Add debug_names.
+	* readelf.c (process_section_headers): Add ".debug_names".
+
+2017-07-01  Alan Modra  <amodra@gmail.com>
+
+	PR binutils/21665
+	* objdump.c (strtab): Make var a bfd_byte*.
+	(disassemble_section): Don't limit malloc size.  Instead, use
+	bfd_malloc_and_get_section.
+	(read_section_stabs): Use bfd_malloc_and_get_section.  Return
+	bfd_byte*.
+	(find_stabs_section): Remove now unnecessary cast.
+	* objcopy.c (copy_object): Use bfd_malloc_and_get_section.  Free
+	contents on error return.
+	* nlmconv.c (copy_sections): Use bfd_malloc_and_get_section.
+
+2017-06-30  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21665
+	* objdump.c (disassemble_section): Move check for an overlarge
+	section to just before the allocation of memory.  Do not check
+	section size against file size, but instead use an arbitrary 2Gb
+	limit.  Issue a warning message if the section is too big.
+
+2017-06-30  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* NEWS: Mention microMIPS XPA support.
+
+2017-06-30  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* NEWS: Mention microMIPS Release 5 ISA support.
+
+2017-06-30  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips-xpa-virt-1.d: New test.
+	* testsuite/binutils-all/mips/mips-xpa-virt-2.d: New test.
+	* testsuite/binutils-all/mips/mips-xpa-virt-3.d: New test.
+	* testsuite/binutils-all/mips/mips-xpa-virt-4.d: New test.
+	* testsuite/binutils-all/mips/mips-xpa-virt.s: New test source.
+	* testsuite/binutils-all/mips/mips.exp: Run the new tests.
+
+2017-06-29  Anton Kolesov  <Anton.Kolesov@synopsys.com>
+
+	* testsuite/binutils-all/arc/double_store.s: New file.
+	* testsuite/binutils-all/arc/objdump.exp: Tests for disassembler
+	options.
+	(do_objfile): New function.
+	(check_assembly): Likewise.
+
+2017-06-29  Andreas Arnez  <arnez@linux.vnet.ibm.com>
+
+	* readelf.c (get_note_type): Add NT_S390_GS_CB and NT_S390_GS_BC.
+
+2017-06-28  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* objdump.c (dump_relocs_in_section): Cast to ufile_ptr when
+	comparing against bfd_get_file_size return.
+
+2017-06-28  Nick Clifton  <nickc@redhat.com>
+
+	* objcopy.c (merge_gnu_build_notes): Add support for version 2 notes.
+	* readelf.c (print_gnu_build_attribute_name): Likewise.
+
+2017-06-28  Maciej W. Rozycki  <macro@imgtec.com>
+	    Matthew Fortune  <matthew.fortune@imgtec.com>
+
+	* readelf.c (get_machine_flags) <E_MIPS_MACH_IAMR2>: New case.
+	(print_mips_isa_ext) <AFL_EXT_INTERAPTIV_MR2>: Likewise.
+	* NEWS: Mention Imagination interAptiv MR2 processor support.
+
+2017-06-26  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21665
+	* objdump.c (disassemble_section): Skip any section that is bigger
+	than the entire file.
+
+2017-06-26  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21659
+	* bucomm.c (get_file_size): Explicitly warn if the file is a
+	directory.
+
+2017-06-24  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	* readelf.c (arm_attr_tag_CPU_arch): Fill value for ARMv8-R.
+
+2017-06-23  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21659
+	* strings.c (strings_file): Warn about attempts to run strings on
+	a directory.
+
+2017-06-22  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* readelf.c (decode_x86_feature): Decode
+	GNU_PROPERTY_X86_FEATURE_1_SHSTK.
+	* testsuite/binutils-all/i386/shstk.d: New file.
+	* testsuite/binutils-all/i386/shstk.s: Likewise.
+	* testsuite/binutils-all/x86-64/shstk-x32.d: Likewise.
+	* testsuite/binutils-all/x86-64/shstk.d: Likewise.
+	* testsuite/binutils-all/x86-64/shstk.s: Likewise.
+
+2017-06-22  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* readelf.c (decode_x86_feature): New.
+	(print_gnu_property_note): Call decode_x86_feature on
+	GNU_PROPERTY_X86_FEATURE_1_AND.
+	* testsuite/binutils-all/i386/empty.d: New file.
+	* testsuite/binutils-all/i386/empty.s: Likewise.
+	* testsuite/binutils-all/i386/ibt.d: Likewise.
+	* testsuite/binutils-all/i386/ibt.s: Likewise.
+	* testsuite/binutils-all/x86-64/empty-x32.d: Likewise.
+	* testsuite/binutils-all/x86-64/empty.d: Likewise.
+	* testsuite/binutils-all/x86-64/empty.s: Likewise.
+	* testsuite/binutils-all/x86-64/ibt-x32.d: Likewise.
+	* testsuite/binutils-all/x86-64/ibt.d: Likewise.
+	* testsuite/binutils-all/x86-64/ibt.s: Likewise.
+
+2017-06-21  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* dwarf.c (READ_ULEB): Use DWARF_VMA_FMT to report error.
+	(READ_SLEB): Likewise.
+
+2017-06-21  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21648
+	* dwarf.c (LEB): Rename to SKIP_ULEB and READ_ULEB.  Add check for
+	reading a value that is too big for the containing variable.
+	(SLEB): Rename to SKIP_SLEB and READ_SLEB.  Add similar check.
+	Replace uses of LEB and SLEB with appropriate new macro.
+	(display_debug_frames): Use an unsigned int for the 'reg'
+	variable.  Use a signed long for the 'l' variable.
+
+2017-06-20  Andreas Krebbel  <krebbel@linux.vnet.ibm.com>
+
+	* readelf.c (get_s390_segment_type): Add support for the new
+	segment type PT_S390_PGSTE.
+	(get_segment_type): Call get_s390_segment_type.
+
+2017-06-19  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21619
+	* objdump.c (disassemble_bytes): Check that there is sufficient
+	data available before attempting to display it.
+
+2017-06-06  Simon Marchi  <simon.marchi@ericsson.com>
+
+	* sysinfo.y: Free memory allocated by token NAME.
+
+2017-05-30  Anton Kolesov  <anton.kolesov@synopsys.com>
+
+	* doc/binutils.texi: Document new cpu=... disassembler options for ARC.
+
+2017-05-30  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR binutils/21519
+	* objdump.c (dump_relocs_in_section): Replace get_file_size
+	with bfd_get_file_size to get archive element size.
+	* testsuite/binutils-all/objdump.exp (test_objdump_f): New
+	proc.
+	(test_objdump_h): Likewise.
+	(test_objdump_t): Likewise.
+	(test_objdump_r): Likewise.
+	(test_objdump_s): Likewise.
+	Add objdump tests on archive.
+
+2017-05-24  Yao Qi  <yao.qi@linaro.org>
+
+	* objdump.c (disassemble_data): Caller update.
+
+2017-05-19  Jose E. Marchesi  <jose.marchesi@oracle.com>
+
+	* objcopy.c (merge_gnu_build_notes): Remove workaround that
+	prevented deleting relocations in duplicated notes in mips64 and
+	sparc.
+
+2017-05-19  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips-note-2.d: New test.
+	* testsuite/binutils-all/mips/mips-note-2r.d: New test.
+	* testsuite/binutils-all/mips/mips-note-2-n32.d: New test.
+	* testsuite/binutils-all/mips/mips-note-2-n64.d: New test.
+	* testsuite/binutils-all/mips/mips-note-2r-n32.d: New test.
+	* testsuite/binutils-all/mips/mips-note-2r-n64.d: New test.
+	* testsuite/binutils-all/mips/mips.exp: Define `has_newabi'.
+	Run the new tests.
+
+2017-05-19  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/lib/utils-lib.exp (run_dump_test): Handle the `dump'
+	option.
+
+2017-05-19  Jose E. Marchesi  <jose.marchesi@oracle.com>
+
+	* NEWS: Mention the SPARC M8 support.
+
+2017-05-19  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips.exp: Bail out right away if
+	non-ELF.
+
+2017-05-18  Alan Modra  <amodra@gmail.com>
+
+	* strings.c: Don't compare boolean values against TRUE or FALSE.
+
+2017-05-15  Jeff Law  <law@redhat.com>
+
+	* readelf.c (display_arc_attribute): Avoid implicit fallthru.
+
+2017-05-15  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips16-undecoded.d: Add `-mips3'
+	to `as' flags.
+	* testsuite/binutils-all/mips/mips16e2-undecoded.d: New test.
+	* testsuite/binutils-all/mips/mips16e2-extend-insn.d: New test.
+	* testsuite/binutils-all/mips/mips16-undecoded.s: Remove
+	`.module mips3'.
+	* testsuite/binutils-all/mips/mips.exp: Run the new tests.
+
+2017-05-15  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* readelf.c (print_mips_ases): Handle MIPS16e2 ASE.
+	* NEWS: Mention MIPS16e2 ASE support.
+
+2017-05-12  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips16-extend-insn.d: Adjust BREAK
+	and SDBBP disassembly.
+
+2017-05-10  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips.exp: Define `tempfile' and
+	`copyfile' variables.
+
+2017-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* readelf.c (decode_ARC_machine_flags): Recognize OSABI v4.
+	(get_arc_section_type_name): New function.
+	(get_section_type_name): Use the above function.
+	(display_arc_attribute): New function.
+	(process_arc_specific): Likewise.
+	(process_arch_specific): Handle ARC specific information.
+
+2017-05-09  Kaz Kojima  <kkojima@rr.iij4u.or.jp>
+
+	* MAINTAINERS (SH): Remove myself as SH maintainer.
+
+2017-05-02  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* objcopy.c (merge_gnu_build_notes): Cast relcount to unsigned
+	long when comparing with sec->reloc_count.
+
+2017-05-02  Nick Clifton  <nickc@redhat.com>
+
+	* objcopy.c (merge_gnu_build_notes): Disable merge if there are
+	more internal relocs than external relocs.
+
+2017-05-02  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips16-undecoded.d: Adjust the
+	disassembly of PC-relative LA and LW synthetic instructions.
+
+2017-05-02  Nick Clifton  <nickc@redhat.com>
+
+	PR 21440
+	* objdump.c (dump_relocs_in_section): Check for an excessive
+	number of relocs before attempting to dump them.
+
+2017-05-01  Alan Modra  <amodra@gmail.com>
+
+	* objcopy.c (merge_gnu_build_notes): Correct code deleting
+	relocs.
+
+2017-04-28  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21439
+	* readelf.c (print_gnu_build_attribute_name): Allow for an empty
+	name field.
+
+2017-04-28  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21437
+	* readelf.c (process_version_sections): Check for underflow when
+	computing the start address of the auxillary version data.
+
+2017-04-28  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21438
+	* dwarf.c (process_extended_line_op): Do not assume that the
+	string extracted from the section is NUL terminated.
+	(fetch_indirect_string): If the string retrieved from the section
+	is not NUL terminated, return an error message.
+	(fetch_indirect_line_string): Likewise.
+	(fetch_indexed_string): Likewise.
+
+2017-04-26  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21433
+	* bucomm.c (get_file_size): Return -1 if file_name is NULL.
+	* ar.c (main): Fail with usage() invocation if no file names are
+	provided.
+
+2017-04-26  Nick Clifton  <nickc@redhat.com>
+
+	* readelf.c (process_section_headers): Warn about overlarge
+	sections.
+	(print_gnu_build_attribute_name): Print the number of unrecognised
+	note types.  Fix formatting in the presence of errors.
+	(testsuite/binutils-all/note-2-32.s): Fix encoding of numeric notes.
+	(testsuite/binutils-all/note-2-64.s): Likewise.
+
+2017-04-26  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* readelf.c (process_mips_specific): Add static GOT support.
+
+2017-04-25  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* readelf.c (process_mips_specific): Remove error reporting from
+	GOT[1] processing.
+
+2017-04-25  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* readelf.c (process_mips_specific): Remove null GOT data check.
+
+2017-04-25  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* testsuite/binutils-all/mips/mips16-alias.d: New test.
+	* testsuite/binutils-all/mips/mips16-noalias.d: New test.
+	* testsuite/binutils-all/mips/mips16-alias.s: New test source.
+	* testsuite/binutils-all/mips/mips.exp: Run the new tests.
+
+2017-04-23  Alan Modra  <amodra@gmail.com>
+
+	PR 21418
+	* ar.c (main): Check -a, -b, -i and -N args are given.
+
+2017-04-23  Alan Modra  <amodra@gmail.com>
+
+	PR 21417
+	* ar.c (main): Check that an archive file is given after options.
+
+2017-04-23  Alan Modra  <amodra@gmail.com>
+
+	PR 21415
+	* objdump.c (disassemble_section): Check bfd_get_section_contents
+	status.
+
+2017-04-23  Alan Modra  <amodra@gmail.com>
+
+	PR 21408
+	* dwarf.c (display_debug_lines_decoded): Don't segfault on NULL
+	file_table.
+
+2017-04-21  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21378
+	* readelf.c (print_gnu_build_attribute_name): Check for an
+	overlarge name field.
+
+2017-04-13  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21379
+	* readelf.c (process_dynamic_section): Detect over large section
+	offsets in the DT_SYMTAB entry.
+
+2017-04-13  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21345
+	* readelf.c (process_mips_specific): Catch an unfeasible memory
+	allocation before it happens and print a suitable error message.
+
+2017-04-13  Nick Clifton  <nickc@redhat.com>
+
+	* objcopy.c: Add --no-merge-notes option to disable note merging.
+	Add --[no-]merge-notes option to strip, and enable it by default.
+	(num_bytes): New function.
+	(merge_gnu_build_notes): Add code to merge stack size notes.
+	* binutils.texi: Update strip and objcopy documentation.
+	* readelf.c (print_gnu_build_attribute_name): Use defined
+	constants for note types.
+
+2017-04-10  John Delsignor  <john.delsignore@roguewave.com>
+
+	PR binutils/21319
+	* dwarf.c (display_gdb_index): Correct test for a corrupt address
+	table size.
+
+2017-04-05  Jiong Wang  <jiong.wang@arm.com>
+
+	* objcopy.c (struct redefine_node): Delete the field "next".
+	(redefine_sym_list): Deleted.
+	(redefine_specific_htab): New hash table.
+	(redefine_specific_reverse_htab): Likewise.
+	(eq_string_redefnode): New function.
+	(htab_hash_redefnode): Likewise.
+	(create_symbol2redef_htab): Likewise.
+	(add_specific_symbol_node): Likewise.
+	(create_symbol_htabs): Create redefine_specific_htab and
+	redefine_specific_reverse_htab.
+	(lookup_sym_redefinition): Use hash table instead of list.
+	(redefine_list_append): Likewise, and rename to add_redefine_and_check.
+	(copy_main): Use redefine_specific_htab instead of redefine_sym_list.
+	Update comments.
+
+2017-04-04  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* NEWS: Mention support for ELF SHF_GNU_MBIND and
+	PT_GNU_MBIND_XXX.
+	* readelf.c (get_segment_type): Handle PT_GNU_MBIND_XXX.
+	(get_elf_section_flags): Handle SHF_GNU_MBIND.
+	(process_section_headers): Likewise.
+	* testsuite/binutils-all/mbind1.s: New file.
+	* testsuite/binutils-all/objcopy.exp: Run readelf test on
+	mbind1.s.
+
+2017-04-03  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21345
+	* readelf.c (get_program_headers): Check for there being too many
+	program headers before attempting to allocate space for them.
+
+2017-04-03  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21344
+	* readelf.c (process_mips_specific): Check for an out of range GOT
+	entry before reading the module pointer.
+
+2017-04-03  Nick Clifton  <nickc@redhat.com>
+
+	PR binutils/21343
+	* readelf.c (get_unwind_section_word): Fix snafu checking for
+	invalid word offsets in ARM unwind information.
+
+2017-03-31  Pip Cet  <pipcet@gmail.com>
+
+	* NEWS: Use "WebAssembly" consistently.
+	* testsuite/binutils-all/wasm32/wasm32.exp: Fix copyright notice.
+
+2017-03-30  Pip Cet  <pipcet@gmail.com>
+
+	* readelf.c: Add support for wasm32 ELF format WebAssembly files.
+	(guess_is_rela): Likewise.
+	(dump_relocations): Likewise.
+	(is_32bit_abs_reloc): Likewise.
+	(is_none_reloc_): Likewise.
+	* NEWS: Mention the new support.
+	* testsuite/lib/binutils-common.exp (is_elf_format): Mark wasm32
+	as ELF target.
+	(supports_gnu_unique): Mark wasm32 as supporting STB_GNU_UNIQUE.
+	* testsuite/binutils-all/nm.exp: Mark wasm32 as requiring .size annotations.
+	* testsuite/binutils-all/wasm32: New directory.
+	* testsuite/binutils-all/wasm32/create-wasm.d: New file.
+	* testsuite/binutils-all/wasm32/create-wasm.s: Likewise.
+	* testsuite/binutils-all/wasm32/custom-section.d: Likewise.
+	* testsuite/binutils-all/wasm32/custom-section.s: Likewise.
+	* testsuite/binutils-all/wasm32/invalid-wasm-1.d: Likewise.
+	* testsuite/binutils-all/wasm32/invalid-wasm-1.s: Likewise.
+	* testsuite/binutils-all/wasm32/long-sections.d: Likewise.
+	* testsuite/binutils-all/wasm32/long-sections.s: Likewise.
+	* testsuite/binutils-all/wasm32/parse-wasm.d: Likewise.
+	* testsuite/binutils-all/wasm32/parse-wasm.s: Likewise.
+	* testsuite/binutils-all/wasm32/parse-wasm-2.d: Likewise.
+	* testsuite/binutils-all/wasm32/parse-wasm-2.s: Likewise.
+	* testsuite/binutils-all/wasm32/prepared-section.d: Likewise.
+	* testsuite/binutils-all/wasm32/prepared-section.s: Likewise.
+	* testsuite/binutils-all/wasm32/wasm32.exp: New file, run tests.
+
+2017-03-29  Alan Modra  <amodra@gmail.com>
+
+	* doc/binutils.texi (objdump): Document PowerPC -M options.
+
 2017-03-21  Andi Kleen  <ak@linux.intel.com>
 
 	* objdump.c (unwind_inlines): Add.

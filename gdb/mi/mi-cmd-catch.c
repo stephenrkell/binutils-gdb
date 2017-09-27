@@ -30,7 +30,7 @@
 /* Handler for the -catch-assert command.  */
 
 void
-mi_cmd_catch_assert (char *cmd, char *argv[], int argc)
+mi_cmd_catch_assert (const char *cmd, char *argv[], int argc)
 {
   struct gdbarch *gdbarch = get_current_arch();
   char *condition = NULL;
@@ -79,7 +79,7 @@ mi_cmd_catch_assert (char *cmd, char *argv[], int argc)
   if (oind != argc)
     error (_("Invalid argument: %s"), argv[oind]);
 
-  setup_breakpoint_reporting ();
+  scoped_restore restore_breakpoint_reporting = setup_breakpoint_reporting ();
   /* create_ada_exception_catchpoint needs CONDITION to be xstrdup'ed,
      and will assume control of its lifetime.  */
   if (condition != NULL)
@@ -91,7 +91,7 @@ mi_cmd_catch_assert (char *cmd, char *argv[], int argc)
 /* Handler for the -catch-exception command.  */
 
 void
-mi_cmd_catch_exception (char *cmd, char *argv[], int argc)
+mi_cmd_catch_exception (const char *cmd, char *argv[], int argc)
 {
   struct gdbarch *gdbarch = get_current_arch();
   char *condition = NULL;
@@ -156,7 +156,7 @@ mi_cmd_catch_exception (char *cmd, char *argv[], int argc)
   if (ex_kind == ada_catch_exception_unhandled && exception_name != NULL)
     error (_("\"-e\" and \"-u\" are mutually exclusive"));
 
-  setup_breakpoint_reporting ();
+  scoped_restore restore_breakpoint_reporting = setup_breakpoint_reporting ();
   /* create_ada_exception_catchpoint needs EXCEPTION_NAME and CONDITION
      to be xstrdup'ed, and will assume control of their lifetime.  */
   if (exception_name != NULL)
@@ -173,7 +173,6 @@ mi_cmd_catch_exception (char *cmd, char *argv[], int argc)
 static void
 mi_catch_load_unload (int load, char *argv[], int argc)
 {
-  struct cleanup *back_to;
   const char *actual_cmd = load ? "-catch-load" : "-catch-unload";
   int temp = 0;
   int enabled = 1;
@@ -215,17 +214,14 @@ mi_catch_load_unload (int load, char *argv[], int argc)
   if (oind < argc -1)
     error (_("-catch-load/unload: Garbage following the <library name>"));
 
-  back_to = setup_breakpoint_reporting ();
-
+  scoped_restore restore_breakpoint_reporting = setup_breakpoint_reporting ();
   add_solib_catchpoint (argv[oind], load, temp, enabled);
-
-  do_cleanups (back_to);
 }
 
 /* Handler for the -catch-load.  */
 
 void
-mi_cmd_catch_load (char *cmd, char *argv[], int argc)
+mi_cmd_catch_load (const char *cmd, char *argv[], int argc)
 {
   mi_catch_load_unload (1, argv, argc);
 }
@@ -234,7 +230,7 @@ mi_cmd_catch_load (char *cmd, char *argv[], int argc)
 /* Handler for the -catch-unload.  */
 
 void
-mi_cmd_catch_unload (char *cmd, char *argv[], int argc)
+mi_cmd_catch_unload (const char *cmd, char *argv[], int argc)
 {
   mi_catch_load_unload (0, argv, argc);
 }

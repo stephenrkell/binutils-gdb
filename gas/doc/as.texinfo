@@ -420,6 +420,7 @@ gcc(1), ld(1), and the Info entries for @file{binutils} and @file{ld}.
    [@b{-mnan=@var{encoding}}]
    [@b{-trap}] [@b{-no-break}] [@b{-break}] [@b{-no-trap}]
    [@b{-mips16}] [@b{-no-mips16}]
+   [@b{-mmips16e2}] [@b{-mno-mips16e2}]
    [@b{-mmicromips}] [@b{-mno-micromips}]
    [@b{-msmartmips}] [@b{-mno-smartmips}]
    [@b{-mips3d}] [@b{-no-mips3d}]
@@ -486,7 +487,7 @@ gcc(1), ld(1), and the Info entries for @file{binutils} and @file{ld}.
     @b{-m620}|@b{-me500}|@b{-e500x2}|@b{-me500mc}|@b{-me500mc64}|@b{-me5500}|@b{-me6500}|@b{-mppc64bridge}|
     @b{-mbooke}|@b{-mpower4}|@b{-mpwr4}|@b{-mpower5}|@b{-mpwr5}|@b{-mpwr5x}|@b{-mpower6}|@b{-mpwr6}|
     @b{-mpower7}|@b{-mpwr7}|@b{-mpower8}|@b{-mpwr8}|@b{-mpower9}|@b{-mpwr9}@b{-ma2}|
-    @b{-mcell}|@b{-mspe}|@b{-mtitan}|@b{-me300}|@b{-mcom}]
+    @b{-mcell}|@b{-mspe}|@b{-mspe2}|@b{-mtitan}|@b{-me300}|@b{-mcom}]
    [@b{-many}] [@b{-maltivec}|@b{-mvsx}|@b{-mhtm}|@b{-mvle}]
    [@b{-mregnames}|@b{-mno-regnames}]
    [@b{-mrelocatable}|@b{-mrelocatable-lib}|@b{-K PIC}] [@b{-memb}]
@@ -1452,21 +1453,27 @@ registers when supported by the ISA.  @samp{-mfpxx} implies
 @item -mips16
 @itemx -no-mips16
 Generate code for the MIPS 16 processor.  This is equivalent to putting
-@code{.set mips16} at the start of the assembly file.  @samp{-no-mips16}
+@code{.module mips16} at the start of the assembly file.  @samp{-no-mips16}
 turns off this option.
+
+@item -mmips16e2
+@itemx -mno-mips16e2
+Enable the use of MIPS16e2 instructions in MIPS16 mode.  This is equivalent
+to putting @code{.module mips16e2} at the start of the assembly file.
+@samp{-mno-mips16e2} turns off this option.
 
 @item -mmicromips
 @itemx -mno-micromips
 Generate code for the microMIPS processor.  This is equivalent to putting
-@code{.set micromips} at the start of the assembly file.  @samp{-mno-micromips}
-turns off this option.  This is equivalent to putting @code{.set nomicromips}
-at the start of the assembly file.
+@code{.module micromips} at the start of the assembly file.
+@samp{-mno-micromips} turns off this option.  This is equivalent to putting
+@code{.module nomicromips} at the start of the assembly file.
 
 @item -msmartmips
 @itemx -mno-smartmips
-Enables the SmartMIPS extension to the MIPS32 instruction set. This is
-equivalent to putting @code{.set smartmips} at the start of the assembly file.
-@samp{-mno-smartmips} turns off this option.
+Enables the SmartMIPS extension to the MIPS32 instruction set.  This is
+equivalent to putting @code{.module smartmips} at the start of the assembly
+file.  @samp{-mno-smartmips} turns off this option.
 
 @item -mips3d
 @itemx -no-mips3d
@@ -1733,7 +1740,7 @@ Specify which s390 processor variant is the target, @samp{g5} (or
 @samp{arch3}), @samp{g6}, @samp{z900} (or @samp{arch5}), @samp{z990} (or
 @samp{arch6}), @samp{z9-109}, @samp{z9-ec} (or @samp{arch7}), @samp{z10} (or
 @samp{arch8}), @samp{z196} (or @samp{arch9}), @samp{zEC12} (or @samp{arch10}),
-@samp{z13} (or @samp{arch11}), or @samp{arch12}.
+@samp{z13} (or @samp{arch11}), or @samp{z14} (or @samp{arch12}).
 @item -mregnames
 @itemx -mno-regnames
 Allow or disallow symbolic names for registers.
@@ -5826,6 +5833,19 @@ state machine to @var{value}, which must be an unsigned integer.
 This directive will set the @code{discriminator} register in the @code{.debug_line}
 state machine to @var{value}, which must be an unsigned integer.
 
+@item view @var{value}
+This option causes a row to be added to @code{.debug_line} in reference to the
+current address (which might not be the same as that of the following assembly
+instruction), and to associate @var{value} with the @code{view} register in the
+@code{.debug_line} state machine.  If @var{value} is a label, both the
+@code{view} register and the label are set to the number of prior @code{.loc}
+directives at the same program location.  If @var{value} is the literal
+@code{0}, the @code{view} register is set to zero, and the assembler asserts
+that there aren't any prior @code{.loc} directives at the same program
+location.  If @var{value} is the literal @code{-0}, the assembler arrange for
+the @code{view} register to be reset in this row, even if there are prior
+@code{.loc} directives at the same program location.
+
 @end table
 
 @node Loc_mark_labels
@@ -6525,6 +6545,8 @@ combination of the following characters:
 @table @code
 @item a
 section is allocatable
+@item d
+section is a GNU_MBIND section
 @item e
 section is excluded from executable and shared library.
 @item w
@@ -7728,8 +7750,11 @@ subject, see the hardware manufacturer's manual.
 @ifset VISIUM
 * Visium-Dependent::            Visium Dependent Features
 @end ifset
+@ifset WASM32
+* WebAssembly-Dependent::       WebAssembly Dependent Features
+@end ifset
 @ifset XGATE
-* XGATE-Dependent::             XGATE Features
+* XGATE-Dependent::             XGATE Dependent Features
 @end ifset
 @ifset XSTORMY16
 * XSTORMY16-Dependent::         XStormy16 Dependent Features
@@ -7973,6 +7998,10 @@ family.
 
 @ifset VISIUM
 @include c-visium.texi
+@end ifset
+
+@ifset WASM32
+@include c-wasm32.texi
 @end ifset
 
 @ifset XGATE

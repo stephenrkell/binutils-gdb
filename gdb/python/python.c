@@ -352,7 +352,7 @@ python_run_simple_file (FILE *file, const char *filename)
   /* Because we have a string for a filename, and are using Python to
      open the file, we need to expand any tilde in the path first.  */
   gdb::unique_xmalloc_ptr<char> full_path (tilde_expand (filename));
-  gdbpy_ref<> python_file (PyFile_FromString (full_path.get (), "r"));
+  gdbpy_ref<> python_file (PyFile_FromString (full_path.get (), (char *) "r"));
   if (python_file == NULL)
     {
       gdbpy_print_stack ();
@@ -365,32 +365,19 @@ python_run_simple_file (FILE *file, const char *filename)
 }
 
 /* Given a command_line, return a command string suitable for passing
-   to Python.  Lines in the string are separated by newlines.  The
-   return value is allocated using xmalloc and the caller is
-   responsible for freeing it.  */
+   to Python.  Lines in the string are separated by newlines.  */
 
-static char *
+static std::string
 compute_python_string (struct command_line *l)
 {
   struct command_line *iter;
-  char *script = NULL;
-  int size = 0;
-  int here;
+  std::string script;
 
-  for (iter = l; iter; iter = iter->next)
-    size += strlen (iter->line) + 1;
-
-  script = (char *) xmalloc (size + 1);
-  here = 0;
   for (iter = l; iter; iter = iter->next)
     {
-      int len = strlen (iter->line);
-
-      strcpy (&script[here], iter->line);
-      here += len;
-      script[here++] = '\n';
+      script += iter->line;
+      script += '\n';
     }
-  script[here] = '\0';
   return script;
 }
 
@@ -402,16 +389,14 @@ gdbpy_eval_from_control_command (const struct extension_language_defn *extlang,
 				 struct command_line *cmd)
 {
   int ret;
-  char *script;
 
   if (cmd->body_count != 1)
     error (_("Invalid \"python\" block structure."));
 
   gdbpy_enter enter_py (get_current_arch (), current_language);
 
-  script = compute_python_string (cmd->body_list[0]);
-  ret = PyRun_SimpleString (script);
-  xfree (script);
+  std::string script = compute_python_string (cmd->body_list[0]);
+  ret = PyRun_SimpleString (script.c_str ());
   if (ret)
     error (_("Error while executing Python code."));
 }
@@ -433,11 +418,9 @@ python_command (char *arg, int from_tty)
     }
   else
     {
-      struct command_line *l = get_command_line (python_control, "");
-      struct cleanup *cleanup = make_cleanup_free_command_lines (&l);
+      command_line_up l = get_command_line (python_control, "");
 
-      execute_control_command_untraced (l);
-      do_cleanups (cleanup);
+      execute_control_command_untraced (l.get ());
     }
 }
 
@@ -457,7 +440,7 @@ gdbpy_parameter_value (enum var_types type, void *var)
     case var_filename:
     case var_enum:
       {
-	char *str = * (char **) var;
+	const char *str = *(char **) var;
 
 	if (! str)
 	  str = "";
@@ -572,11 +555,11 @@ execute_gdb_command (PyObject *self, PyObject *args, PyObject *kw)
   const char *arg;
   PyObject *from_tty_obj = NULL, *to_string_obj = NULL;
   int from_tty, to_string;
-  static char *keywords[] = {"command", "from_tty", "to_string", NULL };
+  static const char *keywords[] = { "command", "from_tty", "to_string", NULL };
 
-  if (! PyArg_ParseTupleAndKeywords (args, kw, "s|O!O!", keywords, &arg,
-				     &PyBool_Type, &from_tty_obj,
-				     &PyBool_Type, &to_string_obj))
+  if (!gdb_PyArg_ParseTupleAndKeywords (args, kw, "s|O!O!", keywords, &arg,
+					&PyBool_Type, &from_tty_obj,
+					&PyBool_Type, &to_string_obj))
     return NULL;
 
   from_tty = 0;
@@ -664,78 +647,52 @@ gdbpy_solib_name (PyObject *self, PyObject *args)
 static PyObject *
 gdbpy_decode_line (PyObject *self, PyObject *args)
 {
-  struct gdb_exception except = exception_none;
-  struct symtabs_and_lines sals = { NULL, 0 }; /* Initialize to
-						  appease gcc.  */
-  struct symtab_and_line sal;
   char *arg = NULL;
-  struct cleanup *cleanups;
   gdbpy_ref<> result;
   gdbpy_ref<> unparsed;
-  struct event_location *location = NULL;
+  event_location_up location;
 
   if (! PyArg_ParseTuple (args, "|s", &arg))
     return NULL;
 
-  cleanups = make_cleanup (null_cleanup, NULL);
-
-  sals.sals = NULL;
-
   if (arg != NULL)
-    {
-      location = string_to_event_location_basic (&arg, python_language);
-      make_cleanup_delete_event_location (location);
-    }
+    location = string_to_event_location_basic (&arg, python_language);
 
+  std::vector<symtab_and_line> decoded_sals;
+  symtab_and_line def_sal;
+  gdb::array_view<symtab_and_line> sals;
   TRY
     {
       if (location != NULL)
-	sals = decode_line_1 (location, 0, NULL, NULL, 0);
+	{
+	  decoded_sals = decode_line_1 (location.get (), 0, NULL, NULL, 0);
+	  sals = decoded_sals;
+	}
       else
 	{
 	  set_default_source_symtab_and_line ();
-	  sal = get_current_source_symtab_and_line ();
-	  sals.sals = &sal;
-	  sals.nelts = 1;
+	  def_sal = get_current_source_symtab_and_line ();
+	  sals = def_sal;
 	}
     }
   CATCH (ex, RETURN_MASK_ALL)
     {
-      except = ex;
+      /* We know this will always throw.  */
+      gdbpy_convert_exception (ex);
+      return NULL;
     }
   END_CATCH
 
-  if (sals.sals != NULL && sals.sals != &sal)
-    make_cleanup (xfree, sals.sals);
-
-  if (except.reason < 0)
+  if (!sals.empty ())
     {
-      do_cleanups (cleanups);
-      /* We know this will always throw.  */
-      gdbpy_convert_exception (except);
-      return NULL;
-    }
-
-  if (sals.nelts)
-    {
-      int i;
-
-      result.reset (PyTuple_New (sals.nelts));
+      result.reset (PyTuple_New (sals.size ()));
       if (result == NULL)
+	return NULL;
+      for (size_t i = 0; i < sals.size (); ++i)
 	{
-	  do_cleanups (cleanups);
-	  return NULL;
-	}
-      for (i = 0; i < sals.nelts; ++i)
-	{
-	  PyObject *obj;
-
-	  obj = symtab_and_line_to_sal_object (sals.sals[i]);
-	  if (! obj)
-	    {
-	      do_cleanups (cleanups);
-	      return NULL;
-	    }
+	  PyObject *obj = symtab_and_line_to_sal_object (sals[i]);
+	  if (obj == NULL)
+	    return NULL;
 
 	  PyTuple_SetItem (result.get (), i, obj);
 	}
@@ -748,19 +705,13 @@ gdbpy_decode_line (PyObject *self, PyObject *args)
 
   gdbpy_ref<> return_result (PyTuple_New (2));
   if (return_result == NULL)
-    {
-      do_cleanups (cleanups);
-      return NULL;
-    }
+    return NULL;
 
   if (arg != NULL && strlen (arg) > 0)
     {
       unparsed.reset (PyString_FromString (arg));
       if (unparsed == NULL)
-	{
-	  do_cleanups (cleanups);
-	  return NULL;
-	}
+	return NULL;
     }
   else
     {
@@ -770,8 +721,6 @@ gdbpy_decode_line (PyObject *self, PyObject *args)
 
   PyTuple_SetItem (return_result.get (), 0, unparsed.release ());
   PyTuple_SetItem (return_result.get (), 1, result.release ());
-
-  do_cleanups (cleanups);
 
   return return_result.release ();
 }
@@ -1047,11 +996,11 @@ static PyObject *
 gdbpy_write (PyObject *self, PyObject *args, PyObject *kw)
 {
   const char *arg;
-  static char *keywords[] = {"text", "stream", NULL };
+  static const char *keywords[] = { "text", "stream", NULL };
   int stream_type = 0;
 
-  if (! PyArg_ParseTupleAndKeywords (args, kw, "s|i", keywords, &arg,
-				     &stream_type))
+  if (!gdb_PyArg_ParseTupleAndKeywords (args, kw, "s|i", keywords, &arg,
+					&stream_type))
     return NULL;
 
   TRY
@@ -1088,11 +1037,11 @@ gdbpy_write (PyObject *self, PyObject *args, PyObject *kw)
 static PyObject *
 gdbpy_flush (PyObject *self, PyObject *args, PyObject *kw)
 {
-  static char *keywords[] = {"stream", NULL };
+  static const char *keywords[] = { "stream", NULL };
   int stream_type = 0;
 
-  if (! PyArg_ParseTupleAndKeywords (args, kw, "|i", keywords,
-				     &stream_type))
+  if (!gdb_PyArg_ParseTupleAndKeywords (args, kw, "|i", keywords,
+					&stream_type))
     return NULL;
 
   switch (stream_type)
@@ -1455,11 +1404,9 @@ python_interactive_command (char *arg, int from_tty)
     error (_("Python scripting is not supported in this copy of GDB."));
   else
     {
-      struct command_line *l = get_command_line (python_control, "");
-      struct cleanup *cleanups = make_cleanup_free_command_lines (&l);
+      command_line_up l = get_command_line (python_control, "");
 
-      execute_control_command_untraced (l);
-      do_cleanups (cleanups);
+      execute_control_command_untraced (l.get ());
     }
 }
 
@@ -1525,12 +1472,6 @@ finalize_python (void *ignore)
 
   restore_active_ext_lang (previous_active);
 }
-#endif
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_python;
-
-#ifdef HAVE_PYTHON
 
 static bool
 do_start_initialization ()
@@ -1539,7 +1480,6 @@ do_start_initialization ()
 #ifdef IS_PY3K
   int i;
   size_t progsize, count;
-  char *oldloc;
   wchar_t *progname_copy;
 #endif
 
@@ -1550,30 +1490,25 @@ do_start_initialization ()
      /foo/bin/python
      /foo/lib/pythonX.Y/...
      This must be done before calling Py_Initialize.  */
-  char *libdir = ldirname (python_libdir);
-  progname = concat (libdir, SLASH_STRING, "bin",
+  progname = concat (ldirname (python_libdir).c_str (), SLASH_STRING, "bin",
 		     SLASH_STRING, "python", (char *) NULL);
-  xfree (libdir);
 #ifdef IS_PY3K
-  oldloc = xstrdup (setlocale (LC_ALL, NULL));
+  std::string oldloc = setlocale (LC_ALL, NULL);
   setlocale (LC_ALL, "");
   progsize = strlen (progname);
   progname_copy = (wchar_t *) PyMem_Malloc ((progsize + 1) * sizeof (wchar_t));
   if (!progname_copy)
     {
-      xfree (oldloc);
       fprintf (stderr, "out of memory\n");
       return false;
     }
   count = mbstowcs (progname_copy, progname, progsize + 1);
   if (count == (size_t) -1)
     {
-      xfree (oldloc);
       fprintf (stderr, "Could not convert python path to string\n");
       return false;
     }
-  setlocale (LC_ALL, oldloc);
-  xfree (oldloc);
+  setlocale (LC_ALL, oldloc.c_str ());
 
   /* Note that Py_SetProgramName expects the string it is passed to
      remain alive for the duration of the program's execution, so
@@ -1635,6 +1570,7 @@ do_start_initialization ()
       || gdbpy_initialize_values () < 0
       || gdbpy_initialize_frames () < 0
       || gdbpy_initialize_commands () < 0
+      || gdbpy_initialize_instruction () < 0
       || gdbpy_initialize_record () < 0
       || gdbpy_initialize_btrace () < 0
       || gdbpy_initialize_symbols () < 0
@@ -1655,22 +1591,16 @@ do_start_initialization ()
       || gdbpy_initialize_eventregistry () < 0
       || gdbpy_initialize_py_events () < 0
       || gdbpy_initialize_event () < 0
-      || gdbpy_initialize_stop_event () < 0
-      || gdbpy_initialize_signal_event () < 0
-      || gdbpy_initialize_breakpoint_event () < 0
-      || gdbpy_initialize_continue_event () < 0
-      || gdbpy_initialize_inferior_call_pre_event () < 0
-      || gdbpy_initialize_inferior_call_post_event () < 0
-      || gdbpy_initialize_register_changed_event () < 0
-      || gdbpy_initialize_memory_changed_event () < 0
-      || gdbpy_initialize_exited_event () < 0
-      || gdbpy_initialize_thread_event () < 0
-      || gdbpy_initialize_new_objfile_event ()  < 0
-      || gdbpy_initialize_clear_objfiles_event ()  < 0
       || gdbpy_initialize_arch () < 0
       || gdbpy_initialize_xmethods () < 0
       || gdbpy_initialize_unwind () < 0)
     return false;
+
+#define GDB_PY_DEFINE_EVENT_TYPE(name, py_name, doc, base)	\
+  if (gdbpy_initialize_event_generic (&name##_event_object_type, py_name) < 0) \
+    return false;
+#include "py-event-types.def"
+#undef GDB_PY_DEFINE_EVENT_TYPE
 
   gdbpy_to_string_cst = PyString_FromString ("to_string");
   if (gdbpy_to_string_cst == NULL)
@@ -2024,4 +1954,51 @@ struct PyModuleDef python_GdbModuleDef =
   NULL
 };
 #endif
+
+/* Define all the event objects.  */
+#define GDB_PY_DEFINE_EVENT_TYPE(name, py_name, doc, base) \
+  PyTypeObject name##_event_object_type		    \
+        CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("event_object") \
+    = { \
+      PyVarObject_HEAD_INIT (NULL, 0)				\
+      "gdb." py_name,                             /* tp_name */ \
+      sizeof (event_object),                      /* tp_basicsize */ \
+      0,                                          /* tp_itemsize */ \
+      evpy_dealloc,                               /* tp_dealloc */ \
+      0,                                          /* tp_print */ \
+      0,                                          /* tp_getattr */ \
+      0,                                          /* tp_setattr */ \
+      0,                                          /* tp_compare */ \
+      0,                                          /* tp_repr */ \
+      0,                                          /* tp_as_number */ \
+      0,                                          /* tp_as_sequence */ \
+      0,                                          /* tp_as_mapping */ \
+      0,                                          /* tp_hash  */ \
+      0,                                          /* tp_call */ \
+      0,                                          /* tp_str */ \
+      0,                                          /* tp_getattro */ \
+      0,                                          /* tp_setattro */ \
+      0,                                          /* tp_as_buffer */ \
+      Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,   /* tp_flags */ \
+      doc,                                        /* tp_doc */ \
+      0,                                          /* tp_traverse */ \
+      0,                                          /* tp_clear */ \
+      0,                                          /* tp_richcompare */ \
+      0,                                          /* tp_weaklistoffset */ \
+      0,                                          /* tp_iter */ \
+      0,                                          /* tp_iternext */ \
+      0,                                          /* tp_methods */ \
+      0,                                          /* tp_members */ \
+      0,                                          /* tp_getset */ \
+      &base,                                      /* tp_base */ \
+      0,                                          /* tp_dict */ \
+      0,                                          /* tp_descr_get */ \
+      0,                                          /* tp_descr_set */ \
+      0,                                          /* tp_dictoffset */ \
+      0,                                          /* tp_init */ \
+      0                                           /* tp_alloc */ \
+    };
+#include "py-event-types.def"
+#undef GDB_PY_DEFINE_EVENT_TYPE
+
 #endif /* HAVE_PYTHON */

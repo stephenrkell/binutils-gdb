@@ -1192,13 +1192,11 @@ mmix_elf_perform_relocation (asection *isec, reloc_howto_type *howto,
 	  {
 	    _bfd_error_handler
 	      /* xgettext:c-format */
-	      (_("%s: Internal inconsistency error for value for\n\
- linker-allocated global register: linked: 0x%lx%08lx != relaxed: 0x%lx%08lx\n"),
-	       bfd_get_filename (isec->owner),
-	       (unsigned long) (value >> 32), (unsigned long) value,
-	       (unsigned long) (gregdata->reloc_request[bpo_index].value
-				>> 32),
-	       (unsigned long) gregdata->reloc_request[bpo_index].value);
+	      (_("%B: Internal inconsistency error for value for\n\
+ linker-allocated global register: linked: %#Lx != relaxed: %#Lx"),
+	       isec->owner,
+	       value,
+	       gregdata->reloc_request[bpo_index].value);
 	    bfd_set_error (bfd_error_bad_value);
 	    return bfd_reloc_overflow;
 	  }
@@ -1615,15 +1613,15 @@ mmix_final_link_relocate (reloc_howto_type *howto, asection *input_section,
 	  if (symname == NULL || *symname == 0)
 	    _bfd_error_handler
 	      /* xgettext:c-format */
-	      (_("%s: base-plus-offset relocation against register symbol: (unknown) in %s"),
-	       bfd_get_filename (input_section->owner),
-	       bfd_get_section_name (symsec->owner, symsec));
+	      (_("%B: base-plus-offset relocation against register symbol:"
+		 " (unknown) in %A"),
+	       input_section->owner, symsec);
 	  else
 	    _bfd_error_handler
 	      /* xgettext:c-format */
-	      (_("%s: base-plus-offset relocation against register symbol: %s in %s"),
-	       bfd_get_filename (input_section->owner), symname,
-	       bfd_get_section_name (symsec->owner, symsec));
+	      (_("%B: base-plus-offset relocation against register symbol:"
+		 " %s in %A"),
+	       input_section->owner, symname, symsec);
 	  return bfd_reloc_overflow;
 	}
       goto do_mmix_reloc;
@@ -1666,15 +1664,15 @@ mmix_final_link_relocate (reloc_howto_type *howto, asection *input_section,
 	  if (symname == NULL || *symname == 0)
 	    _bfd_error_handler
 	      /* xgettext:c-format */
-	      (_("%s: register relocation against non-register symbol: (unknown) in %s"),
-	       bfd_get_filename (input_section->owner),
-	       bfd_get_section_name (symsec->owner, symsec));
+	      (_("%B: register relocation against non-register symbol:"
+		 " (unknown) in %A"),
+	       input_section->owner, symsec);
 	  else
 	    _bfd_error_handler
 	      /* xgettext:c-format */
-	      (_("%s: register relocation against non-register symbol: %s in %s"),
-	       bfd_get_filename (input_section->owner), symname,
-	       bfd_get_section_name (symsec->owner, symsec));
+	      (_("%B: register relocation against non-register symbol:"
+		 " %s in %A"),
+	       input_section->owner, symname, symsec);
 
 	  /* The bfd_reloc_outofrange return value, though intuitively a
 	     better value, will not get us an error.  */
@@ -1709,8 +1707,8 @@ mmix_final_link_relocate (reloc_howto_type *howto, asection *input_section,
 		       MMIX_REG_SECTION_NAME) != 0)
 	{
 	  _bfd_error_handler
-	    (_("%s: directive LOCAL valid only with a register or absolute value"),
-	     bfd_get_filename (input_section->owner));
+	    (_("%B: directive LOCAL valid only with a register or absolute value"),
+	     input_section->owner);
 
 	  return bfd_reloc_overflow;
 	}
@@ -1740,8 +1738,9 @@ mmix_final_link_relocate (reloc_howto_type *howto, asection *input_section,
 	    /* FIXME: Better error message.  */
 	    _bfd_error_handler
 	      /* xgettext:c-format */
-	      (_("%s: LOCAL directive: Register $%ld is not a local register.  First global register is $%ld."),
-	       bfd_get_filename (input_section->owner), (long) srel, (long) first_global);
+	      (_("%B: LOCAL directive: Register $%Ld is not a local register."
+		 "  First global register is $%Ld."),
+	       input_section->owner, srel, first_global);
 
 	    return bfd_reloc_overflow;
 	  }
@@ -2017,7 +2016,7 @@ mmix_elf_check_relocs (bfd *abfd,
 
 	  /* PR15323, ref flags aren't set for references in the same
 	     object.  */
-	  h->root.non_ir_ref = 1;
+	  h->root.non_ir_ref_regular = 1;
 	}
 
       switch (ELF64_R_TYPE (rel->r_info))
@@ -2198,9 +2197,9 @@ mmix_elf_add_symbol_hook (bfd *abfd,
 	     h->u.def.section->owner is NULL.  */
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%s: Error: multiple definition of `%s'; start of %s "
+	    (_("%B: Error: multiple definition of `%s'; start of %s "
 	       "is set in a earlier linked file\n"),
-	     bfd_get_filename (abfd), *namep,
+	     abfd, *namep,
 	     *namep + strlen (MMIX_LOC_SECTION_START_SYMBOL_PREFIX));
 	   bfd_set_error (bfd_error_bad_value);
 	   return FALSE;
@@ -2443,10 +2442,10 @@ _bfd_mmix_after_linker_allocation (bfd *abfd ATTRIBUTE_UNUSED,
     {
       _bfd_error_handler
 	/* xgettext:c-format */
-	(_("Internal inconsistency: remaining %u != max %u.\n\
+	(_("Internal inconsistency: remaining %lu != max %lu.\n\
   Please report this bug."),
-	 gregdata->n_remaining_bpo_relocs_this_relaxation_round,
-	 gregdata->n_bpo_relocs);
+	 (unsigned long) gregdata->n_remaining_bpo_relocs_this_relaxation_round,
+	 (unsigned long) gregdata->n_bpo_relocs);
       return FALSE;
     }
 
@@ -2711,8 +2710,21 @@ mmix_elf_relax_section (bfd *abfd,
 	  indx = ELF64_R_SYM (irel->r_info) - symtab_hdr->sh_info;
 	  h = elf_sym_hashes (abfd)[indx];
 	  BFD_ASSERT (h != NULL);
-	  if (h->root.type != bfd_link_hash_defined
-	      && h->root.type != bfd_link_hash_defweak)
+	  if (h->root.type == bfd_link_hash_undefweak)
+	    /* FIXME: for R_MMIX_PUSHJ_STUBBABLE, there are alternatives to
+	       the canonical value 0 for an unresolved weak symbol to
+	       consider: as the debug-friendly approach, resolve to "abort"
+	       (or a port-specific function), or as the space-friendly
+	       approach resolve to the next instruction (like some other
+	       ports, notably ARM and AArch64).  These alternatives require
+	       matching code in mmix_elf_perform_relocation or its caller.  */
+	    symval = 0;
+	  else if (h->root.type == bfd_link_hash_defined
+		   || h->root.type == bfd_link_hash_defweak)
+	    symval = (h->root.u.def.value
+		      + h->root.u.def.section->output_section->vma
+		      + h->root.u.def.section->output_offset);
+	  else
 	    {
 	      /* This appears to be a reference to an undefined symbol.  Just
 		 ignore it--it will be caught by the regular reloc processing.
@@ -2726,10 +2738,6 @@ mmix_elf_relax_section (bfd *abfd,
 		}
 	      continue;
 	    }
-
-	  symval = (h->root.u.def.value
-		    + h->root.u.def.section->output_section->vma
-		    + h->root.u.def.section->output_offset);
 	}
 
       if (ELF64_R_TYPE (irel->r_info) == (int) R_MMIX_PUSHJ_STUBBABLE)
@@ -2866,6 +2874,8 @@ mmix_elf_relax_section (bfd *abfd,
 	  symtab_hdr->contents = (unsigned char *) isymbuf;
 	}
     }
+
+  BFD_ASSERT(pjsno == mmix_elf_section_data (sec)->pjs.n_pushj_relocs);
 
   if (internal_relocs != NULL
       && elf_section_data (sec)->relocs != internal_relocs)

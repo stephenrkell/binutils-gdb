@@ -27,21 +27,22 @@
 #include "serial.h"
 #include "gdbthread.h"
 #include "top.h"
+#include "common/gdb_optional.h"
 
 static void
 print_flush (void)
 {
   struct ui *ui = current_ui;
   struct serial *gdb_stdout_serial;
-  struct cleanup *old_chain = make_cleanup (null_cleanup, NULL);
 
   if (deprecated_error_begin_hook)
     deprecated_error_begin_hook ();
 
+  gdb::optional<target_terminal::scoped_restore_terminal_state> term_state;
   if (target_supports_terminal_ours ())
     {
-      make_cleanup_restore_target_terminal ();
-      target_terminal_ours_for_output ();
+      term_state.emplace ();
+      target_terminal::ours_for_output ();
     }
 
   /* We want all output to appear now, before we print the error.  We
@@ -66,8 +67,6 @@ print_flush (void)
     }
 
   annotate_error_begin ();
-
-  do_cleanups (old_chain);
 }
 
 static void
@@ -221,8 +220,8 @@ catch_exceptions_with_msg (struct ui_out *func_uiout,
 /* This function is superseded by catch_exceptions().  */
 
 int
-catch_errors (catch_errors_ftype *func, void *func_args, char *errstring,
-	      return_mask mask)
+catch_errors (catch_errors_ftype *func, void *func_args,
+	      const char *errstring, return_mask mask)
 {
   struct gdb_exception exception = exception_none;
   volatile int val = 0;

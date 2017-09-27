@@ -2537,10 +2537,11 @@ m32r_elf_relocate_section (bfd *output_bfd ATTRIBUTE_UNUSED,
 		{
 		  _bfd_error_handler
 		    /* xgettext:c-format */
-		    (_("%B(%A+0x%lx): unresolvable %s relocation against symbol `%s'"),
+		    (_("%B(%A+%#Lx): unresolvable %s relocation "
+		       "against symbol `%s'"),
 		     input_bfd,
 		     input_section,
-		     (long) rel->r_offset,
+		     rel->r_offset,
 		     howto->name,
 		     h->root.root.string);
 		}
@@ -2983,9 +2984,9 @@ m32r_elf_relocate_section (bfd *output_bfd ATTRIBUTE_UNUSED,
 		      /* xgettext:c-format */
 		      (_("%B: The target (%s) of an %s relocation is in the wrong section (%A)"),
 		       input_bfd,
-		       sec,
 		       sym_name,
-		       m32r_elf_howto_table[(int) r_type].name);
+		       m32r_elf_howto_table[(int) r_type].name,
+		       sec);
 		    /*bfd_set_error (bfd_error_bad_value); ??? why? */
 		    ret = FALSE;
 		    continue;
@@ -3706,7 +3707,7 @@ m32r_elf_check_relocs (bfd *abfd,
 
 	  /* PR15323, ref flags aren't set for references in the same
 	     object.  */
-	  h->root.non_ir_ref = 1;
+	  h->root.non_ir_ref_regular = 1;
 	}
 
       /* Some relocs require a global offset table.  */

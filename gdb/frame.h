@@ -408,8 +408,7 @@ extern int get_frame_func_if_available (struct frame_info *fi, CORE_ADDR *);
    find_frame_symtab(), find_frame_function().  Each will need to be
    carefully considered to determine if the real intent was for it to
    apply to the PC or the adjusted PC.  */
-extern void find_frame_sal (struct frame_info *frame,
-			    struct symtab_and_line *sal);
+extern symtab_and_line find_frame_sal (frame_info *frame);
 
 /* Set the current source and line to the location given by frame
    FRAME, if possible.  */
@@ -680,7 +679,8 @@ extern void *frame_obstack_zalloc (unsigned long size);
   ((TYPE *) frame_obstack_zalloc ((NUMBER) * sizeof (TYPE)))
 
 /* Create a regcache, and copy the frame's registers into it.  */
-struct regcache *frame_save_as_regcache (struct frame_info *this_frame);
+std::unique_ptr<struct regcache> frame_save_as_regcache
+    (struct frame_info *this_frame);
 
 extern const struct block *get_frame_block (struct frame_info *,
 					    CORE_ADDR *addr_in_block);
@@ -784,9 +784,9 @@ extern void read_frame_arg (struct symbol *sym, struct frame_info *frame,
 extern void read_frame_local (struct symbol *sym, struct frame_info *frame,
 			      struct frame_arg *argp);
 
-extern void args_info (char *, int);
+extern void info_args_command (char *, int);
 
-extern void locals_info (char *, int);
+extern void info_locals_command (char *, int);
 
 extern void return_command (char *, int);
 
@@ -832,6 +832,14 @@ extern struct frame_info *deprecated_safe_get_selected_frame (void);
 /* Create a frame using the specified BASE and PC.  */
 
 extern struct frame_info *create_new_frame (CORE_ADDR base, CORE_ADDR pc);
+
+#if GDB_SELF_TEST
+
+/* Create a frame for unit test.  Its next frame is sentinel frame,
+   created from REGCACHE.  */
+
+extern struct frame_info *create_test_frame (struct regcache *regcache);
+#endif
 
 /* Return true if the frame unwinder for frame FI is UNWINDER; false
    otherwise.  */

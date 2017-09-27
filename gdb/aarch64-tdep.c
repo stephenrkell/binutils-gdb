@@ -1777,7 +1777,7 @@ static int
 aarch64_gdb_print_insn (bfd_vma memaddr, disassemble_info *info)
 {
   info->symbols = NULL;
-  return print_insn_aarch64 (memaddr, info);
+  return default_print_insn (memaddr, info);
 }
 
 /* AArch64 BRK software debug mode instruction.
@@ -1987,7 +1987,7 @@ aarch64_store_return_value (struct type *type, struct regcache *regs,
       for (i = 0; i < elements; i++)
 	{
 	  int regno = AARCH64_V0_REGNUM + i;
-	  bfd_byte tmpbuf[MAX_REGISTER_SIZE];
+	  bfd_byte tmpbuf[V_REGISTER_SIZE];
 
 	  if (aarch64_debug)
 	    {
@@ -2241,7 +2241,7 @@ aarch64_pseudo_read_value (struct gdbarch *gdbarch,
 			   struct regcache *regcache,
 			   int regnum)
 {
-  gdb_byte reg_buf[MAX_REGISTER_SIZE];
+  gdb_byte reg_buf[V_REGISTER_SIZE];
   struct value *result_value;
   gdb_byte *buf;
 
@@ -2336,7 +2336,7 @@ static void
 aarch64_pseudo_write (struct gdbarch *gdbarch, struct regcache *regcache,
 		      int regnum, const gdb_byte *buf)
 {
-  gdb_byte reg_buf[MAX_REGISTER_SIZE];
+  gdb_byte reg_buf[V_REGISTER_SIZE];
 
   /* Ensure the register buffer is zero, we want gdb writes of the
      various 'scalar' pseudo registers to behavior like architectural
@@ -2417,7 +2417,7 @@ value_of_aarch64_user_reg (struct frame_info *frame, const void *baton)
 /* Implement the "software_single_step" gdbarch method, needed to
    single step through atomic sequences on AArch64.  */
 
-static VEC (CORE_ADDR) *
+static std::vector<CORE_ADDR>
 aarch64_software_single_step (struct regcache *regcache)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
@@ -2435,14 +2435,13 @@ aarch64_software_single_step (struct regcache *regcache)
   int bc_insn_count = 0; /* Conditional branch instruction count.  */
   int last_breakpoint = 0; /* Defaults to 0 (no breakpoints placed).  */
   aarch64_inst inst;
-  VEC (CORE_ADDR) *next_pcs = NULL;
 
   if (aarch64_decode_insn (insn, &inst, 1) != 0)
-    return NULL;
+    return {};
 
   /* Look for a Load Exclusive instruction which begins the sequence.  */
   if (inst.opcode->iclass != ldstexcl || bit (insn, 22) == 0)
-    return NULL;
+    return {};
 
   for (insn_count = 0; insn_count < atomic_sequence_length; ++insn_count)
     {
@@ -2451,14 +2450,14 @@ aarch64_software_single_step (struct regcache *regcache)
 					   byte_order_for_code);
 
       if (aarch64_decode_insn (insn, &inst, 1) != 0)
-	return NULL;
+	return {};
       /* Check if the instruction is a conditional branch.  */
       if (inst.opcode->iclass == condbranch)
 	{
 	  gdb_assert (inst.operands[0].type == AARCH64_OPND_ADDR_PCREL19);
 
 	  if (bc_insn_count >= 1)
-	    return NULL;
+	    return {};
 
 	  /* It is, so we'll try to set a breakpoint at the destination.  */
 	  breaks[1] = loc + inst.operands[0].imm.value;
@@ -2477,7 +2476,7 @@ aarch64_software_single_step (struct regcache *regcache)
 
   /* We didn't find a closing Store Exclusive instruction, fall back.  */
   if (!closing_insn)
-    return NULL;
+    return {};
 
   /* Insert breakpoint after the end of the atomic sequence.  */
   breaks[0] = loc + insn_size;
@@ -2489,10 +2488,12 @@ aarch64_software_single_step (struct regcache *regcache)
 	  || (breaks[1] >= pc && breaks[1] <= closing_insn)))
     last_breakpoint = 0;
 
+  std::vector<CORE_ADDR> next_pcs;
+
   /* Insert the breakpoint at the end of the sequence, and one at the
      destination of the conditional branch, if it exists.  */
   for (index = 0; index <= last_breakpoint; index++)
-    VEC_safe_push (CORE_ADDR, next_pcs, breaks[index]);
+    next_pcs.push_back (breaks[index]);
 
   return next_pcs;
 }
@@ -2977,6 +2978,7 @@ aarch64_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_long_long_bit (gdbarch, 64);
   set_gdbarch_ptr_bit (gdbarch, 64);
   set_gdbarch_char_signed (gdbarch, 0);
+  set_gdbarch_wchar_signed (gdbarch, 0);
   set_gdbarch_float_format (gdbarch, floatformats_ieee_single);
   set_gdbarch_double_format (gdbarch, floatformats_ieee_double);
   set_gdbarch_long_double_format (gdbarch, floatformats_ia64_quad);
@@ -2995,7 +2997,7 @@ aarch64_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   /* Hook in the ABI-specific overrides, if they have been registered.  */
   info.target_desc = tdesc;
-  info.tdep_info = (void *) tdesc_data;
+  info.tdesc_data = tdesc_data;
   gdbarch_init_osabi (info, gdbarch);
 
   dwarf2_frame_set_init_reg (gdbarch, aarch64_dwarf2_frame_init_reg);
@@ -3038,13 +3040,12 @@ aarch64_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
 		      paddress (gdbarch, tdep->lowest_pc));
 }
 
+#if GDB_SELF_TEST
 namespace selftests
 {
 static void aarch64_process_record_test (void);
 }
-
-/* Suppress warning from -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_aarch64_tdep;
+#endif
 
 void
 _initialize_aarch64_tdep (void)
@@ -3064,8 +3065,10 @@ When on, AArch64 specific debugging is enabled."),
 			    &setdebuglist, &showdebuglist);
 
 #if GDB_SELF_TEST
-  register_self_test (selftests::aarch64_analyze_prologue_test);
-  register_self_test (selftests::aarch64_process_record_test);
+  selftests::register_test ("aarch64-analyze-prologue",
+			    selftests::aarch64_analyze_prologue_test);
+  selftests::register_test ("aarch64-process-record",
+			    selftests::aarch64_process_record_test);
 #endif
 }
 

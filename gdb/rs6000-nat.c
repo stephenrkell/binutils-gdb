@@ -162,7 +162,7 @@ static void
 fetch_register (struct regcache *regcache, int regno)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  int addr[MAX_REGISTER_SIZE];
+  int addr[PPC_MAX_REGISTER_SIZE];
   int nr, isfloat;
   pid_t pid = ptid_get_pid (regcache_get_ptid (regcache));
 
@@ -221,7 +221,7 @@ static void
 store_register (struct regcache *regcache, int regno)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  int addr[MAX_REGISTER_SIZE];
+  int addr[PPC_MAX_REGISTER_SIZE];
   int nr, isfloat;
   pid_t pid = ptid_get_pid (regcache_get_ptid (regcache));
 
@@ -524,11 +524,13 @@ rs6000_wait (struct target_ops *ops,
 /* Set the current architecture from the host running GDB.  Called when
    starting a child process.  */
 
-static void (*super_create_inferior) (struct target_ops *,char *exec_file, 
-				      char *allargs, char **env, int from_tty);
+static void (*super_create_inferior) (struct target_ops *,
+				      const char *exec_file,
+				      const std::string &allargs,
+				      char **env, int from_tty);
 static void
-rs6000_create_inferior (struct target_ops * ops, char *exec_file,
-			char *allargs, char **env, int from_tty)
+rs6000_create_inferior (struct target_ops * ops, const char *exec_file,
+			const std::string &allargs, char **env, int from_tty)
 {
   enum bfd_architecture arch;
   unsigned long mach;
@@ -652,8 +654,6 @@ rs6000_xfer_shared_libraries
       return TARGET_XFER_OK;
     }
 }
-
-void _initialize_rs6000_nat (void);
 
 void
 _initialize_rs6000_nat (void)

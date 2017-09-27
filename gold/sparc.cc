@@ -3730,7 +3730,7 @@ Target_sparc<size, big_endian>::Relocate::relocate_tls(
 
   const bool is_final =
     (gsym == NULL
-     ? !parameters->options().output_is_position_independent()
+     ? !parameters->options().shared()
      : gsym->final_value_is_known());
   const tls::Tls_optimization optimized_type
       = optimize_tls_reloc(is_final, r_type);
@@ -4164,7 +4164,7 @@ Target_sparc<size, big_endian>::Relocate::relax_call(
   if (op3 != 0x3d)
     {
       // First check RS1
-      reg = (delay_insn >> 14) & 0x15;
+      reg = (delay_insn >> 14) & 0x1f;
       if (reg == 15)
 	return;
 

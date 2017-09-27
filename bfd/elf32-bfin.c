@@ -329,11 +329,11 @@ bfin_bfd_reloc (bfd *abfd,
   /* Here the variable relocation holds the final address of the
      symbol we are relocating against, plus any addend.  */
 
-  if (howto->pc_relative == TRUE)
+  if (howto->pc_relative)
     {
       relocation -= input_section->output_section->vma + input_section->output_offset;
 
-      if (howto->pcrel_offset == TRUE)
+      if (howto->pcrel_offset)
         relocation -= reloc_entry->address;
     }
 
@@ -1191,7 +1191,7 @@ bfin_check_relocs (bfd * abfd,
 
 	  /* PR15323, ref flags aren't set for references in the same
 	     object.  */
-	  h->root.non_ir_ref = 1;
+	  h->root.non_ir_ref_regular = 1;
 	}
 
       switch (ELF32_R_TYPE (rel->r_info))
@@ -1578,9 +1578,9 @@ bfin_relocate_section (bfd * output_bfd,
 	{
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B(%A+0x%lx): unresolvable relocation against symbol `%s'"),
+	    (_("%B(%A+%#Lx): unresolvable relocation against symbol `%s'"),
 	     input_bfd,
-	     input_section, (long) rel->r_offset, h->root.root.string);
+	     input_section, rel->r_offset, h->root.root.string);
 	  return FALSE;
 	}
 
@@ -1609,9 +1609,8 @@ bfin_relocate_section (bfd * output_bfd,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B(%A+0x%lx): reloc against `%s': error %d"),
-		 input_bfd, input_section,
-		 (long) rel->r_offset, name, (int) r);
+		(_("%B(%A+%#Lx): reloc against `%s': error %d"),
+		 input_bfd, input_section, rel->r_offset, name, (int) r);
 	      return FALSE;
 	    }
 	}
@@ -2703,7 +2702,7 @@ bfinfdpic_relocate_section (bfd * output_bfd,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: relocation at `%A+0x%x' references symbol `%s' with nonzero addend"),
+		(_("%B: relocation at `%A+%#Lx' references symbol `%s' with nonzero addend"),
 		 input_bfd, input_section, rel->r_offset, name);
 	      return FALSE;
 
@@ -4874,8 +4873,8 @@ bfinfdpic_check_relocs (bfd *abfd, struct bfd_link_info *info,
 	bad_reloc:
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B: unsupported relocation type %i"),
-	     abfd, ELF32_R_TYPE (rel->r_info));
+	    (_("%B: unsupported relocation type %d"),
+	     abfd, (int) ELF32_R_TYPE (rel->r_info));
 	  return FALSE;
         }
     }
@@ -4949,9 +4948,8 @@ elf32_bfin_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
   if (0)
 #endif
   _bfd_error_handler
-    ("old_flags = 0x%.8lx, new_flags = 0x%.8lx, init = %s, filename = %s",
-     old_flags, new_flags, elf_flags_init (obfd) ? "yes" : "no",
-     bfd_get_filename (ibfd));
+    ("old_flags = 0x%.8x, new_flags = 0x%.8x, init = %s, filename = %B",
+     old_flags, new_flags, elf_flags_init (obfd) ? "yes" : "no", ibfd);
 
   if (!elf_flags_init (obfd))			/* First call, no flags set.  */
     {
@@ -4964,12 +4962,12 @@ elf32_bfin_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
       error = TRUE;
       if (IS_FDPIC (obfd))
 	_bfd_error_handler
-	  (_("%s: cannot link non-fdpic object file into fdpic executable"),
-	   bfd_get_filename (ibfd));
+	  (_("%B: cannot link non-fdpic object file into fdpic executable"),
+	   ibfd);
       else
 	_bfd_error_handler
-	  (_("%s: cannot link fdpic object file into non-fdpic executable"),
-	   bfd_get_filename (ibfd));
+	  (_("%B: cannot link fdpic object file into non-fdpic executable"),
+	   ibfd);
     }
 
   if (error)

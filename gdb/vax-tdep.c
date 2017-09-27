@@ -39,7 +39,7 @@
 static const char *
 vax_register_name (struct gdbarch *gdbarch, int regnum)
 {
-  static char *register_names[] =
+  static const char *register_names[] =
   {
     "r0", "r1", "r2",  "r3",  "r4", "r5", "r6", "r7",
     "r8", "r9", "r10", "r11", "ap", "fp", "sp", "pc",
@@ -502,8 +502,6 @@ vax_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_deprecated_function_start_offset (gdbarch, 2);
   set_gdbarch_believe_pcc_promotion (gdbarch, 1);
 
-  set_gdbarch_print_insn (gdbarch, print_insn_vax);
-
   set_gdbarch_unwind_pc (gdbarch, vax_unwind_pc);
 
   frame_base_set_default (gdbarch, &vax_frame_base);
@@ -515,9 +513,6 @@ vax_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   return (gdbarch);
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-void _initialize_vax_tdep (void);
 
 void
 _initialize_vax_tdep (void)

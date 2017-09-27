@@ -37,6 +37,7 @@
 
 #include "floatformat.h"
 
+#include "dis-asm.h"
 
 struct displaced_step_closure *
 simple_displaced_step_copy_insn (struct gdbarch *gdbarch,
@@ -57,14 +58,6 @@ simple_displaced_step_copy_insn (struct gdbarch *gdbarch,
     }
 
   return (struct displaced_step_closure *) buf;
-}
-
-
-void
-simple_displaced_step_free_closure (struct gdbarch *gdbarch,
-                                    struct displaced_step_closure *closure)
-{
-  xfree (closure);
 }
 
 int
@@ -202,6 +195,15 @@ CORE_ADDR
 default_adjust_dwarf2_line (CORE_ADDR addr, int rel)
 {
   return addr;
+}
+
+/* See arch-utils.h.  */
+
+bool
+default_execute_dwarf_cfa_vendor_op (struct gdbarch *gdbarch, gdb_byte op,
+				     struct dwarf2_frame_state *fs)
+{
+  return false;
 }
 
 int
@@ -964,8 +966,35 @@ default_guess_tracepoint_registers (struct gdbarch *gdbarch,
   regcache_raw_supply (regcache, pc_regno, regs);
 }
 
-/* -Wmissing-prototypes */
-extern initialize_file_ftype _initialize_gdbarch_utils;
+int
+default_print_insn (bfd_vma memaddr, disassemble_info *info)
+{
+  disassembler_ftype disassemble_fn;
+
+  disassemble_fn = disassembler (info->arch, info->endian == BFD_ENDIAN_BIG,
+				 info->mach, exec_bfd);
+
+  gdb_assert (disassemble_fn != NULL);
+  return (*disassemble_fn) (memaddr, info);
+}
+
+/* See arch-utils.h.  */
+
+CORE_ADDR
+gdbarch_skip_prologue_noexcept (gdbarch *gdbarch, CORE_ADDR pc) noexcept
+{
+  CORE_ADDR new_pc = pc;
+
+  TRY
+    {
+      new_pc = gdbarch_skip_prologue (gdbarch, pc);
+    }
+  CATCH (ex, RETURN_MASK_ALL)
+    {}
+  END_CATCH
+
+  return new_pc;
+}
 
 void
 _initialize_gdbarch_utils (void)

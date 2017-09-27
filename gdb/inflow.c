@@ -31,6 +31,8 @@
 
 #include "inflow.h"
 #include "gdbcmd.h"
+#include "gdb_termios.h"
+#include "job-control.h"
 
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
@@ -39,8 +41,6 @@
 #ifndef O_NOCTTY
 #define O_NOCTTY 0
 #endif
-
-extern void _initialize_inflow (void);
 
 static void pass_signal (int);
 
@@ -226,7 +226,7 @@ child_terminal_init (struct target_ops *self)
 {
 #ifdef PROCESS_GROUP_TYPE
   /* This is for Lynx, and should be cleaned up by having Lynx be a
-     separate debugging target with a version of target_terminal_init
+     separate debugging target with a version of target_terminal::init
      which passes in the process group to a generic routine which does
      all the work (and the non-threaded child_terminal_init can just
      pass in inferior_ptid to the same routine).  */
@@ -534,9 +534,9 @@ copy_terminal_info (struct inferior *to, struct inferior *from)
 }
 
 void
-term_info (char *arg, int from_tty)
+info_terminal_command (char *arg, int from_tty)
 {
-  target_terminal_info (arg, from_tty);
+  target_terminal::info (arg, from_tty);
 }
 
 void
@@ -803,43 +803,6 @@ create_tty_session (void)
 #endif /* HAVE_SETSID */
 }
 
-/* This is here because this is where we figure out whether we (probably)
-   have job control.  Just using job_control only does part of it because
-   setpgid or setpgrp might not exist on a system without job control.
-   It might be considered misplaced (on the other hand, process groups and
-   job control are closely related to ttys).
-
-   For a more clean implementation, in libiberty, put a setpgid which merely
-   calls setpgrp and a setpgrp which does nothing (any system with job control
-   will have one or the other).  */
-int
-gdb_setpgid (void)
-{
-  int retval = 0;
-
-  if (job_control)
-    {
-#if defined (HAVE_TERMIOS) || defined (TIOCGPGRP)
-#ifdef HAVE_SETPGID
-      /* The call setpgid (0, 0) is supposed to work and mean the same
-         thing as this, but on Ultrix 4.2A it fails with EPERM (and
-         setpgid (getpid (), getpid ()) succeeds).  */
-      retval = setpgid (getpid (), getpid ());
-#else
-#ifdef HAVE_SETPGRP
-#ifdef SETPGRP_VOID 
-      retval = setpgrp ();
-#else
-      retval = setpgrp (getpid (), getpid ());
-#endif
-#endif /* HAVE_SETPGRP */
-#endif /* HAVE_SETPGID */
-#endif /* defined (HAVE_TERMIOS) || defined (TIOCGPGRP) */
-    }
-
-  return retval;
-}
-
 /* Get all the current tty settings (including whether we have a
    tty at all!).  We can't do this in _initialize_inflow because
    serial_fdopen() won't work until the serial_ops_list is
@@ -855,35 +818,13 @@ initialize_stdin_serial (void)
 void
 _initialize_inflow (void)
 {
-  add_info ("terminal", term_info,
+  add_info ("terminal", info_terminal_command,
 	    _("Print inferior's saved terminal status."));
 
   terminal_is_ours = 1;
 
-  /* OK, figure out whether we have job control.  If neither termios nor
-     sgtty (i.e. termio or go32), leave job_control 0.  */
-
-#if defined (HAVE_TERMIOS)
-  /* Do all systems with termios have the POSIX way of identifying job
-     control?  I hope so.  */
-#ifdef _POSIX_JOB_CONTROL
-  job_control = 1;
-#else
-#ifdef _SC_JOB_CONTROL
-  job_control = sysconf (_SC_JOB_CONTROL);
-#else
-  job_control = 0;		/* Have to assume the worst.  */
-#endif /* _SC_JOB_CONTROL */
-#endif /* _POSIX_JOB_CONTROL */
-#endif /* HAVE_TERMIOS */
-
-#ifdef HAVE_SGTTY
-#ifdef TIOCGPGRP
-  job_control = 1;
-#else
-  job_control = 0;
-#endif /* TIOCGPGRP */
-#endif /* sgtty */
+  /* OK, figure out whether we have job control.  */
+  have_job_control ();
 
   observer_attach_inferior_exit (inflow_inferior_exit);
 

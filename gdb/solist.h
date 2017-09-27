@@ -29,9 +29,11 @@
 	 so != NULL; \
 	 so = so->next)
 
-/* Forward declaration for target specific link map information.  This
-   struct is opaque to all but the target specific file.  */
-struct lm_info;
+/* Base class for target-specific link map information.  */
+
+struct lm_info_base
+{
+};
 
 struct so_list
   {
@@ -45,7 +47,7 @@ struct so_list
        will be a copy of struct link_map from the user process, but
        it need not be; it can be any collection of data needed to
        traverse the dynamic linker's data structures.  */
-    struct lm_info *lm_info;
+    lm_info_base *lm_info;
 
     /* Shared object file name, exactly as it appears in the
        inferior's link map.  This may be a relative path, or something
@@ -176,6 +178,18 @@ struct target_so_ops
 
 /* Free the memory associated with a (so_list *).  */
 void free_so (struct so_list *so);
+
+/* A deleter that calls free_so.  */
+struct so_deleter
+{
+  void operator() (struct so_list *so) const
+  {
+    free_so (so);
+  }
+};
+
+/* A unique pointer to a so_list.  */
+typedef std::unique_ptr<so_list, so_deleter> so_list_up;
 
 /* Return address of first so_list entry in master shared object list.  */
 struct so_list *master_so_list (void);

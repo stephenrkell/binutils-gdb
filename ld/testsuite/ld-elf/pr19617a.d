@@ -1,5 +1,5 @@
 #source: pr19617.s
-#ld: -E
+#ld: -E --no-dynamic-linker --hash-style=sysv
 #readelf : --dyn-syms --wide
 #target: *-*-linux* *-*-gnu* *-*-solaris*
 

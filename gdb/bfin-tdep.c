@@ -241,6 +241,8 @@ static const int map_gcc_gdb[] =
   BFIN_LB1_REGNUM
 };
 
+/* Big enough to hold the size of the largest register in bytes.  */
+#define BFIN_MAX_REGISTER_SIZE	4
 
 struct bfin_frame_cache
 {
@@ -689,7 +691,7 @@ static enum register_status
 bfin_pseudo_register_read (struct gdbarch *gdbarch, struct regcache *regcache,
 			   int regnum, gdb_byte *buffer)
 {
-  gdb_byte *buf = (gdb_byte *) alloca (MAX_REGISTER_SIZE);
+  gdb_byte buf[BFIN_MAX_REGISTER_SIZE];
   enum register_status status;
 
   if (regnum != BFIN_CC_REGNUM)
@@ -710,7 +712,7 @@ static void
 bfin_pseudo_register_write (struct gdbarch *gdbarch, struct regcache *regcache,
 			    int regnum, const gdb_byte *buffer)
 {
-  gdb_byte *buf = (gdb_byte *) alloca (MAX_REGISTER_SIZE);
+  gdb_byte buf[BFIN_MAX_REGISTER_SIZE];
 
   if (regnum != BFIN_CC_REGNUM)
     internal_error (__FILE__, __LINE__,
@@ -809,7 +811,7 @@ bfin_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       return arches->gdbarch;
     }
 
-  tdep = XNEW (struct gdbarch_tdep);
+  tdep = XCNEW (struct gdbarch_tdep);
   gdbarch = gdbarch_alloc (&info, tdep);
 
   tdep->bfin_abi = abi;
@@ -836,7 +838,6 @@ bfin_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_frame_args_skip (gdbarch, 8);
   set_gdbarch_unwind_pc (gdbarch, bfin_unwind_pc);
   set_gdbarch_frame_align (gdbarch, bfin_frame_align);
-  set_gdbarch_print_insn (gdbarch, print_insn_bfin);
 
   /* Hook in ABI-specific overrides, if they have been registered.  */
   gdbarch_init_osabi (info, gdbarch);
@@ -849,9 +850,6 @@ bfin_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   return gdbarch;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_bfin_tdep;
 
 void
 _initialize_bfin_tdep (void)

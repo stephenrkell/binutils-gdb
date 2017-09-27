@@ -49,7 +49,7 @@ m88k_fetch_instruction (CORE_ADDR pc, enum bfd_endian byte_order)
 static const char *
 m88k_register_name (struct gdbarch *gdbarch, int regnum)
 {
-  static char *register_names[] =
+  static const char *register_names[] =
   {
     "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",
     "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15",
@@ -838,8 +838,6 @@ m88k_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_iterate_over_regset_sections
     (gdbarch, m88k_iterate_over_regset_sections);
 
-  set_gdbarch_print_insn (gdbarch, print_insn_m88k);
-
   set_gdbarch_skip_prologue (gdbarch, m88k_skip_prologue);
 
   /* Stack grows downward.  */
@@ -863,10 +861,6 @@ m88k_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   return gdbarch;
 }
-
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-void _initialize_m88k_tdep (void);
 
 void
 _initialize_m88k_tdep (void)

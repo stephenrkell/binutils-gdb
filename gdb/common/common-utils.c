@@ -18,6 +18,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "common-defs.h"
+#include "common-utils.h"
 #include "host-defs.h"
 #include <ctype.h>
 
@@ -297,7 +298,7 @@ skip_spaces (char *chp)
 /* A const-correct version of the above.  */
 
 const char *
-skip_spaces_const (const char *chp)
+skip_spaces (const char *chp)
 {
   if (chp == NULL)
     return NULL;
@@ -309,11 +310,53 @@ skip_spaces_const (const char *chp)
 /* See documentation in common-utils.h.  */
 
 const char *
-skip_to_space_const (const char *chp)
+skip_to_space (const char *chp)
 {
   if (chp == NULL)
     return NULL;
   while (*chp && !isspace (*chp))
     chp++;
   return chp;
+}
+
+/* See documentation in common-utils.h.  */
+
+char *
+skip_to_space (char *chp)
+{
+  return (char *) skip_to_space ((const char *) chp);
+}
+
+/* See common/common-utils.h.  */
+
+void
+free_vector_argv (std::vector<char *> &v)
+{
+  for (char *el : v)
+    xfree (el);
+
+  v.clear ();
+}
+
+/* See common/common-utils.h.  */
+
+std::string
+stringify_argv (const std::vector<char *> &args)
+{
+  std::string ret;
+
+  if (!args.empty () && args[0] != NULL)
+    {
+      for (auto s : args)
+	if (s != NULL)
+	  {
+	    ret += s;
+	    ret += ' ';
+	  }
+
+      /* Erase the last whitespace.  */
+      ret.erase (ret.end () - 1);
+    }
+
+  return ret;
 }

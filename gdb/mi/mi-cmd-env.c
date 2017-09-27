@@ -34,8 +34,6 @@
 
 static void env_mod_path (char *dirname, char **which_path);
 
-extern void _initialize_mi_cmd_env (void);
-
 static const char path_var_name[] = "PATH";
 static char *orig_path = NULL;
 
@@ -48,24 +46,20 @@ env_execute_cli_command (const char *cmd, const char *args)
 {
   if (cmd != 0)
     {
-      struct cleanup *old_cleanups;
-      char *run;
+      gdb::unique_xmalloc_ptr<char> run;
 
       if (args != NULL)
-	run = xstrprintf ("%s %s", cmd, args);
+	run.reset (xstrprintf ("%s %s", cmd, args));
       else
-	run = xstrdup (cmd);
-      old_cleanups = make_cleanup (xfree, run);
-      execute_command ( /*ui */ run, 0 /*from_tty */ );
-      do_cleanups (old_cleanups);
-      return;
+	run.reset (xstrdup (cmd));
+      execute_command ( /*ui */ run.get (), 0 /*from_tty */ );
     }
 }
 
 /* Print working directory.  */
 
 void
-mi_cmd_env_pwd (char *command, char **argv, int argc)
+mi_cmd_env_pwd (const char *command, char **argv, int argc)
 {
   struct ui_out *uiout = current_uiout;
 
@@ -80,17 +74,18 @@ mi_cmd_env_pwd (char *command, char **argv, int argc)
      
   /* Otherwise the mi level is 2 or higher.  */
 
-  if (! getcwd (gdb_dirbuf, sizeof (gdb_dirbuf)))
+  gdb::unique_xmalloc_ptr<char> cwd (getcwd (NULL, 0));
+  if (cwd == NULL)
     error (_("-environment-pwd: error finding name of working directory: %s"),
            safe_strerror (errno));
-    
-  uiout->field_string ("cwd", gdb_dirbuf);
+
+  uiout->field_string ("cwd", cwd.get ());
 }
 
 /* Change working directory.  */
 
 void
-mi_cmd_env_cd (char *command, char **argv, int argc)
+mi_cmd_env_cd (const char *command, char **argv, int argc)
 {
   if (argc == 0 || argc > 1)
     error (_("-environment-cd: Usage DIRECTORY"));
@@ -112,11 +107,11 @@ env_mod_path (char *dirname, char **which_path)
 /* Add one or more directories to start of executable search path.  */
 
 void
-mi_cmd_env_path (char *command, char **argv, int argc)
+mi_cmd_env_path (const char *command, char **argv, int argc)
 {
   struct ui_out *uiout = current_uiout;
   char *exec_path;
-  char *env;
+  const char *env;
   int reset = 0;
   int oind = 0;
   int i;
@@ -167,7 +162,7 @@ mi_cmd_env_path (char *command, char **argv, int argc)
   else
     {
       /* Otherwise, get current path to modify.  */
-      env = get_in_environ (current_inferior ()->environment, path_var_name);
+      env = current_inferior ()->environment.get (path_var_name);
 
       /* Can be null if path is not set.  */
       if (!env)
@@ -178,16 +173,16 @@ mi_cmd_env_path (char *command, char **argv, int argc)
   for (i = argc - 1; i >= 0; --i)
     env_mod_path (argv[i], &exec_path);
 
-  set_in_environ (current_inferior ()->environment, path_var_name, exec_path);
+  current_inferior ()->environment.set (path_var_name, exec_path);
   xfree (exec_path);
-  env = get_in_environ (current_inferior ()->environment, path_var_name);
+  env = current_inferior ()->environment.get (path_var_name);
   uiout->field_string ("path", env);
 }
 
 /* Add zero or more directories to the front of the source path.  */
 
 void
-mi_cmd_env_dir (char *command, char **argv, int argc)
+mi_cmd_env_dir (const char *command, char **argv, int argc)
 {
   struct ui_out *uiout = current_uiout;
   int i;
@@ -248,7 +243,7 @@ mi_cmd_env_dir (char *command, char **argv, int argc)
 /* Set the inferior terminal device name.  */
 
 void
-mi_cmd_inferior_tty_set (char *command, char **argv, int argc)
+mi_cmd_inferior_tty_set (const char *command, char **argv, int argc)
 {
   set_inferior_io_terminal (argv[0]);
 }
@@ -256,7 +251,7 @@ mi_cmd_inferior_tty_set (char *command, char **argv, int argc)
 /* Print the inferior terminal device name.  */
 
 void
-mi_cmd_inferior_tty_show (char *command, char **argv, int argc)
+mi_cmd_inferior_tty_show (const char *command, char **argv, int argc)
 {
   const char *inferior_io_terminal = get_inferior_io_terminal ();
   
@@ -270,21 +265,17 @@ mi_cmd_inferior_tty_show (char *command, char **argv, int argc)
 void 
 _initialize_mi_cmd_env (void)
 {
-  struct gdb_environ *environment;
-  char *env;
+  const char *env;
 
   /* We want original execution path to reset to, if desired later.
      At this point, current inferior is not created, so cannot use
-     current_inferior ()->environment.  Also, there's no obvious
-     place where this code can be moved such that it surely run
-     before any code possibly mangles original PATH.  */
-  environment = make_environ ();
-  init_environ (environment);
-  env = get_in_environ (environment, path_var_name);
+     current_inferior ()->environment.  We use getenv here because it
+     is not necessary to create a whole new gdb_environ just for one
+     variable.  */
+  env = getenv (path_var_name);
 
   /* Can be null if path is not set.  */
   if (!env)
     env = "";
   orig_path = xstrdup (env);
-  free_environ (environment);
 }

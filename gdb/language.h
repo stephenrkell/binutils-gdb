@@ -134,7 +134,7 @@ struct language_arch_info
    transformed for lookup.  */
 
 typedef int (*symbol_name_cmp_ftype) (const char *symbol_search_name,
-					  const char *lookup_name);
+				      const char *lookup_name);
 
 /* Structure tying together assorted information about a language.  */
 
@@ -183,7 +183,7 @@ struct language_defn
 
     /* Parser error function.  */
 
-    void (*la_error) (char *);
+    void (*la_error) (const char *);
 
     /* Given an expression *EXPP created by prefixifying the result of
        la_parser, perform any remaining processing necessary to complete
@@ -271,7 +271,7 @@ struct language_defn
     /* If this is non-NULL, specifies the name that of the implicit
        local variable that refers to the current object instance.  */
 
-    char *la_name_of_this;
+    const char *la_name_of_this;
 
     /* This is a function that lookup_symbol will call when it gets to
        the part of symbol lookup where C looks up static and global
@@ -321,16 +321,19 @@ struct language_defn
     char string_lower_bound;
 
     /* The list of characters forming word boundaries.  */
-    char *(*la_word_break_characters) (void);
+    const char *(*la_word_break_characters) (void);
 
-    /* Should return a vector of all symbols which are possible
+    /* Add to the completion tracker all symbols which are possible
        completions for TEXT.  WORD is the entire command on which the
        completion is being made.  If CODE is TYPE_CODE_UNDEF, then all
        symbols should be examined; otherwise, only STRUCT_DOMAIN
        symbols whose type has a code of CODE should be matched.  */
-    VEC (char_ptr) *(*la_make_symbol_completion_list) (const char *text,
-						       const char *word,
-						       enum type_code code);
+    void (*la_collect_symbol_completion_matches)
+      (completion_tracker &tracker,
+       complete_symbol_mode mode,
+       const char *text,
+       const char *word,
+       enum type_code code);
 
     /* The per-architecture (OS/ABI) language information.  */
     void (*la_language_arch_info) (struct gdbarch *,
@@ -357,6 +360,12 @@ struct language_defn
        CHARSET will hold the encoding used in the string.  */
     void (*la_get_string) (struct value *value, gdb_byte **buffer, int *length,
 			   struct type **chartype, const char **charset);
+
+    /* Return an expression that can be used for a location
+       watchpoint.  TYPE is a pointer type that points to the memory
+       to watch, and ADDR is the address of the watched memory.  */
+    gdb::unique_xmalloc_ptr<char> (*la_watch_location_expression)
+         (struct type *type, CORE_ADDR addr);
 
     /* Return a pointer to the function that should be used to match
        a symbol name against LOOKUP_NAME. This is mostly for languages
@@ -553,15 +562,11 @@ extern int value_true (struct value *);
 
 /* Misc:  The string representing a particular enum language.  */
 
-extern enum language language_enum (char *str);
+extern enum language language_enum (const char *str);
 
 extern const struct language_defn *language_def (enum language);
 
 extern const char *language_str (enum language);
-
-/* Add a language to the set known by GDB (at initialization time).  */
-
-extern void add_language (const struct language_defn *);
 
 /* Check for a language-specific trampoline.  */
 
@@ -583,7 +588,7 @@ extern char *language_class_name_from_physname (const struct language_defn *,
 					        const char *physname);
 
 /* Splitting strings into words.  */
-extern char *default_word_break_characters (void);
+extern const char *default_word_break_characters (void);
 
 /* Print the index of an array element using the C99 syntax.  */
 extern void default_print_array_index (struct value *index_value,
@@ -608,5 +613,50 @@ void default_get_string (struct value *value, gdb_byte **buffer, int *length,
 
 void c_get_string (struct value *value, gdb_byte **buffer, int *length,
 		   struct type **char_type, const char **charset);
+
+/* The languages supported by GDB.  */
+
+extern const struct language_defn auto_language_defn;
+extern const struct language_defn unknown_language_defn;
+extern const struct language_defn minimal_language_defn;
+
+extern const struct language_defn ada_language_defn;
+extern const struct language_defn asm_language_defn;
+extern const struct language_defn c_language_defn;
+extern const struct language_defn cplus_language_defn;
+extern const struct language_defn d_language_defn;
+extern const struct language_defn f_language_defn;
+extern const struct language_defn go_language_defn;
+extern const struct language_defn m2_language_defn;
+extern const struct language_defn objc_language_defn;
+extern const struct language_defn opencl_language_defn;
+extern const struct language_defn pascal_language_defn;
+extern const struct language_defn rust_language_defn;
+
+/* Save the current language and restore it upon destruction.  */
+
+class scoped_restore_current_language
+{
+public:
+
+  explicit scoped_restore_current_language ()
+    : m_lang (current_language->la_language)
+  {
+  }
+
+  ~scoped_restore_current_language ()
+  {
+    set_language (m_lang);
+  }
+
+  scoped_restore_current_language (const scoped_restore_current_language &)
+      = delete;
+  scoped_restore_current_language &operator=
+      (const scoped_restore_current_language &) = delete;
+
+private:
+
+  enum language m_lang;
+};
 
 #endif /* defined (LANGUAGE_H) */

@@ -54,12 +54,11 @@ struct is_specified_symbol_predicate_data
   bfd_boolean	found;
 };
 
-/* A list to support redefine_sym.  */
+/* A node includes symbol name mapping to support redefine_sym.  */
 struct redefine_node
 {
   char *source;
   char *target;
-  struct redefine_node *next;
 };
 
 struct addsym_node
@@ -286,7 +285,8 @@ static htab_t localize_specific_htab = NULL;
 static htab_t globalize_specific_htab = NULL;
 static htab_t keepglobal_specific_htab = NULL;
 static htab_t weaken_specific_htab = NULL;
-static struct redefine_node *redefine_sym_list = NULL;
+static htab_t redefine_specific_htab = NULL;
+static htab_t redefine_specific_reverse_htab = NULL;
 static struct addsym_node *add_sym_list = NULL, **add_sym_tail = &add_sym_list;
 static int add_symbols = 0;
 static struct unbind_node *unbind_sym_list = NULL;
@@ -371,6 +371,7 @@ enum command_line_switch
   OPTION_LOCALIZE_SYMBOLS,
   OPTION_LONG_SECTION_NAMES,
   OPTION_MERGE_NOTES,
+  OPTION_NO_MERGE_NOTES,
   OPTION_NO_CHANGE_WARNINGS,
   OPTION_ONLY_KEEP_DEBUG,
   OPTION_PAD_TO,
@@ -420,6 +421,8 @@ static struct option strip_options[] =
   {"input-target", required_argument, 0, 'I'},
   {"keep-file-symbols", no_argument, 0, OPTION_KEEP_FILE_SYMBOLS},
   {"keep-symbol", required_argument, 0, 'K'},
+  {"merge-notes", no_argument, 0, 'M'},
+  {"no-merge-notes", no_argument, 0, OPTION_NO_MERGE_NOTES},
   {"only-keep-debug", no_argument, 0, OPTION_ONLY_KEEP_DEBUG},
   {"output-file", required_argument, 0, 'o'},
   {"output-format", required_argument, 0, 'O'},	/* Obsolete */
@@ -495,6 +498,7 @@ static struct option copy_options[] =
   {"localize-symbols", required_argument, 0, OPTION_LOCALIZE_SYMBOLS},
   {"long-section-names", required_argument, 0, OPTION_LONG_SECTION_NAMES},
   {"merge-notes", no_argument, 0, 'M'},
+  {"no-merge-notes", no_argument, 0, OPTION_NO_MERGE_NOTES},
   {"no-adjust-warnings", no_argument, 0, OPTION_NO_CHANGE_WARNINGS},
   {"no-change-warnings", no_argument, 0, OPTION_NO_CHANGE_WARNINGS},
   {"only-keep-debug", no_argument, 0, OPTION_ONLY_KEEP_DEBUG},
@@ -707,6 +711,7 @@ copy_usage (FILE *stream, int exit_status)
      --elf-stt-common=[yes|no]     Generate ELF common symbols with STT_COMMON\n\
                                      type\n\
   -M  --merge-notes                Remove redundant entries in note sections\n\
+      --no-merge-notes             Do not attempt to remove redundant notes (default)\n\
   -v --verbose                     List all object files modified\n\
   @<file>                          Read options from <file>\n\
   -V --version                     Display this program's version number\n\
@@ -751,6 +756,8 @@ strip_usage (FILE *stream, int exit_status)
      --strip-dwo                   Remove all DWO sections\n\
      --strip-unneeded              Remove all symbols not needed by relocations\n\
      --only-keep-debug             Strip everything but the debug information\n\
+  -M  --merge-notes                Remove redundant entries in note sections (default)\n\
+      --no-merge-notes             Do not attempt to remove redundant notes\n\
   -N --strip-symbol=<name>         Do not copy symbol <name>\n\
   -K --keep-symbol=<name>          Do not strip symbol <name>\n\
      --keep-file-symbols           Do not strip file symbol(s)\n\
@@ -1012,6 +1019,34 @@ find_section_list (const char *name, bfd_boolean add, unsigned int context)
   return p;
 }
 
+/* S1 is the entry node already in the table, S2 is the key node.  */
+
+static int
+eq_string_redefnode (const void *s1, const void *s2)
+{
+  struct redefine_node *node1 = (struct redefine_node *) s1;
+  struct redefine_node *node2 = (struct redefine_node *) s2;
+  return !strcmp ((const char *) node1->source, (const char *) node2->source);
+}
+
+/* P is redefine node.  Hash value is generated from its "source" filed.  */
+
+static hashval_t
+htab_hash_redefnode (const void *p)
+{
+  struct redefine_node *redefnode = (struct redefine_node *) p;
+  return htab_hash_string (redefnode->source);
+}
+
+/* Create hashtab used for redefine node.  */
+
+static htab_t
+create_symbol2redef_htab (void)
+{
+  return htab_create_alloc (16, htab_hash_redefnode, eq_string_redefnode, NULL,
+			    xcalloc, free);
+}
+
 /* There is htab_hash_string but no htab_eq_string. Makes sense.  */
 
 static int
@@ -1036,6 +1071,10 @@ create_symbol_htabs (void)
   globalize_specific_htab = create_symbol_htab ();
   keepglobal_specific_htab = create_symbol_htab ();
   weaken_specific_htab = create_symbol_htab ();
+  redefine_specific_htab = create_symbol2redef_htab ();
+  /* As there is no bidirectional hash table in libiberty, need a reverse table
+     to check duplicated target string.  */
+  redefine_specific_reverse_htab = create_symbol_htab ();
 }
 
 /* Add a symbol to strip_specific_list.  */
@@ -1044,6 +1083,14 @@ static void
 add_specific_symbol (const char *name, htab_t htab)
 {
   *htab_find_slot (htab, name, INSERT) = (char *) name;
+}
+
+/* Like add_specific_symbol, but the element type is void *.  */
+
+static void
+add_specific_symbol_node (const void *node, htab_t htab)
+{
+  *htab_find_slot (htab, node, INSERT) = (void *) node;
 }
 
 /* Add symbols listed in `filename' to strip_specific_list.  */
@@ -1533,7 +1580,7 @@ filter_symbols (bfd *abfd, bfd *obfd, asymbol **osyms,
 	    to[dst_count++] = create_new_symbol (ptr, obfd);
 	}
 
-      if (redefine_sym_list || section_rename_list)
+      if (htab_elements (redefine_specific_htab) || section_rename_list)
 	{
 	  char *new_name;
 
@@ -1767,13 +1814,11 @@ filter_symbols (bfd *abfd, bfd *obfd, asymbol **osyms,
 static const char *
 lookup_sym_redefinition (const char *source)
 {
-  struct redefine_node *list;
+  struct redefine_node key_node = {(char *) source, NULL};
+  struct redefine_node *redef_node
+    = (struct redefine_node *) htab_find (redefine_specific_htab, &key_node);
 
-  for (list = redefine_sym_list; list != NULL; list = list->next)
-    if (strcmp (source, list->source) == 0)
-      return list->target;
-
-  return source;
+  return redef_node == NULL ? source : redef_node->target;
 }
 
 /* Find the name to which the references to SOURCE should be rewritten */
@@ -1825,33 +1870,32 @@ set_unbound_def_ref_sym_pair (const char *old_name, asymbol *old_ref_sym, asymbo
   return old_name;
 }
 
-/* Add a node to a symbol redefine list.  */
-
+/* Insert a node into symbol redefine hash tabel.  */
 static void
-redefine_list_append (const char *cause, const char *source, const char *target)
+add_redefine_and_check (const char *cause, const char *source,
+			const char *target)
 {
-  struct redefine_node **p;
-  struct redefine_node *list;
-  struct redefine_node *new_node;
-
-  for (p = &redefine_sym_list; (list = *p) != NULL; p = &list->next)
-    {
-      if (strcmp (source, list->source) == 0)
-	fatal (_("%s: Multiple redefinition of symbol \"%s\""),
-	       cause, source);
-
-      if (strcmp (target, list->target) == 0)
-	fatal (_("%s: Symbol \"%s\" is target of more than one redefinition"),
-	       cause, target);
-    }
-
-  new_node = (struct redefine_node *) xmalloc (sizeof (struct redefine_node));
+  struct redefine_node *new_node
+    = (struct redefine_node *) xmalloc (sizeof (struct redefine_node));
 
   new_node->source = strdup (source);
   new_node->target = strdup (target);
-  new_node->next = NULL;
 
-  *p = new_node;
+  if (htab_find (redefine_specific_htab, new_node) != HTAB_EMPTY_ENTRY)
+    fatal (_("%s: Multiple redefinition of symbol \"%s\""),
+	   cause, source);
+
+  if (htab_find (redefine_specific_reverse_htab, target) != HTAB_EMPTY_ENTRY)
+    fatal (_("%s: Symbol \"%s\" is target of more than one redefinition"),
+	   cause, target);
+
+  /* Insert the NEW_NODE into hash table for quick search.  */
+  add_specific_symbol_node (new_node, redefine_specific_htab);
+
+  /* Insert the target string into the reverse hash table, this is needed for
+     duplicated target string check.  */
+  add_specific_symbol (new_node->target, redefine_specific_reverse_htab);
+
 }
 
 static void
@@ -1998,7 +2042,7 @@ add_redefine_syms_file (const char *filename)
 	end_of_line:
 	  /* Append the redefinition to the list.  */
 	  if (buf[0] != '\0')
-	    redefine_list_append (filename, &buf[0], &buf[outsym_off]);
+	    add_redefine_and_check (filename, &buf[0], &buf[outsym_off]);
 
 	  lineno++;
 	  len = 0;
@@ -2097,6 +2141,22 @@ copy_unknown_object (bfd *ibfd, bfd *obfd)
   return TRUE;
 }
 
+/* Returns the number of bytes needed to store VAL.  */
+
+static inline unsigned int
+num_bytes (unsigned long val)
+{
+  unsigned int count = 0;
+
+  /* FIXME: There must be a faster way to do this.  */
+  while (val)
+    {
+      count ++;
+      val >>= 8;
+    }
+  return count;
+}
+
 /* Merge the notes on SEC, removing redundant entries.
    Returns the new, smaller size of the section upon success.  */
 
@@ -2107,14 +2167,17 @@ merge_gnu_build_notes (bfd * abfd, asection * sec, bfd_size_type size, bfd_byte 
   Elf_Internal_Note * pnotes;
   Elf_Internal_Note * pnote;
   bfd_size_type       remain = size;
-  unsigned            version_notes_seen = 0;
+  unsigned            version_1_seen = 0;
+  unsigned            version_2_seen = 0;
   bfd_boolean         duplicate_found = FALSE;
   const char *        err = NULL;
   bfd_byte *          in = contents;
+  int                 attribute_type_byte;
+  int                 val_start;
 
   /* Make a copy of the notes.
      Minimum size of a note is 12 bytes.  */
-  pnote = pnotes = (Elf_Internal_Note *) xmalloc ((size / 12) * sizeof (Elf_Internal_Note));
+  pnote = pnotes = (Elf_Internal_Note *) xcalloc ((size / 12), sizeof (Elf_Internal_Note));
   while (remain >= 12)
     {
       pnote->namesz = (bfd_get_32 (abfd, in    ) + 3) & ~3;
@@ -2154,8 +2217,24 @@ merge_gnu_build_notes (bfd * abfd, asection * sec, bfd_size_type size, bfd_byte 
       remain -= 12 + pnote->namesz + pnote->descsz;
       in     += 12 + pnote->namesz + pnote->descsz;
 
-      if (pnote->namesz > 1 && pnote->namedata[1] == GNU_BUILD_ATTRIBUTE_VERSION)
-	++ version_notes_seen;
+      if (pnote->namedata[pnote->namesz - 1] != 0)
+	{
+	  err = _("corrupt GNU build attribute note: name not NUL terminated");
+	  goto done;
+	}
+      
+      if (pnote->namesz > 2
+	  && pnote->namedata[0] == '$'
+	  && pnote->namedata[1] == GNU_BUILD_ATTRIBUTE_VERSION
+	  && pnote->namedata[2] == '1')
+	++ version_1_seen;
+      else if (pnote->namesz > 4
+	  && pnote->namedata[0] == 'G'
+	  && pnote->namedata[1] == 'A'
+	  && pnote->namedata[2] == '$'
+	  && pnote->namedata[3] == GNU_BUILD_ATTRIBUTE_VERSION
+	  && pnote->namedata[4] == '2')
+	++ version_2_seen;
       pnote ++;
     }
 
@@ -2164,31 +2243,33 @@ merge_gnu_build_notes (bfd * abfd, asection * sec, bfd_size_type size, bfd_byte 
   /* Check that the notes are valid.  */
   if (remain != 0)
     {
-      err = _("corrupt GNU build attribute notes: data at end");
+      err = _("corrupt GNU build attribute notes: excess data at end");
       goto done;
     }
 
-  if (version_notes_seen == 0)
+  if (version_1_seen == 0 && version_2_seen == 0)
     {
-      err = _("bad GNU build attribute notes: no version note");
+      err = _("bad GNU build attribute notes: no known versions detected");
+      goto done;
+    }
+
+  if (version_1_seen > 0 && version_2_seen > 0)
+    {
+      err = _("bad GNU build attribute notes: multiple different versions");
       goto done;
     }
 
   /* Merging is only needed if there is more than one version note...  */
-  if (version_notes_seen == 1)
+  if (version_1_seen == 1 || version_2_seen == 1)
     goto done;
 
+  attribute_type_byte = version_1_seen ? 1 : 3;
+  val_start = attribute_type_byte + 1;
+
   /* The first note should be the first version note.  */
-  if (pnotes[0].namedata[1] != GNU_BUILD_ATTRIBUTE_VERSION)
+  if (pnotes[0].namedata[attribute_type_byte] != GNU_BUILD_ATTRIBUTE_VERSION)
     {
       err = _("bad GNU build attribute notes: first note not version note");
-      goto done;
-    }
-
-  if (pnotes[0].namedata[0] != GNU_BUILD_ATTRIBUTE_TYPE_STRING
-      || pnotes[0].namedata[2] != '1')
-    {
-      err = _("bad GNU build attribute notes: version note not v1");
       goto done;
     }
 
@@ -2198,7 +2279,9 @@ merge_gnu_build_notes (bfd * abfd, asection * sec, bfd_size_type size, bfd_byte 
      3. Eliminate any NT_GNU_BUILD_ATTRIBUTE_OPEN notes that have the same
         full name field as the immediately preceeding note with the same type
 	of name.
-     4. If an NT_GNU_BUILD_ATTRIBUTE_OPEN note is going to be preserved and
+     4. Combine the numeric value of any NT_GNU_BUILD_ATTRIBUTE_OPEN notes
+        of type GNU_BUILD_ATTRIBUTE_STACK_SIZE.
+     5. If an NT_GNU_BUILD_ATTRIBUTE_OPEN note is going to be preserved and
         its description field is empty then the nearest preceeding OPEN note
 	with a non-empty description field must also be preserved *OR* the
 	description field of the note must be changed to contain the starting
@@ -2221,8 +2304,63 @@ merge_gnu_build_notes (bfd * abfd, asection * sec, bfd_size_type size, bfd_byte 
 	    prev_open = back;
 
 	  if (back->type == pnote->type
-	      && back->namedata[1] == pnote->namedata[1])
+	      && back->namedata[attribute_type_byte] == pnote->namedata[attribute_type_byte])
 	    {
+	      if (back->namedata[attribute_type_byte] == GNU_BUILD_ATTRIBUTE_STACK_SIZE)
+		{
+		  unsigned char * name;
+		  unsigned long   note_val;
+		  unsigned long   back_val;
+		  unsigned int    shift;
+		  unsigned int    bytes;
+		  unsigned long   byte;
+
+		  for (shift = 0, note_val = 0,
+			 bytes = pnote->namesz - val_start,
+			 name = (unsigned char *) pnote->namedata + val_start;
+		       bytes--;)
+		    {
+		      byte = (* name ++) & 0xff;
+		      note_val |= byte << shift;
+		      shift += 8;
+		    }
+
+		  for (shift = 0, back_val = 0,
+			 bytes = back->namesz - val_start,
+			 name = (unsigned char *) back->namedata + val_start;
+		       bytes--;)
+		    {
+		      byte = (* name ++) & 0xff;
+		      back_val |= byte << shift;
+		      shift += 8;
+		    }
+
+		  back_val += note_val;
+		  if (num_bytes (back_val) >= back->namesz - val_start)
+		    {
+		      /* We have a problem - the new value requires more bytes of
+			 storage in the name field than are available.  Currently
+			 we have no way of fixing this, so we just preserve both
+			 notes.  */
+		      continue;
+		    }
+
+		  /* Write the new val into back.  */
+		  name = (unsigned char *) back->namedata + val_start;
+		  while (name < (unsigned char *) back->namedata + back->namesz)
+		    {
+		      byte = back_val & 0xff;
+		      * name ++ = byte;
+		      if (back_val == 0)
+			break;
+		      back_val >>= 8;
+		    }
+
+		  duplicate_found = TRUE;
+		  pnote->type = 0;
+		  break;
+		}
+		  
 	      if (back->namesz == pnote->namesz
 		  && memcmp (back->namedata, pnote->namedata, back->namesz) == 0)
 		{
@@ -2232,11 +2370,12 @@ merge_gnu_build_notes (bfd * abfd, asection * sec, bfd_size_type size, bfd_byte 
 		}
 
 	      /* If we have found an attribute match then stop searching backwards.  */
-	      if (! ISPRINT (back->namedata[1])
-		  || strcmp (back->namedata + 2, pnote->namedata + 2) == 0)
+	      if (! ISPRINT (back->namedata[attribute_type_byte])
+		  /* Names are NUL terminated, so this is safe.  */
+		  || strcmp (back->namedata + val_start, pnote->namedata + val_start) == 0)
 		{
 		  /* Since we are keeping this note we must check to see if its
-		     description refers back to an earlier OPEN note.  If so
+		     description refers back to an earlier OPEN version note.  If so
 		     then we must make sure that version note is also preserved.  */
 		  if (pnote->descsz == 0
 		      && prev_open != NULL
@@ -2320,15 +2459,18 @@ merge_gnu_build_notes (bfd * abfd, asection * sec, bfd_size_type size, bfd_byte 
 
       if (relcount > 0)
 	{
-	  arelent ** rel;
+	  arelent **rel = relpp;
 
-	  for (rel = relpp; rel < relpp + relcount; rel ++)
-	    if ((* rel)->howto == NULL)
+	  while (rel < relpp + relcount)
+	    if ((*rel)->howto != NULL)
+	      rel++;
+	    else
 	      {
 		/* Delete eliminated relocs.
 		   FIXME: There are better ways to do this.  */
-		memmove (rel, rel + 1, ((relcount - (rel - relpp)) - 1) * sizeof (* rel));
-		relcount --;
+		memmove (rel, rel + 1,
+			 ((relcount - (rel - relpp)) - 1) * sizeof (*rel));
+		relcount--;
 	      }
 	  bfd_set_reloc (abfd, sec, relpp, relcount);
 	}
@@ -2760,14 +2902,15 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
 	      continue;
 	    }
 
-	  bfd_byte * contents = xmalloc (size);
-	  if (bfd_get_section_contents (ibfd, osec, contents, 0, size))
+	  bfd_byte *contents;
+	  if (bfd_malloc_and_get_section (ibfd, osec, &contents))
 	    {
 	      if (fwrite (contents, 1, size, f) != size)
 		{
 		  non_fatal (_("error writing section contents to %s (error: %s)"),
 			     pdump->filename,
 			     strerror (errno));
+		  free (contents);
 		  return FALSE;
 		}
 	    }
@@ -2977,13 +3120,13 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
       || htab_elements (globalize_specific_htab) != 0
       || htab_elements (keepglobal_specific_htab) != 0
       || htab_elements (weaken_specific_htab) != 0
+      || htab_elements (redefine_specific_htab) != 0
       || prefix_symbols_string
       || sections_removed
       || sections_copied
       || convert_debugging
       || change_leading_char
       || remove_leading_char
-      || redefine_sym_list
       || section_rename_list
       || weaken
       || add_symbols
@@ -3138,8 +3281,8 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
 	      return FALSE;
 	    }
 	}
-      else
-	bfd_nonfatal_message (NULL, obfd, osec, _("ICE: lost merged note section"));
+      else if (! is_strip)
+	bfd_nonfatal_message (NULL, obfd, osec, _("could not find any mergeable note sections"));
       free (merged_notes);
       merged_notes = NULL;
       merge_notes = FALSE;
@@ -4671,6 +4814,8 @@ strip_main (int argc, char *argv[])
   int i;
   char *output_file = NULL;
 
+  merge_notes = TRUE;
+
   while ((c = getopt_long (argc, argv, "I:O:F:K:N:R:o:sSpdgxXHhVvwDU",
 			   strip_options, (int *) 0)) != EOF)
     {
@@ -4707,6 +4852,12 @@ strip_main (int argc, char *argv[])
 	  break;
 	case 'K':
 	  add_specific_symbol (optarg, keep_specific_htab);
+	  break;
+	case 'M':
+	  merge_notes = TRUE;
+	  break;
+	case OPTION_NO_MERGE_NOTES:
+	  merge_notes = FALSE;
 	  break;
 	case 'N':
 	  add_specific_symbol (optarg, strip_specific_htab);
@@ -5134,6 +5285,9 @@ copy_main (int argc, char *argv[])
 	case 'M':
 	  merge_notes = TRUE;
 	  break;
+	case OPTION_NO_MERGE_NOTES:
+	  merge_notes = FALSE;
+	  break;
 
 	case 'N':
 	  add_specific_symbol (optarg, strip_specific_htab);
@@ -5436,7 +5590,7 @@ copy_main (int argc, char *argv[])
 
 	case OPTION_REDEFINE_SYM:
 	  {
-	    /* Push this redefinition onto redefine_symbol_list.  */
+	    /* Insert this redefinition onto redefine_specific_htab.  */
 
 	    int len;
 	    const char *s;
@@ -5457,7 +5611,7 @@ copy_main (int argc, char *argv[])
 	    target = (char *) xmalloc (len + 1);
 	    strcpy (target, nextarg);
 
-	    redefine_list_append ("--redefine-sym", source, target);
+	    add_redefine_and_check ("--redefine-sym", source, target);
 
 	    free (source);
 	    free (target);
