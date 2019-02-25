@@ -1,5 +1,5 @@
 /* nm.c -- Describe symbol table of a rel file.
-   Copyright (C) 1991-2017 Free Software Foundation, Inc.
+   Copyright (C) 1991-2019 Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
 
@@ -162,6 +162,8 @@ static int line_numbers = 0;	/* Print line numbers for symbols.  */
 static int allow_special_symbols = 0;  /* Allow special symbols.  */
 static int with_symbol_versions = 0; /* Include symbol version information in the output.  */
 
+static int demangle_flags = DMGL_ANSI | DMGL_PARAMS;
+
 /* When to print the names of files.  Not mutually exclusive in SYSV format.  */
 static int filename_per_file = 0;	/* Once per file, on its own line.  */
 static int filename_per_symbol = 0;	/* Once per symbol, at start of line.  */
@@ -194,9 +196,14 @@ static const char *plugin_target = NULL;
 static bfd *lineno_cache_bfd;
 static bfd *lineno_cache_rel_bfd;
 
-#define OPTION_TARGET 200
-#define OPTION_PLUGIN (OPTION_TARGET + 1)
-#define OPTION_SIZE_SORT (OPTION_PLUGIN + 1)
+enum long_option_values
+{
+  OPTION_TARGET = 200,
+  OPTION_PLUGIN,
+  OPTION_SIZE_SORT,
+  OPTION_RECURSE_LIMIT,
+  OPTION_NO_RECURSE_LIMIT
+};
 
 static struct option long_options[] =
 {
@@ -209,6 +216,8 @@ static struct option long_options[] =
   {"line-numbers", no_argument, 0, 'l'},
   {"no-cplus", no_argument, &do_demangle, 0},  /* Linux compatibility.  */
   {"no-demangle", no_argument, &do_demangle, 0},
+  {"no-recurse-limit", no_argument, NULL, OPTION_NO_RECURSE_LIMIT},
+  {"no-recursion-limit", no_argument, NULL, OPTION_NO_RECURSE_LIMIT},
   {"no-sort", no_argument, 0, 'p'},
   {"numeric-sort", no_argument, 0, 'n'},
   {"plugin", required_argument, 0, OPTION_PLUGIN},
@@ -217,6 +226,8 @@ static struct option long_options[] =
   {"print-file-name", no_argument, 0, 'o'},
   {"print-size", no_argument, 0, 'S'},
   {"radix", required_argument, 0, 't'},
+  {"recurse-limit", no_argument, NULL, OPTION_RECURSE_LIMIT},
+  {"recursion-limit", no_argument, NULL, OPTION_RECURSE_LIMIT},
   {"reverse-sort", no_argument, &reverse_sort, 1},
   {"size-sort", no_argument, 0, OPTION_SIZE_SORT},
   {"special-syms", no_argument, &allow_special_symbols, 1},
@@ -245,6 +256,8 @@ usage (FILE *stream, int status)
                           `gnu', `lucid', `arm', `hp', `edg', `gnu-v3', `java'\n\
                           or `gnat'\n\
       --no-demangle      Do not demangle low-level symbol names\n\
+      --recurse-limit    Enable a demangling recursion limit.  This is the default.\n\
+      --no-recurse-limit Disable a demangling recursion limit.\n\
   -D, --dynamic          Display dynamic symbols instead of normal symbols\n\
       --defined-only     Display only defined symbols\n\
   -e                     (ignored)\n\
@@ -407,7 +420,7 @@ print_symname (const char *form, const char *name, bfd *abfd)
 {
   if (do_demangle && *name)
     {
-      char *res = bfd_demangle (abfd, name, DMGL_ANSI | DMGL_PARAMS);
+      char *res = bfd_demangle (abfd, name, demangle_flags);
 
       if (res != NULL)
 	{
@@ -478,7 +491,9 @@ filter_symbols (bfd *abfd, bfd_boolean is_dynamic, void *minisyms,
       if (sym == NULL)
 	bfd_fatal (bfd_get_filename (abfd));
 
-      if (strcmp (sym->name, "__gnu_lto_slim") == 0)
+      if (sym->name[0] == '_'
+	  && sym->name[1] == '_'
+	  && strcmp (sym->name + (sym->name[2] == '_'), "__gnu_lto_slim") == 0)
 	non_fatal (_("%s: plugin needed to handle lto object"),
 		   bfd_get_filename (abfd));
 
@@ -761,7 +776,6 @@ sort_symbols_by_size (bfd *abfd, bfd_boolean is_dynamic, void *minisyms,
       asection *sec;
       bfd_vma sz;
       asymbol *temp;
-      int synthetic = (sym->flags & BSF_SYNTHETIC);
 
       if (from + size < fromend)
 	{
@@ -778,10 +792,13 @@ sort_symbols_by_size (bfd *abfd, bfd_boolean is_dynamic, void *minisyms,
       sec = bfd_get_section (sym);
 
       /* Synthetic symbols don't have a full type set of data available, thus
-	 we can't rely on that information for the symbol size.  */
-      if (!synthetic && bfd_get_flavour (abfd) == bfd_target_elf_flavour)
+	 we can't rely on that information for the symbol size.  Ditto for
+	 bfd/section.c:global_syms like *ABS*.  */
+      if ((sym->flags & (BSF_SECTION_SYM | BSF_SYNTHETIC)) == 0
+	  && bfd_get_flavour (abfd) == bfd_target_elf_flavour)
 	sz = ((elf_symbol_type *) sym)->internal_elf_sym.st_size;
-      else if (!synthetic && bfd_is_com_section (sec))
+      else if ((sym->flags & (BSF_SECTION_SYM | BSF_SYNTHETIC)) == 0
+	       && bfd_is_com_section (sec))
 	sz = sym->value;
       else
 	{
@@ -870,8 +887,9 @@ print_symbol (bfd *        abfd,
 
   info.sinfo = &syminfo;
   info.ssize = ssize;
-  /* Synthetic symbols do not have a full symbol type set of data available.  */
-  if ((sym->flags & BSF_SYNTHETIC) != 0)
+  /* Synthetic symbols do not have a full symbol type set of data available.
+     Nor do bfd/section.c:global_syms like *ABS*.  */
+  if ((sym->flags & (BSF_SECTION_SYM | BSF_SYNTHETIC)) != 0)
     {
       info.elfinfo = NULL;
       info.coffinfo = NULL;
@@ -889,7 +907,7 @@ print_symbol (bfd *        abfd,
       const char *  version_string = NULL;
       bfd_boolean   hidden = FALSE;
 
-      if ((sym->flags & BSF_SYNTHETIC) == 0)
+      if ((sym->flags & (BSF_SECTION_SYM | BSF_SYNTHETIC)) == 0)
 	version_string = bfd_get_symbol_version_string (abfd, sym, &hidden);
 
       if (bfd_is_und_section (bfd_get_section (sym)))
@@ -1157,17 +1175,14 @@ display_rel_file (bfd *abfd, bfd *archive_bfd)
       if (synth_count > 0)
 	{
 	  asymbol **symp;
-	  void *new_mini;
 	  long i;
 
-	  new_mini = xmalloc ((symcount + synth_count + 1) * sizeof (*symp));
-	  symp = (asymbol **) new_mini;
-	  memcpy (symp, minisyms, symcount * sizeof (*symp));
-	  symp += symcount;
+	  minisyms = xrealloc (minisyms,
+			       (symcount + synth_count + 1) * sizeof (*symp));
+	  symp = (asymbol **) minisyms + symcount;
 	  for (i = 0; i < synth_count; i++)
 	    *symp++ = synthsyms + i;
 	  *symp = 0;
-	  minisyms = new_mini;
 	  symcount += synth_count;
 	}
     }
@@ -1649,7 +1664,8 @@ main (int argc, char **argv)
 
   expandargv (&argc, &argv);
 
-  bfd_init ();
+  if (bfd_init () != BFD_INIT_MAGIC)
+    fatal (_("fatal error: libbfd ABI mismatch"));
   set_default_bfd_target ();
 
   while ((c = getopt_long (argc, argv, "aABCDef:gHhlnopPrSst:uvVvX:",
@@ -1680,6 +1696,12 @@ main (int argc, char **argv)
 
 	      cplus_demangle_set_style (style);
 	    }
+	  break;
+	case OPTION_RECURSE_LIMIT:
+	  demangle_flags &= ~ DMGL_NO_RECURSE_LIMIT;
+	  break;
+	case OPTION_NO_RECURSE_LIMIT:
+	  demangle_flags |= DMGL_NO_RECURSE_LIMIT;
 	  break;
 	case 'D':
 	  dynamic = 1;

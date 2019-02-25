@@ -1,6 +1,6 @@
 /* Print in infix form a struct expression.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -86,7 +86,7 @@ print_subexp_standard (struct expression *exp, int *pos,
     case OP_SCOPE:
       myprec = PREC_PREFIX;
       assoc = 0;
-      fputs_filtered (type_name_no_tag (exp->elts[pc + 1].type), stream);
+      fputs_filtered (TYPE_NAME (exp->elts[pc + 1].type), stream);
       fputs_filtered ("::", stream);
       nargs = longest_to_int (exp->elts[pc + 2].longconst);
       (*pos) += 4 + BYTES_TO_EXP_ELEM (nargs + 1);
@@ -105,14 +105,14 @@ print_subexp_standard (struct expression *exp, int *pos,
       }
       return;
 
-    case OP_DOUBLE:
+    case OP_FLOAT:
       {
 	struct value_print_options opts;
 
 	get_no_prettyformat_print_options (&opts);
 	(*pos) += 3;
-	value_print (value_from_double (exp->elts[pc + 1].type,
-					exp->elts[pc + 2].doubleconst),
+	value_print (value_from_contents (exp->elts[pc + 1].type,
+					  exp->elts[pc + 2].floatconst),
 		     stream, &opts);
       }
       return;
@@ -186,6 +186,7 @@ print_subexp_standard (struct expression *exp, int *pos,
       return;
 
     case OP_FUNCALL:
+    case OP_F77_UNDETERMINED_ARGLIST:
       (*pos) += 2;
       nargs = longest_to_int (exp->elts[pc + 1].longconst);
       print_subexp (exp, pos, stream, PREC_SUFFIX);
@@ -239,7 +240,7 @@ print_subexp_standard (struct expression *exp, int *pos,
 
     case OP_OBJC_MSGCALL:
       {			/* Objective C message (method) call.  */
-	char *selector;
+	gdb::unique_xmalloc_ptr<char> selector;
 
 	(*pos) += 3;
 	nargs = longest_to_int (exp->elts[pc + 2].longconst);
@@ -255,8 +256,7 @@ print_subexp_standard (struct expression *exp, int *pos,
 	  {
 	    char *s, *nextS;
 
-	    s = (char *) alloca (strlen (selector) + 1);
-	    strcpy (s, selector);
+	    s = selector.get ();
 	    for (tem = 0; tem < nargs; tem++)
 	      {
 		nextS = strchr (s, ':');
@@ -269,11 +269,9 @@ print_subexp_standard (struct expression *exp, int *pos,
 	  }
 	else
 	  {
-	    fprintf_unfiltered (stream, " %s", selector);
+	    fprintf_unfiltered (stream, " %s", selector.get ());
 	  }
 	fprintf_unfiltered (stream, "]");
-	/* "selector" was malloc'd by target_read_string.  Free it.  */
-	xfree (selector);
 	return;
       }
 
@@ -580,9 +578,13 @@ print_subexp_standard (struct expression *exp, int *pos,
 	  longest_to_int (exp->elts[pc + 1].longconst);
 	*pos += 2;
 
+	if (range_type == NONE_BOUND_DEFAULT_EXCLUSIVE
+	    || range_type == LOW_BOUND_DEFAULT_EXCLUSIVE)
+	  fputs_filtered ("EXCLUSIVE_", stream);
 	fputs_filtered ("RANGE(", stream);
 	if (range_type == HIGH_BOUND_DEFAULT
-	    || range_type == NONE_BOUND_DEFAULT)
+	    || range_type == NONE_BOUND_DEFAULT
+	    || range_type == NONE_BOUND_DEFAULT_EXCLUSIVE)
 	  print_subexp (exp, pos, stream, PREC_ABOVE_COMMA);
 	fputs_filtered ("..", stream);
 	if (range_type == LOW_BOUND_DEFAULT
@@ -685,6 +687,13 @@ static int dump_subexp_body (struct expression *exp, struct ui_file *, int);
 const char *
 op_name (struct expression *exp, enum exp_opcode opcode)
 {
+  if (opcode >= OP_UNUSED_LAST)
+    {
+      char *cell = get_print_cell ();
+      xsnprintf (cell, PRINT_CELL_SIZE, "unknown opcode: %u",
+		 unsigned (opcode));
+      return cell;
+    }
   return exp->language_defn->la_exp_desc->op_name (opcode);
 }
 
@@ -848,6 +857,7 @@ dump_subexp_body_standard (struct expression *exp,
     case UNOP_PREDECREMENT:
     case UNOP_POSTDECREMENT:
     case UNOP_SIZEOF:
+    case UNOP_ALIGNOF:
     case UNOP_PLUS:
     case UNOP_CAP:
     case UNOP_CHR:
@@ -871,13 +881,14 @@ dump_subexp_body_standard (struct expression *exp,
 			(long) exp->elts[elt + 1].longconst);
       elt += 3;
       break;
-    case OP_DOUBLE:
+    case OP_FLOAT:
       fprintf_filtered (stream, "Type @");
       gdb_print_host_address (exp->elts[elt].type, stream);
       fprintf_filtered (stream, " (");
       type_print (exp->elts[elt].type, NULL, stream, 0);
-      fprintf_filtered (stream, "), value %g",
-			(double) exp->elts[elt + 1].doubleconst);
+      fprintf_filtered (stream, "), value ");
+      print_floating (exp->elts[elt + 1].floatconst,
+		      exp->elts[elt].type, stream);
       elt += 3;
       break;
     case OP_VAR_VALUE:
@@ -922,6 +933,7 @@ dump_subexp_body_standard (struct expression *exp,
       elt += 2;
       break;
     case OP_FUNCALL:
+    case OP_F77_UNDETERMINED_ARGLIST:
       {
 	int i, nargs;
 
@@ -1099,11 +1111,17 @@ dump_subexp_body_standard (struct expression *exp,
 	  case LOW_BOUND_DEFAULT:
 	    fputs_filtered ("Range '..EXP'", stream);
 	    break;
+	  case LOW_BOUND_DEFAULT_EXCLUSIVE:
+	    fputs_filtered ("ExclusiveRange '..EXP'", stream);
+	    break;
 	  case HIGH_BOUND_DEFAULT:
 	    fputs_filtered ("Range 'EXP..'", stream);
 	    break;
 	  case NONE_BOUND_DEFAULT:
 	    fputs_filtered ("Range 'EXP..EXP'", stream);
+	    break;
+	  case NONE_BOUND_DEFAULT_EXCLUSIVE:
+	    fputs_filtered ("ExclusiveRange 'EXP..EXP'", stream);
 	    break;
 	  default:
 	    fputs_filtered ("Invalid Range!", stream);
@@ -1122,7 +1140,6 @@ dump_subexp_body_standard (struct expression *exp,
     default:
     case OP_NULL:
     case MULTI_SUBSCRIPT:
-    case OP_F77_UNDETERMINED_ARGLIST:
     case OP_COMPLEX:
     case OP_BOOL:
     case OP_M2_STRING:

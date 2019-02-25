@@ -1,7 +1,7 @@
 /* Job control and terminal related functions, for GDB and gdbserver
    when running under Unix.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,8 +18,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef JOB_CONTROL_H
-#define JOB_CONTROL_H
+#ifndef COMMON_JOB_CONTROL_H
+#define COMMON_JOB_CONTROL_H
 
 /* Do we have job control?  Can be assumed to always be the same
    within a given run of GDB.  Use in gdb/inflow.c and
@@ -35,4 +35,4 @@ extern int gdb_setpgid ();
    JOB_CONTROL.  */
 extern void have_job_control ();
 
-#endif /* ! JOB_CONTROL_H */
+#endif /* COMMON_JOB_CONTROL_H */

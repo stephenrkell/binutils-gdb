@@ -1,4 +1,4 @@
-#   Copyright 2005-2017 Free Software Foundation, Inc.
+#   Copyright 2005-2019 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -13,14 +13,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-if { [is_remote target] || ![isnative] } then {
-    continue
-}
-
 # Until "set follow-fork-mode" and "catch fork" are implemented on
 # other targets...
 #
 if {![istarget "*-*-linux*"]} then {
+    continue
+}
+
+# Checkpoint support is currently implemented in the Linux native
+# target, so only works with "target native".
+if { [target_info gdb_protocol] != "" } {
     continue
 }
 

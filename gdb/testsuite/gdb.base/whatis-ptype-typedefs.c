@@ -1,6 +1,6 @@
 /* This test program is part of GDB, the GNU debugger.
 
-   Copyright 2017 Free Software Foundation, Inc.
+   Copyright 2017-2019 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -55,6 +55,16 @@ DEF (int);
 
 typedef float float_typedef;
 DEF (float);
+
+/* Double floats.  */
+
+typedef double double_typedef;
+DEF (double);
+
+/* Long doubles.  */
+
+typedef long double long_double_typedef;
+DEF (long_double);
 
 /* Enums.  */
 

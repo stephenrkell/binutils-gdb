@@ -1,5 +1,5 @@
 /* Opcode table for the ARC.
-   Copyright (C) 1994-2017 Free Software Foundation, Inc.
+   Copyright (C) 1994-2019 Free Software Foundation, Inc.
 
    Contributed by Claudiu Zissulescu (claziss@synopsys.com)
 
@@ -171,6 +171,8 @@ insert_rhv2 (unsigned long long  insn,
 {
   if (value == 0x1E)
     *errmsg = _("register R30 is a limm indicator");
+  else if (value < 0 || value > 31)
+    *errmsg = _("register out of range");
   return insn |= ((value & 0x07) << 5) | ((value >> 3) & 0x03);
 }
 
@@ -649,9 +651,13 @@ static long long
 extract_w6 (unsigned long long  insn,
 	    bfd_boolean *       invalid ATTRIBUTE_UNUSED)
 {
-  unsigned value = 0;
+  int value = 0;
 
   value |= ((insn >> 6) & 0x003f) << 0;
+
+  /* Extend the sign.  */
+  int signbit = 1 << 5;
+  value = (value ^ signbit) - signbit;
 
   return value;
 }
@@ -2006,7 +2012,7 @@ const struct arc_operand arc_operands[] =
   /* SIMM21_A16_5 mask = 00000111111111102222222222000000.  */
 #define SIMM21_A16_5	   (UIMM6_8 + 1)
   {21, 0, BFD_RELOC_ARC_S21H_PCREL, ARC_OPERAND_SIGNED
-   | ARC_OPERAND_ALIGNED16 | ARC_OPERAND_TRUNCATE,
+   | ARC_OPERAND_ALIGNED16 | ARC_OPERAND_TRUNCATE | ARC_OPERAND_PCREL,
    insert_simm21_a16_5, extract_simm21_a16_5},
 
   /* SIMM25_A16_5 mask = 00000111111111102222222222003333.  */

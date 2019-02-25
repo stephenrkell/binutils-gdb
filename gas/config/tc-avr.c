@@ -1,6 +1,6 @@
 /* tc-avr.c -- Assembler code for the ATMEL AVR
 
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2019 Free Software Foundation, Inc.
    Contributed by Denis Chertykov <denisc@overta.ru>
 
    This file is part of GAS, the GNU Assembler.
@@ -23,7 +23,6 @@
 #include "as.h"
 #include "safe-ctype.h"
 #include "subsegs.h"
-#include "struc-symbol.h"
 #include "dwarf2dbg.h"
 #include "dw2gencfi.h"
 #include "elf/avr.h"
@@ -1326,6 +1325,15 @@ avr_operand (struct avr_opcodes_s *opcode,
   return op_mask;
 }
 
+/* TC_FRAG_INIT hook */
+
+void
+avr_frag_init (fragS *frag)
+{
+  memset (& frag->tc_frag_data, 0, sizeof frag->tc_frag_data);
+}
+
+
 /* Parse instruction operands.
    Return binary opcode.  */
 
@@ -1337,7 +1345,6 @@ avr_operands (struct avr_opcodes_s *opcode, char **line)
   char *frag = frag_more (opcode->insn_size * 2);
   char *str = *line;
   int where = frag - frag_now->fr_literal;
-  static unsigned int prev = 0;  /* Previous opcode.  */
   int regno1 = -2;
   int regno2 = -2;
 
@@ -1403,7 +1410,7 @@ avr_operands (struct avr_opcodes_s *opcode, char **line)
          (AVR core bug, fixed in the newer devices).  */
       if (!(avr_opt.no_skip_bug ||
             (avr_mcu->isa & (AVR_ISA_MUL | AVR_ISA_MOVW)))
-	  && AVR_SKIP_P (prev))
+	  && AVR_SKIP_P (frag_now->tc_frag_data.prev_opcode))
 	as_warn (_("skipping two-word instruction"));
 
       bfd_putl32 ((bfd_vma) bin, frag);
@@ -1411,7 +1418,7 @@ avr_operands (struct avr_opcodes_s *opcode, char **line)
   else
     bfd_putl16 ((bfd_vma) bin, frag);
 
-  prev = bin;
+  frag_now->tc_frag_data.prev_opcode = bin;
   *line = str;
   return bin;
 }
@@ -2620,8 +2627,7 @@ avr_patch_gccisr_frag (fragS *fr, int reg)
       symbolS *sy = avr_isr.sym_n_pushed;
       /* Turn magic `__gcc_isr.n_pushed' into its now known value.  */
 
-      sy->sy_value.X_op = O_constant;
-      sy->sy_value.X_add_number = n_pushed;
+      S_SET_VALUE (sy, n_pushed);
       S_SET_SEGMENT (sy, expr_section);
       avr_isr.sym_n_pushed = NULL;
     }

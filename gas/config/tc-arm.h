@@ -1,5 +1,5 @@
 /* This file is tc-arm.h
-   Copyright (C) 1994-2017 Free Software Foundation, Inc.
+   Copyright (C) 1994-2019 Free Software Foundation, Inc.
    Contributed by Richard Earnshaw (rwe@pegasus.esprit.ec.org)
 	Modified by David Taylor (dtaylor@armltd.co.uk)
 
@@ -46,26 +46,10 @@
 
 struct fix;
 
-#if defined OBJ_AOUT
-# if defined TE_RISCIX
-#  define TARGET_FORMAT "a.out-riscix"
-# elif defined TE_LINUX
-#  define ARM_BI_ENDIAN
-#  define TARGET_FORMAT "a.out-arm-linux"
-# elif defined TE_NetBSD
-#  define TARGET_FORMAT "a.out-arm-netbsd"
-# else
-#  define ARM_BI_ENDIAN
-#  define TARGET_FORMAT (target_big_endian ? "a.out-arm-big" : "a.out-arm-little")
-# endif
-#elif defined OBJ_AIF
-# define TARGET_FORMAT "aif"
-#elif defined OBJ_COFF
+#if defined OBJ_COFF
 # define ARM_BI_ENDIAN
 # if defined TE_PE
-#  if defined TE_EPOC
-#   define TARGET_FORMAT (target_big_endian ? "epoc-pe-arm-big" : "epoc-pe-arm-little")
-#  elif defined TE_WINCE
+#  if defined TE_WINCE
 #   define TARGET_FORMAT (target_big_endian ? "pe-arm-wince-big" : "pe-arm-wince-little")
 #  else
 #   define TARGET_FORMAT (target_big_endian ? "pe-arm-big" : "pe-arm-little")
@@ -245,8 +229,7 @@ arm_min (int am_p1, int am_p2)
 }
 
 #define TC_FRAG_TYPE		struct arm_frag_type
-/* NOTE: max_chars is a local variable from frag_var / frag_variant.  */
-#define TC_FRAG_INIT(fragp)	arm_init_frag (fragp, max_chars)
+#define TC_FRAG_INIT(fragp, max_bytes) arm_init_frag (fragp, max_bytes)
 #define TC_ALIGN_ZERO_IS_DEFAULT 1
 #define HANDLE_ALIGN(fragp)	arm_handle_align (fragp)
 /* PR gas/19276: COFF/PE segment alignment is already handled in coff_frob_section().  */

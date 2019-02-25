@@ -1,5 +1,5 @@
 /* dw2gencfi.c - Support for generating Dwarf2 CFI information.
-   Copyright (C) 2003-2017 Free Software Foundation, Inc.
+   Copyright (C) 2003-2019 Free Software Foundation, Inc.
    Contributed by Michal Ludvig <mludvig@suse.cz>
 
    This file is part of GAS, the GNU Assembler.
@@ -197,7 +197,7 @@ emit_expr_encoded (expressionS *exp, int encoding, bfd_boolean emit_encoding)
     {
       reloc_howto_type *howto = bfd_reloc_type_lookup (stdoutput, code);
       char *p = frag_more (size);
-      gas_assert (size == howto->bitsize / 8);
+      gas_assert (size == (unsigned) howto->bitsize / 8);
       md_number_to_chars (p, 0, size);
       fix_new (frag_now, p - frag_now->fr_literal, size, exp->X_add_symbol,
 	       exp->X_add_number, howto->pc_relative, code);
@@ -403,6 +403,9 @@ struct cie_entry
   unsigned char per_encoding;
   unsigned char lsda_encoding;
   expressionS personality;
+#ifdef tc_cie_entry_extras
+  tc_cie_entry_extras
+#endif
   struct cfi_insn_data *first, *last;
 };
 
@@ -414,22 +417,6 @@ static struct fde_entry **last_fde_data = &all_fde_data;
 /* List of CIEs so that they could be reused.  */
 static struct cie_entry *cie_root;
 
-/* Stack of old CFI data, for save/restore.  */
-struct cfa_save_data
-{
-  struct cfa_save_data *next;
-  offsetT cfa_offset;
-};
-
-/* Current open FDE entry.  */
-struct frch_cfi_data
-{
-  struct fde_entry *cur_fde_data;
-  symbolS *last_address;
-  offsetT cur_cfa_offset;
-  struct cfa_save_data *cfa_save_stack;
-};
-
 /* Construct a new FDE structure and add it to the end of the fde list.  */
 
 static struct fde_entry *
@@ -448,6 +435,9 @@ alloc_fde_entry (void)
   fde->per_encoding = DW_EH_PE_omit;
   fde->lsda_encoding = DW_EH_PE_omit;
   fde->eh_header_type = EH_COMPACT_UNKNOWN;
+#ifdef tc_fde_entry_init_extra
+  tc_fde_entry_init_extra (fde)
+#endif
 
   return fde;
 }
@@ -1198,8 +1188,16 @@ dot_cfi_val_encoded_addr (int ignored ATTRIBUTE_UNUSED)
 static void
 dot_cfi_label (int ignored ATTRIBUTE_UNUSED)
 {
-  char *name = read_symbol_name ();
+  char *name;
 
+  if (frchain_now->frch_cfi_data == NULL)
+    {
+      as_bad (_("CFI instruction used without previous .cfi_startproc"));
+      ignore_rest_of_line ();
+      return;
+    }
+
+  name = read_symbol_name ();
   if (name == NULL)
     return;
 
@@ -1864,6 +1862,9 @@ output_cie (struct cie_entry *cie, bfd_boolean eh_frame, int align)
       if (cie->lsda_encoding != DW_EH_PE_omit)
 	out_one ('L');
       out_one ('R');
+#ifdef tc_output_cie_extra
+      tc_output_cie_extra (cie);
+#endif
     }
   if (cie->signal_frame)
     out_one ('S');
@@ -1979,7 +1980,7 @@ output_fde (struct fde_entry *fde, struct cie_entry *cie,
 	{
 	  reloc_howto_type *howto = bfd_reloc_type_lookup (stdoutput, code);
 	  char *p = frag_more (addr_size);
-	  gas_assert (addr_size == howto->bitsize / 8);
+	  gas_assert (addr_size == (unsigned) howto->bitsize / 8);
 	  md_number_to_chars (p, 0, addr_size);
 	  fix_new (frag_now, p - frag_now->fr_literal, addr_size,
 		   fde->start_address, 0, howto->pc_relative, code);
@@ -2043,6 +2044,10 @@ select_cie_for_fde (struct fde_entry *fde, bfd_boolean eh_frame,
     {
       if (CUR_SEG (cie) != CUR_SEG (fde))
 	continue;
+#ifdef tc_cie_fde_equivalent_extra
+      if (!tc_cie_fde_equivalent_extra (cie, fde))
+	continue;
+#endif
       if (cie->return_column != fde->return_column
 	  || cie->signal_frame != fde->signal_frame
 	  || cie->per_encoding != fde->per_encoding
@@ -2150,6 +2155,9 @@ select_cie_for_fde (struct fde_entry *fde, bfd_boolean eh_frame,
   cie->lsda_encoding = fde->lsda_encoding;
   cie->personality = fde->personality;
   cie->first = fde->data;
+#ifdef tc_cie_entry_init_extra
+  tc_cie_entry_init_extra (cie, fde)
+#endif
 
   for (i = cie->first; i ; i = i->next)
     if (i->insn == DW_CFA_advance_loc

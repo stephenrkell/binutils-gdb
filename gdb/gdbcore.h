@@ -1,6 +1,6 @@
 /* Machine independent variables that describe the core file under GDB.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -127,21 +127,23 @@ extern void (*deprecated_exec_file_display_hook) (const char *filename);
 /* Hook for "file_command", which is more useful than above
    (because it is invoked AFTER symbols are read, not before).  */
 
-extern void (*deprecated_file_changed_hook) (char *filename);
+extern void (*deprecated_file_changed_hook) (const char *filename);
 
 extern void specify_exec_file_hook (void (*hook) (const char *filename));
 
 /* Binary File Diddler for the core file.  */
 
-extern bfd *core_bfd;
-
-extern struct target_ops *core_target;
+#define core_bfd (current_program_space->cbfd.get ())
 
 /* Whether to open exec and core files read-only or read-write.  */
 
 extern int write_files;
 
-extern void core_file_command (char *filename, int from_tty);
+/* Open and set up the core file bfd.  */
+
+extern void core_target_open (const char *arg, int from_tty);
+
+extern void core_file_command (const char *filename, int from_tty);
 
 extern void exec_file_attach (const char *filename, int from_tty);
 
@@ -152,8 +154,6 @@ extern void exec_file_attach (const char *filename, int from_tty);
    DEFER_BP_RESET uses SYMFILE_DEFER_BP_RESET for the main symbol file.  */
 
 extern void exec_file_locate_attach (int pid, int defer_bp_reset, int from_tty);
-
-extern void exec_file_clear (int from_tty);
 
 extern void validate_files (void);
 

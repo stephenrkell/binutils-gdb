@@ -1,6 +1,6 @@
 /* Fork a Unix child process, and set up to debug it, for GDB.
 
-   Copyright (C) 1990-2017 Free Software Foundation, Inc.
+   Copyright (C) 1990-2019 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
 
@@ -25,8 +25,8 @@
 #include "terminal.h"
 #include "gdbthread.h"
 #include "top.h"
-#include "job-control.h"
-#include "filestuff.h"
+#include "common/job-control.h"
+#include "common/filestuff.h"
 #include "nat/fork-inferior.h"
 #include "common/common-inferior.h"
 
@@ -78,17 +78,12 @@ prefork_hook (const char *args)
 void
 postfork_hook (pid_t pid)
 {
-  struct inferior *inf;
-
-  if (!have_inferiors ())
-    init_thread_list ();
-
-  inf = current_inferior ();
+  inferior *inf = current_inferior ();
 
   inferior_appeared (inf, pid);
 
   /* Needed for wait_for_inferior stuff.  */
-  inferior_ptid = pid_to_ptid (pid);
+  inferior_ptid = ptid_t (pid);
 
   gdb_assert (saved_ui != NULL);
   current_ui = saved_ui;
@@ -144,7 +139,7 @@ gdb_startup_inferior (pid_t pid, int num_traps)
 /* Implement the "unset exec-wrapper" command.  */
 
 static void
-unset_exec_wrapper_command (char *args, int from_tty)
+unset_exec_wrapper_command (const char *args, int from_tty)
 {
   xfree (exec_wrapper);
   exec_wrapper = NULL;

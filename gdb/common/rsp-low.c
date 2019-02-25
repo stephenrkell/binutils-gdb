@@ -1,6 +1,6 @@
 /* Low-level RSP routines for GDB, the GNU debugger.
 
-   Copyright (C) 1988-2017 Free Software Foundation, Inc.
+   Copyright (C) 1988-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -92,8 +92,8 @@ pack_hex_byte (char *pkt, int byte)
 
 /* See rsp-low.h.  */
 
-char *
-unpack_varlen_hex (char *buff,	/* packet to parse */
+const char *
+unpack_varlen_hex (const char *buff,	/* packet to parse */
 		   ULONGEST *result)
 {
   int nibble;
@@ -132,14 +132,34 @@ hex2bin (const char *hex, gdb_byte *bin, int count)
 
 /* See rsp-low.h.  */
 
+gdb::byte_vector
+hex2bin (const char *hex)
+{
+  size_t bin_len = strlen (hex) / 2;
+  gdb::byte_vector bin (bin_len);
+
+  hex2bin (hex, bin.data (), bin_len);
+
+  return bin;
+}
+
+/* See rsp-low.h.  */
+
 std::string
 hex2str (const char *hex)
 {
-  std::string ret;
-  size_t len = strlen (hex);
+  return hex2str (hex, strlen (hex));
+}
 
-  ret.reserve (len / 2);
-  for (size_t i = 0; i < len; ++i)
+/* See rsp-low.h.  */
+
+std::string
+hex2str (const char *hex, int count)
+{
+  std::string ret;
+
+  ret.reserve (count);
+  for (size_t i = 0; i < count; ++i)
     {
       if (hex[0] == '\0' || hex[1] == '\0')
 	{

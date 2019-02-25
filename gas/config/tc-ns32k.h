@@ -1,5 +1,5 @@
 /* tc-ns32k.h -- Opcode table for National Semi 32k processor
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2019 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -73,7 +73,7 @@ extern const struct relax_type md_relax_table[];
       char         fr_bsr;			\
     }
 
-#define TC_FRAG_INIT(X)				\
+#define TC_FRAG_INIT(X, MAX_BYTES)		\
   do						\
      {						\
        frag_opcode_frag (X) = NULL;		\

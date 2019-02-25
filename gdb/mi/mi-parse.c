@@ -1,6 +1,6 @@
 /* MI Command Set - MI parser.
 
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2019 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -237,7 +237,6 @@ std::unique_ptr<struct mi_parse>
 mi_parse (const char *cmd, char **token)
 {
   const char *chp;
-  struct cleanup *cleanup;
 
   std::unique_ptr<struct mi_parse> parse (new struct mi_parse);
 

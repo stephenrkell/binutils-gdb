@@ -1,5 +1,5 @@
 /* GDB self-testing.
-   Copyright (C) 2016-2017 Free Software Foundation, Inc.
+   Copyright (C) 2016-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef SELFTEST_H
-#define SELFTEST_H
+#ifndef COMMON_SELFTEST_H
+#define COMMON_SELFTEST_H
 
 /* A test is just a function that does some checks and throws an
    exception if something has gone wrong.  */
@@ -31,6 +31,7 @@ namespace selftests
 
 struct selftest
 {
+  virtual ~selftest () = default;
   virtual void operator() () const = 0;
 };
 
@@ -69,4 +70,4 @@ extern void for_each_selftest (for_each_selftest_ftype func);
       error (_("self-test failed at %s:%d"), __FILE__, __LINE__);	\
   } while (0)
 
-#endif /* SELFTEST_H */
+#endif /* COMMON_SELFTEST_H */

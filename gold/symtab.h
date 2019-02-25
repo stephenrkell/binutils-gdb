@@ -1,6 +1,6 @@
 // symtab.h -- the gold symbol table   -*- C++ -*-
 
-// Copyright (C) 2006-2017 Free Software Foundation, Inc.
+// Copyright (C) 2006-2019 Free Software Foundation, Inc.
 // Written by Ian Lance Taylor <iant@google.com>.
 
 // This file is part of gold.
@@ -343,6 +343,11 @@ class Symbol
   void
   set_in_dyn()
   { this->in_dyn_ = true; }
+
+  // Return whether this symbol is defined in a dynamic object.
+  bool
+  from_dyn() const
+  { return this->source_ == FROM_OBJECT && this->object()->is_dynamic(); }
 
   // Return whether this symbol has been seen in a real ELF object.
   // (IN_REG will return TRUE if the symbol has been seen in either
@@ -909,7 +914,7 @@ class Symbol
   // Instances of this class should always be created at a specific
   // size.
   Symbol()
-  { memset(this, 0, sizeof *this); }
+  { memset(static_cast<void*>(this), 0, sizeof *this); }
 
   // Initialize the general fields.
   void
@@ -1830,7 +1835,8 @@ class Symbol_table
   template<int size, bool big_endian>
   Sized_symbol<size>*
   define_special_symbol(const char** pname, const char** pversion,
-			bool only_if_ref, Sized_symbol<size>** poldsym,
+			bool only_if_ref, elfcpp::STV visibility,
+			Sized_symbol<size>** poldsym,
 			bool* resolve_oldsym, bool is_forced_local);
 
   // Define a symbol in an Output_data, sized version.

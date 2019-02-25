@@ -1,4 +1,4 @@
-/* Copyright (C) 2017 Free Software Foundation, Inc.
+/* Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -169,10 +169,90 @@ public:
   constexpr size_type size () const noexcept { return m_size; }
   constexpr bool empty () const noexcept { return m_size == 0; }
 
+  /* Slice an array view.  */
+
+  /* Return a new array view over SIZE elements starting at START.  */
+  constexpr array_view<T> slice (size_type start, size_type size) const noexcept
+  { return {m_array + start, size}; }
+
+  /* Return a new array view over all the elements after START,
+     inclusive.  */
+  constexpr array_view<T> slice (size_type start) const noexcept
+  { return {m_array + start, size () - start}; }
+
 private:
   T *m_array;
   size_type m_size;
 };
+
+/* Compare LHS and RHS for (deep) equality.  That is, whether LHS and
+   RHS have the same sizes, and whether each pair of elements of LHS
+   and RHS at the same position compares equal.  */
+
+template <typename T>
+bool
+operator== (const gdb::array_view<T> &lhs, const gdb::array_view<T> &rhs)
+{
+  if (lhs.size () != rhs.size ())
+    return false;
+
+  for (size_t i = 0; i < lhs.size (); i++)
+    if (!(lhs[i] == rhs[i]))
+      return false;
+
+  return true;
+}
+
+/* Compare two array_views for inequality.  */
+
+template <typename T>
+bool
+operator!= (const gdb::array_view<T> &lhs, const gdb::array_view<T> &rhs)
+{
+  return !(lhs == rhs);
+}
+
+/* Create an array view from a pointer to an array and an element
+   count.
+
+   This is useful as alternative to constructing an array_view using
+   brace initialization when the size variable you have handy is of
+   signed type, since otherwise without an explicit cast the code
+   would be ill-formed.
+
+   For example, with:
+
+     extern void foo (int, int, gdb::array_view<value *>);
+
+     value *args[2];
+     int nargs;
+     foo (1, 2, {values, nargs});
+
+   You'd get:
+
+     source.c:10: error: narrowing conversion of ‘nargs’ from ‘int’ to
+     ‘size_t {aka long unsigned int}’ inside { } [-Werror=narrowing]
+
+   You could fix it by writing the somewhat distracting explicit cast:
+
+     foo (1, 2, {values, (size_t) nargs});
+
+   Or by instantiating an array_view explicitly:
+
+     foo (1, 2, gdb::array_view<value *>(values, nargs));
+
+   Or, better, using make_array_view, which has the advantage of
+   inferring the arrav_view element's type:
+
+     foo (1, 2, gdb::make_array_view (values, nargs));
+*/
+
+template<typename U>
+constexpr inline array_view<U>
+make_array_view (U *array, size_t size) noexcept
+{
+  return {array, size};
+}
 
 } /* namespace gdb */
 

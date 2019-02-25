@@ -1,6 +1,6 @@
 /* The find command.
 
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -209,7 +209,7 @@ parse_find_args (const char *args, ULONGEST *max_countp,
 }
 
 static void
-find_command (char *args, int from_tty)
+find_command (const char *args, int from_tty)
 {
   struct gdbarch *gdbarch = get_current_arch ();
   bfd_boolean big_p = gdbarch_byte_order (gdbarch) == BFD_ENDIAN_BIG;
@@ -286,14 +286,16 @@ _initialize_mem_search (void)
   add_cmd ("find", class_vars, find_command, _("\
 Search memory for a sequence of bytes.\n\
 Usage:\nfind \
-[/size-char] [/max-count] start-address, end-address, expr1 [, expr2 ...]\n\
-find [/size-char] [/max-count] start-address, +length, expr1 [, expr2 ...]\n\
-size-char is one of b,h,w,g for 8,16,32,64 bit values respectively,\n\
+[/SIZE-CHAR] [/MAX-COUNT] START-ADDRESS, END-ADDRESS, EXPR1 [, EXPR2 ...]\n\
+find [/SIZE-CHAR] [/MAX-COUNT] START-ADDRESS, +LENGTH, EXPR1 [, EXPR2 ...]\n\
+SIZE-CHAR is one of b,h,w,g for 8,16,32,64 bit values respectively,\n\
 and if not specified the size is taken from the type of the expression\n\
 in the current language.\n\
 Note that this means for example that in the case of C-like languages\n\
 a search for an untyped 0x42 will search for \"(int) 0x42\"\n\
-which is typically four bytes.\n\
+which is typically four bytes, and a search for a string \"hello\" will\n\
+include the trailing '\\0'.  The null terminator can be removed from\n\
+searching by using casts, e.g.: {char[5]}\"hello\".\n\
 \n\
 The address of the last match is stored as the value of \"$_\".\n\
 Convenience variable \"$numfound\" is set to the number of matches."),

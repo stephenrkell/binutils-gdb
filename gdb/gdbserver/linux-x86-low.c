@@ -1,6 +1,6 @@
 /* GNU/Linux/x86-64 specific low level interface, for the remote server
    for GDB.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -24,7 +24,7 @@
 #include "linux-low.h"
 #include "i387-fp.h"
 #include "x86-low.h"
-#include "x86-xstate.h"
+#include "common/x86-xstate.h"
 #include "nat/gdb_ptrace.h"
 
 #ifdef __x86_64__
@@ -38,7 +38,7 @@
 #include "elf/common.h"
 #endif
 
-#include "agent.h"
+#include "common/agent.h"
 #include "tdesc.h"
 #include "tracepoint.h"
 #include "ax.h"
@@ -72,7 +72,6 @@ static const char *xmltarget_amd64_linux_no_xml = "@<target>\
 
 #include <sys/reg.h>
 #include <sys/procfs.h>
-#include "nat/gdb_ptrace.h"
 #include <sys/uio.h>
 
 #ifndef PTRACE_GET_THREAD_AREA
@@ -255,7 +254,7 @@ x86_get_thread_area (int lwpid, CORE_ADDR *addr)
 #endif
 
   {
-    struct lwp_info *lwp = find_lwp_pid (pid_to_ptid (lwpid));
+    struct lwp_info *lwp = find_lwp_pid (ptid_t (lwpid));
     struct thread_info *thr = get_lwp_thread (lwp);
     struct regcache *regcache = get_thread_regcache (thr, 1);
     unsigned int desc[4];
@@ -617,6 +616,14 @@ x86_linux_new_process (void)
   return info;
 }
 
+/* Called when a process is being deleted.  */
+
+static void
+x86_linux_delete_process (struct arch_process_info *info)
+{
+  xfree (info);
+}
+
 /* Target routine for linux_new_fork.  */
 
 static void
@@ -846,20 +853,6 @@ x86_linux_read_description (void)
   gdb_assert_not_reached ("failed to return tdesc");
 }
 
-/* Callback for for_each_inferior.  Calls the arch_setup routine for
-   each process.  */
-
-static void
-x86_arch_setup_process_callback (struct inferior_list_entry *entry)
-{
-  int pid = ptid_get_pid (entry->id);
-
-  /* Look up any thread of this processes.  */
-  current_thread = find_any_thread_of_pid (pid);
-
-  the_low_target.arch_setup ();
-}
-
 /* Update all the target description of all processes; a new GDB
    connected, and it may or not support xml target descriptions.  */
 
@@ -873,7 +866,14 @@ x86_linux_update_xmltarget (void)
      release the current regcache objects.  */
   regcache_release ();
 
-  for_each_inferior (&all_processes, x86_arch_setup_process_callback);
+  for_each_process ([] (process_info *proc) {
+    int pid = proc->pid;
+
+    /* Look up any thread of this process.  */
+    current_thread = find_any_thread_of_pid (pid);
+
+    the_low_target.arch_setup ();
+  });
 
   current_thread = saved_thread;
 }
@@ -2866,7 +2866,9 @@ struct linux_target_ops the_low_target =
   /* need to fix up i386 siginfo if host is amd64 */
   x86_siginfo_fixup,
   x86_linux_new_process,
+  x86_linux_delete_process,
   x86_linux_new_thread,
+  x86_linux_delete_thread,
   x86_linux_new_fork,
   x86_linux_prepare_to_resume,
   x86_linux_process_qsupported,

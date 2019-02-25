@@ -1,6 +1,6 @@
 /* vms-misc.c -- BFD back-end for VMS/VAX (openVMS/VAX) and
    EVAX (openVMS/Alpha) files.
-   Copyright (C) 1996-2017 Free Software Foundation, Inc.
+   Copyright (C) 1996-2019 Free Software Foundation, Inc.
 
    Miscellaneous functions.
 
@@ -252,7 +252,7 @@ _bfd_vms_output_end_subrec (struct vms_rec_wr *recwr)
 
   /* Put length to buffer.  */
   bfd_putl16 ((bfd_vma) (recwr->size - recwr->subrec_offset),
-              recwr->buf + recwr->subrec_offset + 2);
+	      recwr->buf + recwr->subrec_offset + 2);
 
   /* Close the subrecord.  */
   recwr->subrec_offset = 0;
@@ -516,12 +516,12 @@ vms_get_module_name (const char *filename, bfd_boolean upcase)
   for (fptr = fname; *fptr != 0; fptr++)
     {
       if (*fptr == ';' || (fptr - fname) >= 31)
-        {
-          *fptr = 0;
-          break;
-        }
+	{
+	  *fptr = 0;
+	  break;
+	}
       if (upcase)
-        *fptr = TOUPPER (*fptr);
+	*fptr = TOUPPER (*fptr);
     }
   return fname;
 }

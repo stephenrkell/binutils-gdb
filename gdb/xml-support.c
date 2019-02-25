@@ -1,6 +1,6 @@
 /* Helper routines for parsing XML using Expat.
 
-   Copyright (C) 2006-2017 Free Software Foundation, Inc.
+   Copyright (C) 2006-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,7 @@
 #include "defs.h"
 #include "gdbcmd.h"
 #include "xml-support.h"
-#include "filestuff.h"
+#include "common/filestuff.h"
 #include "safe-ctype.h"
 #include <vector>
 #include <string>
@@ -179,16 +179,14 @@ void
 gdb_xml_parser::vdebug (const char *format, va_list ap)
 {
   int line = XML_GetCurrentLineNumber (m_expat_parser);
-  char *message;
 
-  message = xstrvprintf (format, ap);
+  std::string message = string_vprintf (format, ap);
   if (line)
     fprintf_unfiltered (gdb_stderr, "%s (line %d): %s\n",
-			m_name, line, message);
+			m_name, line, message.c_str ());
   else
     fprintf_unfiltered (gdb_stderr, "%s: %s\n",
-			m_name, message);
-  xfree (message);
+			m_name, message.c_str ());
 }
 
 void
@@ -228,30 +226,14 @@ gdb_xml_error (struct gdb_xml_parser *parser, const char *format, ...)
    ATTRIBUTES.  Returns NULL if not found.  */
 
 struct gdb_xml_value *
-xml_find_attribute (VEC(gdb_xml_value_s) *attributes, const char *name)
+xml_find_attribute (std::vector<gdb_xml_value> &attributes,
+		    const char *name)
 {
-  struct gdb_xml_value *value;
-  int ix;
-
-  for (ix = 0; VEC_iterate (gdb_xml_value_s, attributes, ix, value); ix++)
-    if (strcmp (value->name, name) == 0)
-      return value;
+  for (gdb_xml_value &value : attributes)
+    if (strcmp (value.name, name) == 0)
+      return &value;
 
   return NULL;
-}
-
-/* Clean up a vector of parsed attribute values.  */
-
-static void
-gdb_xml_values_cleanup (void *data)
-{
-  VEC(gdb_xml_value_s) **values = (VEC(gdb_xml_value_s) **) data;
-  struct gdb_xml_value *value;
-  int ix;
-
-  for (ix = 0; VEC_iterate (gdb_xml_value_s, *values, ix, value); ix++)
-    xfree (value->value);
-  VEC_free (gdb_xml_value_s, *values);
 }
 
 /* Handle the start of an element.  NAME is the element, and ATTRS are
@@ -266,9 +248,7 @@ gdb_xml_parser::start_element (const XML_Char *name,
 
   const struct gdb_xml_element *element;
   const struct gdb_xml_attribute *attribute;
-  VEC(gdb_xml_value_s) *attributes = NULL;
   unsigned int seen;
-  struct cleanup *back_to;
 
   /* Push an error scope.  If we return or throw an exception before
      filling this in, it will tell us to ignore children of this
@@ -317,7 +297,7 @@ gdb_xml_parser::start_element (const XML_Char *name,
 
   scope.seen |= seen;
 
-  back_to = make_cleanup (gdb_xml_values_cleanup, &attributes);
+  std::vector<gdb_xml_value> attributes;
 
   for (attribute = element->attributes;
        attribute != NULL && attribute->name != NULL;
@@ -326,7 +306,6 @@ gdb_xml_parser::start_element (const XML_Char *name,
       const char *val = NULL;
       const XML_Char **p;
       void *parsed_value;
-      struct gdb_xml_value new_value;
 
       for (p = attrs; *p != NULL; p += 2)
 	if (!strcmp (attribute->name, p[0]))
@@ -361,9 +340,7 @@ gdb_xml_parser::start_element (const XML_Char *name,
       else
 	parsed_value = xstrdup (val);
 
-      new_value.name = attribute->name;
-      new_value.value = parsed_value;
-      VEC_safe_push (gdb_xml_value_s, attributes, &new_value);
+      attributes.emplace_back (attribute->name, parsed_value);
     }
 
   /* Check for unrecognized attributes.  */
@@ -395,8 +372,6 @@ gdb_xml_parser::start_element (const XML_Char *name,
   scope_level &new_scope = m_scopes.back ();
   new_scope.element = element;
   new_scope.elements = element->children;
-
-  do_cleanups (back_to);
 }
 
 /* Wrapper for gdb_xml_start_element, to prevent throwing exceptions
@@ -803,13 +778,12 @@ struct xinclude_parsing_data
 static void
 xinclude_start_include (struct gdb_xml_parser *parser,
 			const struct gdb_xml_element *element,
-			void *user_data, VEC(gdb_xml_value_s) *attributes)
+			void *user_data,
+			std::vector<gdb_xml_value> &attributes)
 {
   struct xinclude_parsing_data *data
     = (struct xinclude_parsing_data *) user_data;
-  char *href = (char *) xml_find_attribute (attributes, "href")->value;
-  struct cleanup *back_to;
-  char *text, *output;
+  char *href = (char *) xml_find_attribute (attributes, "href")->value.get ();
 
   gdb_xml_debug (parser, _("Processing XInclude of \"%s\""), href);
 
@@ -817,18 +791,16 @@ xinclude_start_include (struct gdb_xml_parser *parser,
     gdb_xml_error (parser, _("Maximum XInclude depth (%d) exceeded"),
 		   MAX_XINCLUDE_DEPTH);
 
-  text = data->fetcher (href, data->fetcher_baton);
-  if (text == NULL)
+  gdb::optional<gdb::char_vector> text
+    = data->fetcher (href, data->fetcher_baton);
+  if (!text)
     gdb_xml_error (parser, _("Could not load XML document \"%s\""), href);
-  back_to = make_cleanup (xfree, text);
 
   if (!xml_process_xincludes (data->output, parser->name (),
-			      text, data->fetcher,
+			      text->data (), data->fetcher,
 			      data->fetcher_baton,
 			      data->include_depth + 1))
     gdb_xml_error (parser, _("Parsing \"%s\" failed"), href);
-
-  do_cleanups (back_to);
 
   data->skip_depth++;
 }
@@ -997,14 +969,11 @@ show_debug_xml (struct ui_file *file, int from_tty,
   fprintf_filtered (file, _("XML debugging is %s.\n"), value);
 }
 
-char *
+gdb::optional<gdb::char_vector>
 xml_fetch_content_from_file (const char *filename, void *baton)
 {
   const char *dirname = (const char *) baton;
   gdb_file_up file;
-  struct cleanup *back_to;
-  char *text;
-  size_t len, offset;
 
   if (dirname && *dirname)
     {
@@ -1019,39 +988,27 @@ xml_fetch_content_from_file (const char *filename, void *baton)
     file = gdb_fopen_cloexec (filename, FOPEN_RT);
 
   if (file == NULL)
-    return NULL;
+    return {};
 
-  /* Read in the whole file, one chunk at a time.  */
-  len = 4096;
-  offset = 0;
-  text = (char *) xmalloc (len);
-  back_to = make_cleanup (free_current_contents, &text);
-  while (1)
+  /* Read in the whole file.  */
+
+  size_t len;
+
+  if (fseek (file.get (), 0, SEEK_END) == -1)
+    perror_with_name (_("seek to end of file"));
+  len = ftell (file.get ());
+  rewind (file.get ());
+
+  gdb::char_vector text (len + 1);
+
+  if (fread (text.data (), 1, len, file.get ()) != len
+      || ferror (file.get ()))
     {
-      size_t bytes_read;
-
-      /* Continue reading where the last read left off.  Leave at least
-	 one byte so that we can NUL-terminate the result.  */
-      bytes_read = fread (text + offset, 1, len - offset - 1, file.get ());
-      if (ferror (file.get ()))
-	{
-	  warning (_("Read error from \"%s\""), filename);
-	  do_cleanups (back_to);
-	  return NULL;
-	}
-
-      offset += bytes_read;
-
-      if (feof (file.get ()))
-	break;
-
-      len = len * 2;
-      text = (char *) xrealloc (text, len);
+      warning (_("Read error from \"%s\""), filename);
+      return {};
     }
 
-  discard_cleanups (back_to);
-
-  text[offset] = '\0';
+  text.back () = '\0';
   return text;
 }
 

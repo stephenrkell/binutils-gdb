@@ -1,5 +1,5 @@
 /* Common multi-process/thread control defs for GDB and gdbserver.
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,10 +16,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_GDBTHREAD_H
-#define COMMON_GDBTHREAD_H
+#ifndef COMMON_COMMON_GDBTHREAD_H
+#define COMMON_COMMON_GDBTHREAD_H
 
 /* Switch from one thread to another.  */
 extern void switch_to_thread (ptid_t ptid);
 
-#endif /* ! COMMON_GDBTHREAD_H */
+#endif /* COMMON_COMMON_GDBTHREAD_H */

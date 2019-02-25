@@ -1,6 +1,6 @@
 /* GDB commands implemented in Scheme.
 
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -267,9 +267,9 @@ gdbscm_command_valid_p (SCM self)
 static SCM
 gdbscm_dont_repeat (SCM self)
 {
-  /* We currently don't need anything from SELF, but still verify it.  */
-  command_smob *c_smob
-    = cmdscm_get_valid_command_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
+  /* We currently don't need anything from SELF, but still verify it.
+     Call for side effects.  */
+  cmdscm_get_valid_command_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
 
   dont_repeat ();
 
@@ -292,9 +292,8 @@ cmdscm_destroyer (struct cmd_list_element *self, void *context)
 
 static void
 cmdscm_function (struct cmd_list_element *command,
-		 char *args_entry, int from_tty)
+		 const char *args, int from_tty)
 {
-  const char *args = args_entry;
   command_smob *c_smob/*obj*/ = (command_smob *) get_cmd_context (command);
   SCM arg_scm, tty_scm, result;
 
@@ -317,10 +316,10 @@ cmdscm_function (struct cmd_list_element *command,
 	 itself.  */
       if (gdbscm_user_error_p (gdbscm_exception_key (result)))
 	{
-	  char *msg = gdbscm_exception_message_to_string (result);
+	  gdb::unique_xmalloc_ptr<char> msg
+	    = gdbscm_exception_message_to_string (result);
 
-	  make_cleanup (xfree, msg);
-	  error ("%s", msg);
+	  error ("%s", msg.get ());
 	}
       else
 	{
@@ -363,8 +362,8 @@ cmdscm_add_completion (SCM completion, completion_tracker &tracker)
     }
 
   gdb::unique_xmalloc_ptr<char> item
-    (gdbscm_scm_to_string (completion, NULL, host_charset (), 1,
-			   &except_scm));
+    = gdbscm_scm_to_string (completion, NULL, host_charset (), 1,
+			    &except_scm);
   if (item == NULL)
     {
       /* Inform the user, but otherwise ignore the entire result.  */
@@ -386,7 +385,7 @@ cmdscm_completer (struct cmd_list_element *command,
 {
   command_smob *c_smob/*obj*/ = (command_smob *) get_cmd_context (command);
   SCM completer_result_scm;
-  SCM text_scm, word_scm, result_scm;
+  SCM text_scm, word_scm;
 
   gdb_assert (c_smob != NULL);
   gdb_assert (gdbscm_is_procedure (c_smob->complete));
@@ -747,7 +746,7 @@ gdbscm_register_command_x (SCM self)
 {
   command_smob *c_smob
     = cmdscm_get_command_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
-  char *cmd_name, *pfx_name;
+  char *cmd_name;
   struct cmd_list_element **cmd_list;
   struct cmd_list_element *cmd = NULL;
 
@@ -774,7 +773,7 @@ gdbscm_register_command_x (SCM self)
       else
 	{
 	  cmd = add_cmd (c_smob->cmd_name, c_smob->cmd_class,
-			 NULL, c_smob->doc, cmd_list);
+			 c_smob->doc, cmd_list);
 	}
     }
   CATCH (except, RETURN_MASK_ALL)

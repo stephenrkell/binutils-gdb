@@ -1,6 +1,6 @@
 /* Target-dependent code for DJGPP/i386.
 
-   Copyright (C) 1988-2017 Free Software Foundation, Inc.
+   Copyright (C) 1988-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,7 @@
 
 #include "defs.h"
 #include "i386-tdep.h"
-#include "x86-xstate.h"
+#include "common/x86-xstate.h"
 #include "target-descriptions.h"
 #include "osabi.h"
 

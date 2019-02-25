@@ -1,5 +1,5 @@
 /* tc-tic54x.h -- Header file for tc-tic54x.c
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2019 Free Software Foundation, Inc.
    Contributed by Timothy Wall (twall@alum.mit.edu)
 
    This file is part of GAS, the GNU Assembler.
@@ -62,7 +62,7 @@ struct bit_info
 
 /* We sometimes need to keep track of bit offsets within words */
 #define TC_FRAG_TYPE int
-#define TC_FRAG_INIT(FRAGP) do {(FRAGP)->tc_frag_data = 0;}while (0)
+#define TC_FRAG_INIT(FRAGP, MAX_BYTES) do {(FRAGP)->tc_frag_data = 0;}while (0)
 
 /* tell GAS whether the given token is indeed a code label */
 #define TC_START_LABEL_WITHOUT_COLON(NUL_CHAR, NEXT_CHAR) \

@@ -1,6 +1,6 @@
 /* Target dependent code for ARC arhitecture, for GDB.
 
-   Copyright 2005-2017 Free Software Foundation, Inc.
+   Copyright 2005-2019 Free Software Foundation, Inc.
    Contributed by Synopsys Inc.
 
    This file is part of GDB.
@@ -33,7 +33,7 @@
 
 /* ARC header files.  */
 #include "opcode/arc.h"
-#include "opcodes/arc-dis.h"
+#include "../opcodes/arc-dis.h"
 #include "arc-tdep.h"
 
 /* Standard headers.  */
@@ -447,7 +447,7 @@ arc_insn_get_linear_next_pc (const struct arc_instruction &insn)
 static void
 arc_write_pc (struct regcache *regcache, CORE_ADDR new_pc)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
 
   if (arc_debug)
     debug_printf ("arc: Writing PC, new value=%s\n",
@@ -592,7 +592,8 @@ arc_dummy_id (struct gdbarch *gdbarch, struct frame_info *this_frame)
 static CORE_ADDR
 arc_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 		     struct regcache *regcache, CORE_ADDR bp_addr, int nargs,
-		     struct value **args, CORE_ADDR sp, int struct_return,
+		     struct value **args, CORE_ADDR sp,
+		     function_call_return_method return_method,
 		     CORE_ADDR struct_addr)
 {
   if (arc_debug)
@@ -607,7 +608,7 @@ arc_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
      value return?  If so, struct_addr is the address of the reserved space for
      the return structure to be written on the stack, and that address is
      passed to that function as a hidden first argument.  */
-  if (struct_return)
+  if (return_method == return_method_struct)
     {
       /* Pass the return address in the first argument register.  */
       regcache_cooked_write_unsigned (regcache, arg_reg, struct_addr);
@@ -664,7 +665,7 @@ arc_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 
 	  /* Note we don't use write_unsigned here, since that would convert
 	     the byte order, but we are already in the correct byte order.  */
-	  regcache_cooked_write (regcache, arg_reg, data);
+	  regcache->cooked_write (arg_reg, data);
 
 	  data += ARC_REGISTER_SIZE;
 	  total_space -= ARC_REGISTER_SIZE;
@@ -1014,7 +1015,7 @@ arc_is_in_prologue (struct gdbarch *gdbarch, const struct arc_instruction &insn,
 	addr = pv_add_constant (regs[base_reg],
 				arc_insn_get_memory_offset (insn));
 
-      if (pv_area_store_would_trash (stack, addr))
+      if (stack->store_would_trash (addr))
 	return false;
 
       if (insn.data_size_mode != ARC_SCALING_D)
@@ -1031,7 +1032,7 @@ arc_is_in_prologue (struct gdbarch *gdbarch, const struct arc_instruction &insn,
 	  else
 	    size = ARC_REGISTER_SIZE;
 
-	  pv_area_store (stack, addr, size, store_value);
+	  stack->store (addr, size, store_value);
 	}
       else
 	{
@@ -1040,16 +1041,15 @@ arc_is_in_prologue (struct gdbarch *gdbarch, const struct arc_instruction &insn,
 	      /* If this is a double store, than write N+1 register as well.  */
 	      pv_t store_value1 = regs[insn.operands[0].value];
 	      pv_t store_value2 = regs[insn.operands[0].value + 1];
-	      pv_area_store (stack, addr, ARC_REGISTER_SIZE, store_value1);
-	      pv_area_store (stack,
-			     pv_add_constant (addr, ARC_REGISTER_SIZE),
-			     ARC_REGISTER_SIZE, store_value2);
+	      stack->store (addr, ARC_REGISTER_SIZE, store_value1);
+	      stack->store (pv_add_constant (addr, ARC_REGISTER_SIZE),
+			    ARC_REGISTER_SIZE, store_value2);
 	    }
 	  else
 	    {
 	      pv_t store_value
 		= pv_constant (arc_insn_get_operand_value (insn, 0));
-	      pv_area_store (stack, addr, ARC_REGISTER_SIZE * 2, store_value);
+	      stack->store (addr, ARC_REGISTER_SIZE * 2, store_value);
 	    }
 	}
 
@@ -1136,7 +1136,7 @@ arc_is_in_prologue (struct gdbarch *gdbarch, const struct arc_instruction &insn,
 
       /* Assume that if the last register (closest to new SP) can be written,
 	 then it is possible to write all of them.  */
-      if (pv_area_store_would_trash (stack, new_sp))
+      if (stack->store_would_trash (new_sp))
 	return false;
 
       /* Current store address.  */
@@ -1145,21 +1145,21 @@ arc_is_in_prologue (struct gdbarch *gdbarch, const struct arc_instruction &insn,
       if (is_fp_saved)
 	{
 	  addr = pv_add_constant (addr, -ARC_REGISTER_SIZE);
-	  pv_area_store (stack, addr, ARC_REGISTER_SIZE, regs[ARC_FP_REGNUM]);
+	  stack->store (addr, ARC_REGISTER_SIZE, regs[ARC_FP_REGNUM]);
 	}
 
       /* Registers are stored in backward order: from GP (R26) to R13.  */
       for (int i = ARC_R13_REGNUM + regs_saved - 1; i >= ARC_R13_REGNUM; i--)
 	{
 	  addr = pv_add_constant (addr, -ARC_REGISTER_SIZE);
-	  pv_area_store (stack, addr, ARC_REGISTER_SIZE, regs[i]);
+	  stack->store (addr, ARC_REGISTER_SIZE, regs[i]);
 	}
 
       if (is_blink_saved)
 	{
 	  addr = pv_add_constant (addr, -ARC_REGISTER_SIZE);
-	  pv_area_store (stack, addr, ARC_REGISTER_SIZE,
-			 regs[ARC_BLINK_REGNUM]);
+	  stack->store (addr, ARC_REGISTER_SIZE,
+			regs[ARC_BLINK_REGNUM]);
 	}
 
       gdb_assert (pv_is_identical (addr, new_sp));
@@ -1271,9 +1271,7 @@ arc_analyze_prologue (struct gdbarch *gdbarch, const CORE_ADDR entrypoint,
   pv_t regs[ARC_LAST_CORE_REGNUM + 1];
   for (int i = 0; i <= ARC_LAST_CORE_REGNUM; i++)
     regs[i] = pv_register (i, 0);
-  struct pv_area *stack = make_pv_area (ARC_SP_REGNUM,
-					gdbarch_addr_bit (gdbarch));
-  struct cleanup *back_to = make_cleanup_free_pv_area (stack);
+  pv_area stack (ARC_SP_REGNUM, gdbarch_addr_bit (gdbarch));
 
   CORE_ADDR current_prologue_end = entrypoint;
 
@@ -1290,7 +1288,7 @@ arc_analyze_prologue (struct gdbarch *gdbarch, const CORE_ADDR entrypoint,
 
       /* If this instruction is in the prologue, fields in the cache will be
 	 updated, and the saved registers mask may be updated.  */
-      if (!arc_is_in_prologue (gdbarch, insn, regs, stack))
+      if (!arc_is_in_prologue (gdbarch, insn, regs, &stack))
 	{
 	  /* Found an instruction that is not in the prologue.  */
 	  if (arc_debug)
@@ -1320,12 +1318,11 @@ arc_analyze_prologue (struct gdbarch *gdbarch, const CORE_ADDR entrypoint,
       for (int i = 0; i <= ARC_LAST_CORE_REGNUM; i++)
 	{
 	  CORE_ADDR offset;
-	  if (pv_area_find_reg (stack, gdbarch, i, &offset))
+	  if (stack.find_reg (gdbarch, i, &offset))
 	    cache->saved_regs[i].addr = offset;
 	}
     }
 
-  do_cleanups (back_to);
   return current_prologue_end;
 }
 
@@ -1961,6 +1958,15 @@ arc_tdesc_init (struct gdbarch_info info, const struct target_desc **tdesc,
   return TRUE;
 }
 
+/* Implement the type_align gdbarch function.  */
+
+static ULONGEST
+arc_type_align (struct gdbarch *gdbarch, struct type *type)
+{
+  type = check_typedef (type);
+  return std::min<ULONGEST> (4, TYPE_LENGTH (type));
+}
+
 /* Implement the "init" gdbarch method.  */
 
 static struct gdbarch *
@@ -1986,7 +1992,7 @@ arc_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_int_bit (gdbarch, 32);
   set_gdbarch_long_bit (gdbarch, 32);
   set_gdbarch_long_long_bit (gdbarch, 64);
-  set_gdbarch_long_long_align_bit (gdbarch, 32);
+  set_gdbarch_type_align (gdbarch, arc_type_align);
   set_gdbarch_float_bit (gdbarch, 32);
   set_gdbarch_float_format (gdbarch, floatformats_ieee_single);
   set_gdbarch_double_bit (gdbarch, 64);
@@ -2085,8 +2091,38 @@ arc_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	     existing gdbarches, which also can be problematic, if
 	     arc_gdbarch_init will start reusing existing gdbarch
 	     instances.  */
-	  arc_disassembler_options = xstrprintf ("cpu=%s",
-						 tdesc_arch->printable_name);
+	  /* Target description specifies a BFD architecture, which is
+	     different from ARC cpu, as accepted by disassembler (and most
+	     other ARC tools), because cpu values are much more fine grained -
+	     there can be multiple cpu values per single BFD architecture.  As
+	     a result this code should translate architecture to some cpu
+	     value.  Since there is no info on exact cpu configuration, it is
+	     best to use the most feature-rich CPU, so that disassembler will
+	     recognize all instructions available to the specified
+	     architecture.  */
+	  switch (tdesc_arch->mach)
+	    {
+	    case bfd_mach_arc_arc601:
+	      arc_disassembler_options = xstrdup ("cpu=arc601");
+	      break;
+	    case bfd_mach_arc_arc600:
+	      arc_disassembler_options = xstrdup ("cpu=arc600");
+	      break;
+	    case bfd_mach_arc_arc700:
+	      arc_disassembler_options = xstrdup ("cpu=arc700");
+	      break;
+	    case bfd_mach_arc_arcv2:
+	      /* Machine arcv2 has three arches: ARCv2, EM and HS; where ARCv2
+		 is treated as EM.  */
+	      if (arc_arch_is_hs (tdesc_arch))
+		arc_disassembler_options = xstrdup ("cpu=hs38_linux");
+	      else
+		arc_disassembler_options = xstrdup ("cpu=em4_fpuda");
+	      break;
+	    default:
+	      arc_disassembler_options = NULL;
+	      break;
+	    }
 	  set_gdbarch_disassembler_options (gdbarch,
 					    &arc_disassembler_options);
 	}
@@ -2110,7 +2146,7 @@ arc_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
 /* Wrapper for "maintenance print arc" list of commands.  */
 
 static void
-maintenance_print_arc_command (char *args, int from_tty)
+maintenance_print_arc_command (const char *args, int from_tty)
 {
   cmd_show_list (maintenance_print_arc_list, from_tty, "");
 }
@@ -2119,7 +2155,7 @@ maintenance_print_arc_command (char *args, int from_tty)
    disassemble.  */
 
 static void
-dump_arc_instruction_command (char *args, int from_tty)
+dump_arc_instruction_command (const char *args, int from_tty)
 {
   struct value *val;
   if (args != NULL && strlen (args) > 0)

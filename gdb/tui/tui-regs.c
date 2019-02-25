@@ -1,6 +1,6 @@
 /* TUI display registers in window.
 
-   Copyright (C) 1998-2017 Free Software Foundation, Inc.
+   Copyright (C) 1998-2019 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -206,10 +206,7 @@ tui_show_register_group (struct reggroup *group,
 
   /* See how many registers must be displayed.  */
   nr_regs = 0;
-  for (regnum = 0;
-       regnum < gdbarch_num_regs (gdbarch)
-		+ gdbarch_num_pseudo_regs (gdbarch);
-       regnum++)
+  for (regnum = 0; regnum < gdbarch_num_cooked_regs (gdbarch); regnum++)
     {
       const char *name;
 
@@ -247,17 +244,13 @@ tui_show_register_group (struct reggroup *group,
 	  TUI_DATA_WIN->generic.content = NULL;
 	  TUI_DATA_WIN->generic.content_size = 0;
 	  tui_add_content_elements (&TUI_DATA_WIN->generic, nr_regs);
-	  display_info->regs_content
-            = (tui_win_content) TUI_DATA_WIN->generic.content;
+	  display_info->regs_content = TUI_DATA_WIN->generic.content;
 	  display_info->regs_content_count = nr_regs;
 	}
 
       /* Now set the register names and values.  */
       pos = 0;
-      for (regnum = 0;
-	   regnum < gdbarch_num_regs (gdbarch)
-		    + gdbarch_num_pseudo_regs (gdbarch);
-	   regnum++)
+      for (regnum = 0; regnum < gdbarch_num_cooked_regs (gdbarch); regnum++)
         {
 	  struct tui_gen_win_info *data_item_win;
           struct tui_data_element *data;
@@ -600,7 +593,7 @@ tui_reg_prev (struct gdbarch *gdbarch)
    not already on display.  */
 
 static void
-tui_reg_command (char *args, int from_tty)
+tui_reg_command (const char *args, int from_tty)
 {
   struct gdbarch *gdbarch = get_current_arch ();
 

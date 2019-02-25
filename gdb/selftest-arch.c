@@ -1,5 +1,5 @@
 /* GDB self-test for each gdbarch.
-   Copyright (C) 2017 Free Software Foundation, Inc.
+   Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,7 @@
 #include "defs.h"
 
 #if GDB_SELF_TEST
-#include "selftest.h"
+#include "common/selftest.h"
 #include "selftest-arch.h"
 #include "arch-utils.h"
 

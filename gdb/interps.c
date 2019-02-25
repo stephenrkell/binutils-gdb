@@ -1,6 +1,6 @@
 /* Manages interpreters for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2019 Free Software Foundation, Inc.
 
    Written by Jim Ingham <jingham@apple.com> of Apple Computer, Inc.
 
@@ -78,19 +78,25 @@ static struct interp *interp_lookup_existing (struct ui *ui,
 					      const char *name);
 
 interp::interp (const char *name)
+  : m_name (xstrdup (name))
 {
-  this->name = xstrdup (name);
   this->inited = false;
 }
 
 interp::~interp ()
-{}
+{
+  xfree (m_name);
+}
 
 /* An interpreter factory.  Maps an interpreter name to the factory
    function that instantiates an interpreter by that name.  */
 
 struct interp_factory
 {
+  interp_factory (const char *name_, interp_factory_func func_)
+  : name (name_), func (func_)
+  {}
+
   /* This is the name in "-i=INTERP" and "interpreter-exec INTERP".  */
   const char *name;
 
@@ -98,35 +104,24 @@ struct interp_factory
   interp_factory_func func;
 };
 
-typedef struct interp_factory *interp_factory_p;
-DEF_VEC_P(interp_factory_p);
-
 /* The registered interpreter factories.  */
-static VEC(interp_factory_p) *interpreter_factories = NULL;
+static std::vector<interp_factory> interpreter_factories;
 
 /* See interps.h.  */
 
 void
 interp_factory_register (const char *name, interp_factory_func func)
 {
-  struct interp_factory *f;
-  int ix;
-
   /* Assert that no factory for NAME is already registered.  */
-  for (ix = 0;
-       VEC_iterate (interp_factory_p, interpreter_factories, ix, f);
-       ++ix)
-    if (strcmp (f->name, name) == 0)
+  for (const interp_factory &f : interpreter_factories)
+    if (strcmp (f.name, name) == 0)
       {
 	internal_error (__FILE__, __LINE__,
 			_("interpreter factory already registered: \"%s\"\n"),
 			name);
       }
 
-  f = XNEW (struct interp_factory);
-  f->name = name;
-  f->func = func;
-  VEC_safe_push (interp_factory_p, interpreter_factories, f);
+  interpreter_factories.emplace_back (name, func);
 }
 
 /* Add interpreter INTERP to the gdb interpreter list.  The
@@ -136,7 +131,7 @@ interp_add (struct ui *ui, struct interp *interp)
 {
   struct ui_interp_info *ui_interp = get_interp_info (ui);
 
-  gdb_assert (interp_lookup_existing (ui, interp->name) == NULL);
+  gdb_assert (interp_lookup_existing (ui, interp->name ()) == NULL);
 
   interp->next = ui_interp->interp_list;
   ui_interp->interp_list = interp;
@@ -177,11 +172,11 @@ interp_set (struct interp *interp, bool top_level)
   /* We use interpreter_p for the "set interpreter" variable, so we need
      to make sure we have a malloc'ed copy for the set command to free.  */
   if (interpreter_p != NULL
-      && strcmp (interp->name, interpreter_p) != 0)
+      && strcmp (interp->name (), interpreter_p) != 0)
     {
       xfree (interpreter_p);
 
-      interpreter_p = xstrdup (interp->name);
+      interpreter_p = xstrdup (interp->name ());
     }
 
   /* Run the init proc.  */
@@ -213,7 +208,7 @@ interp_lookup_existing (struct ui *ui, const char *name)
        interp != NULL;
        interp = interp->next)
     {
-      if (strcmp (interp->name, name) == 0)
+      if (strcmp (interp->name (), name) == 0)
 	return interp;
     }
 
@@ -225,24 +220,18 @@ interp_lookup_existing (struct ui *ui, const char *name)
 struct interp *
 interp_lookup (struct ui *ui, const char *name)
 {
-  struct interp_factory *factory;
-  struct interp *interp;
-  int ix;
-
   if (name == NULL || strlen (name) == 0)
     return NULL;
 
   /* Only create each interpreter once per top level.  */
-  interp = interp_lookup_existing (ui, name);
+  struct interp *interp = interp_lookup_existing (ui, name);
   if (interp != NULL)
     return interp;
 
-  for (ix = 0;
-       VEC_iterate (interp_factory_p, interpreter_factories, ix, factory);
-       ++ix)
-    if (strcmp (factory->name, name) == 0)
+  for (const interp_factory &factory : interpreter_factories)
+    if (strcmp (factory.name, name) == 0)
       {
-	interp = factory->func (name);
+	interp = factory.func (name);
 	interp_add (ui, interp);
 	return interp;
       }
@@ -262,18 +251,6 @@ set_top_level_interpreter (const char *name)
     error (_("Interpreter `%s' unrecognized"), name);
   /* Install it.  */
   interp_set (interp, true);
-}
-
-/* Returns the current interpreter.  */
-
-struct ui_out *
-interp_ui_out (struct interp *interp)
-{
-  struct ui_interp_info *ui_interp = get_current_interp_info ();
-
-  if (interp == NULL)
-    interp = ui_interp->current_interpreter;
-  return interp->interp_ui_out ();
 }
 
 void
@@ -299,14 +276,6 @@ scoped_restore_interp::set_interp (const char *name)
   return old_interp;
 }
 
-/* Returns the interpreter's name.  */
-
-const char *
-interp_name (struct interp *interp)
-{
-  return interp->name;
-}
-
 /* Returns true if the current interp is the passed in name.  */
 int
 current_interp_named_p (const char *interp_name)
@@ -315,7 +284,7 @@ current_interp_named_p (const char *interp_name)
   struct interp *interp = ui_interp->current_interpreter;
 
   if (interp != NULL)
-    return (strcmp (interp->name, interp_name) == 0);
+    return (strcmp (interp->name (), interp_name) == 0);
 
   return 0;
 }
@@ -367,18 +336,11 @@ interp_exec (struct interp *interp, const char *command_str)
 {
   struct ui_interp_info *ui_interp = get_current_interp_info ();
 
-  struct gdb_exception ex;
-  struct interp *save_command_interp;
-
   /* See `command_interp' for why we do this.  */
-  save_command_interp = ui_interp->command_interpreter;
-  ui_interp->command_interpreter = interp;
+  scoped_restore save_command_interp
+    = make_scoped_restore (&ui_interp->command_interpreter, interp);
 
-  ex = interp->exec (command_str);
-
-  ui_interp->command_interpreter = save_command_interp;
-
-  return ex;
+  return interp->exec (command_str);
 }
 
 /* A convenience routine that nulls out all the common command hooks.
@@ -401,7 +363,7 @@ clear_interpreter_hooks (void)
 }
 
 static void
-interpreter_exec_cmd (char *args, int from_tty)
+interpreter_exec_cmd (const char *args, int from_tty)
 {
   struct ui_interp_info *ui_interp = get_current_interp_info ();
   struct interp *old_interp, *interp_to_use;
@@ -415,7 +377,7 @@ interpreter_exec_cmd (char *args, int from_tty)
   nrules = prules.count ();
 
   if (nrules < 2)
-    error (_("usage: interpreter-exec <interpreter> [ <command> ... ]"));
+    error (_("Usage: interpreter-exec INTERPRETER [ COMMAND... ]"));
 
   old_interp = ui_interp->current_interpreter;
 
@@ -446,35 +408,14 @@ interpreter_completer (struct cmd_list_element *ignore,
 		       completion_tracker &tracker,
 		       const char *text, const char *word)
 {
-  struct interp_factory *interp;
-  int textlen;
-  int ix;
+  int textlen = strlen (text);
 
-  textlen = strlen (text);
-  for (ix = 0;
-       VEC_iterate (interp_factory_p, interpreter_factories, ix, interp);
-       ++ix)
+  for (const interp_factory &interp : interpreter_factories)
     {
-      if (strncmp (interp->name, text, textlen) == 0)
+      if (strncmp (interp.name, text, textlen) == 0)
 	{
-	  char *match;
-
-	  match = (char *) xmalloc (strlen (word) + strlen (interp->name) + 1);
-	  if (word == text)
-	    strcpy (match, interp->name);
-	  else if (word > text)
-	    {
-	      /* Return some portion of interp->name.  */
-	      strcpy (match, interp->name + (word - text));
-	    }
-	  else
-	    {
-	      /* Return some of text plus interp->name.  */
-	      strncpy (match, word, text - word);
-	      match[text - word] = '\0';
-	      strcat (match, interp->name);
-	    }
-	  tracker.add_completion (gdb::unique_xmalloc_ptr<char> (match));
+	  tracker.add_completion
+	    (make_completion_match_str (interp.name, text, word));
 	}
     }
 }

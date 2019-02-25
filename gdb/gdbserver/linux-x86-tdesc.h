@@ -1,7 +1,7 @@
 /* Low level support for x86 (i386 and x86-64), shared between gdbserver
    and IPA.
 
-   Copyright (C) 2016-2017 Free Software Foundation, Inc.
+   Copyright (C) 2016-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,6 +17,9 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+
+#ifndef GDBSERVER_LINUX_X86_TDESC_H
+#define GDBSERVER_LINUX_X86_TDESC_H
 
 /* Note: since IPA obviously knows what ABI it's running on (i386 vs x86_64
    vs x32), it's sufficient to pass only the register set here.  This,
@@ -51,3 +54,5 @@ const struct target_desc *amd64_linux_read_description (uint64_t xcr0,
 const struct target_desc *i386_linux_read_description (uint64_t xcr0);
 
 void initialize_low_tdesc ();
+
+#endif /* GDBSERVER_LINUX_X86_TDESC_H */

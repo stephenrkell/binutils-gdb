@@ -1,6 +1,6 @@
 /* Everything about syscall catchpoints, for GDB.
 
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,7 +27,7 @@
 #include "mi/mi-common.h"
 #include "valprint.h"
 #include "arch-utils.h"
-#include "observer.h"
+#include "observable.h"
 #include "xml-syscall.h"
 
 /* An instance of this type is used to represent a syscall catchpoint.
@@ -104,19 +104,16 @@ insert_catch_syscall (struct bp_location *bl)
     {
       for (int iter : c->syscalls_to_be_caught)
 	{
-          int elem;
-
 	  if (iter >= inf_data->syscalls_counts.size ())
 	    inf_data->syscalls_counts.resize (iter + 1);
 	  ++inf_data->syscalls_counts[iter];
 	}
     }
 
-  return target_set_syscall_catchpoint (ptid_get_pid (inferior_ptid),
+  return target_set_syscall_catchpoint (inferior_ptid.pid (),
 					inf_data->total_syscalls_count != 0,
 					inf_data->any_syscall_count,
-					inf_data->syscalls_counts.size (),
-					inf_data->syscalls_counts.data ());
+					inf_data->syscalls_counts);
 }
 
 /* Implement the "remove" breakpoint_ops method for syscall
@@ -137,7 +134,6 @@ remove_catch_syscall (struct bp_location *bl, enum remove_bp_reason reason)
     {
       for (int iter : c->syscalls_to_be_caught)
 	{
-          int elem;
 	  if (iter >= inf_data->syscalls_counts.size ())
 	    /* Shouldn't happen.  */
 	    continue;
@@ -145,11 +141,10 @@ remove_catch_syscall (struct bp_location *bl, enum remove_bp_reason reason)
         }
     }
 
-  return target_set_syscall_catchpoint (ptid_get_pid (inferior_ptid),
+  return target_set_syscall_catchpoint (inferior_ptid.pid (),
 					inf_data->total_syscalls_count != 0,
 					inf_data->any_syscall_count,
-					inf_data->syscalls_counts.size (),
-					inf_data->syscalls_counts.data ());
+					inf_data->syscalls_counts);
 }
 
 /* Implement the "breakpoint_hit" breakpoint_ops method for syscall
@@ -157,7 +152,7 @@ remove_catch_syscall (struct bp_location *bl, enum remove_bp_reason reason)
 
 static int
 breakpoint_hit_catch_syscall (const struct bp_location *bl,
-			      struct address_space *aspace, CORE_ADDR bp_addr,
+			      const address_space *aspace, CORE_ADDR bp_addr,
 			      const struct target_waitstatus *ws)
 {
   /* We must check if we are catching specific syscalls in this
@@ -270,7 +265,7 @@ print_one_catch_syscall (struct breakpoint *b,
 
       for (int iter : c->syscalls_to_be_caught)
         {
-          char *x = text;
+          char *previous_text = text;
           struct syscall s;
           get_syscall_by_number (gdbarch, iter, &s);
 
@@ -279,14 +274,15 @@ print_one_catch_syscall (struct breakpoint *b,
           else
             text = xstrprintf ("%s%d, ", text, iter);
 
-          /* We have to xfree the last 'text' (now stored at 'x')
-             because xstrprintf dynamically allocates new space for it
-             on every call.  */
-	  xfree (x);
+          /* We have to xfree previous_text because xstrprintf dynamically
+	     allocates new space for text on every call.  */
+	  xfree (previous_text);
         }
       /* Remove the last comma.  */
       text[strlen (text) - 2] = '\0';
       uiout->field_string ("what", text);
+      /* xfree last text.  */
+      xfree (text);
     }
   else
     uiout->field_string ("what", "<any syscall>");
@@ -382,7 +378,7 @@ create_syscall_event_catchpoint (int tempflag, std::vector<int> &&filter,
 /* Splits the argument using space as delimiter.  */
 
 static std::vector<int>
-catch_syscall_split_args (char *arg)
+catch_syscall_split_args (const char *arg)
 {
   std::vector<int> result;
   struct gdbarch *gdbarch = target_gdbarch ();
@@ -414,40 +410,23 @@ catch_syscall_split_args (char *arg)
 	{
 	  /* We have a syscall group.  Let's expand it into a syscall
 	     list before inserting.  */
-	  struct syscall *syscall_list;
 	  const char *group_name;
 
 	  /* Skip over "g:" and "group:" prefix strings.  */
 	  group_name = strchr (cur_name, ':') + 1;
 
-	  syscall_list = get_syscalls_by_group (gdbarch, group_name);
-
-	  if (syscall_list == NULL)
+	  if (!get_syscalls_by_group (gdbarch, group_name, &result))
 	    error (_("Unknown syscall group '%s'."), group_name);
-
-	  for (i = 0; syscall_list[i].name != NULL; i++)
-	    {
-	      /* Insert each syscall that are part of the group.  No
-		 need to check if it is valid.  */
-	      result.push_back (syscall_list[i].number);
-	    }
-
-	  xfree (syscall_list);
 	}
       else
 	{
-	  /* We have a name.  Let's check if it's valid and convert it
-	     to a number.  */
-	  get_syscall_by_name (gdbarch, cur_name, &s);
-
-	  if (s.number == UNKNOWN_SYSCALL)
+	  /* We have a name.  Let's check if it's valid and fetch a
+	     list of matching numbers.  */
+	  if (!get_syscalls_by_name (gdbarch, cur_name, &result))
 	    /* Here we have to issue an error instead of a warning,
 	       because GDB cannot do anything useful if there's no
 	       syscall number to be caught.  */
 	    error (_("Unknown syscall name '%s'."), cur_name);
-
-	  /* Ok, it's valid.  */
-	  result.push_back (s.number);
 	}
     }
 
@@ -457,7 +436,7 @@ catch_syscall_split_args (char *arg)
 /* Implement the "catch syscall" command.  */
 
 static void
-catch_syscall_command_1 (char *arg, int from_tty, 
+catch_syscall_command_1 (const char *arg, int from_tty, 
 			 struct cmd_list_element *command)
 {
   int tempflag;
@@ -560,11 +539,8 @@ catch_syscall_completer (struct cmd_list_element *cmd,
                          const char *text, const char *word)
 {
   struct gdbarch *gdbarch = get_current_arch ();
-  struct cleanup *cleanups = make_cleanup (null_cleanup, NULL);
-  const char **group_list = NULL;
-  const char **syscall_list = NULL;
+  gdb::unique_xmalloc_ptr<const char *> group_list;
   const char *prefix;
-  int i;
 
   /* Completion considers ':' to be a word separator, so we use this to
      verify whether the previous word was a group prefix.  If so, we
@@ -575,34 +551,34 @@ catch_syscall_completer (struct cmd_list_element *cmd,
   if (startswith (prefix, "g:") || startswith (prefix, "group:"))
     {
       /* Perform completion inside 'group:' namespace only.  */
-      group_list = get_syscall_group_names (gdbarch);
+      group_list.reset (get_syscall_group_names (gdbarch));
       if (group_list != NULL)
-	complete_on_enum (tracker, group_list, word, word);
+	complete_on_enum (tracker, group_list.get (), word, word);
     }
   else
     {
       /* Complete with both, syscall names and groups.  */
-      syscall_list = get_syscall_names (gdbarch);
-      group_list = get_syscall_group_names (gdbarch);
+      gdb::unique_xmalloc_ptr<const char *> syscall_list
+	(get_syscall_names (gdbarch));
+      group_list.reset (get_syscall_group_names (gdbarch));
+
+      const char **group_ptr = group_list.get ();
+
+      /* Hold on to strings while we're using them.  */
+      std::vector<std::string> holders;
 
       /* Append "group:" prefix to syscall groups.  */
-      for (i = 0; group_list[i] != NULL; i++)
-	{
-	  char *prefixed_group = xstrprintf ("group:%s", group_list[i]);
+      for (int i = 0; group_ptr[i] != NULL; i++)
+	holders.push_back (string_printf ("group:%s", group_ptr[i]));
 
-	  group_list[i] = prefixed_group;
-	  make_cleanup (xfree, prefixed_group);
-	}
+      for (int i = 0; group_ptr[i] != NULL; i++)
+	group_ptr[i] = holders[i].c_str ();
 
       if (syscall_list != NULL)
-	complete_on_enum (tracker, syscall_list, word, word);
+	complete_on_enum (tracker, syscall_list.get (), word, word);
       if (group_list != NULL)
-	complete_on_enum (tracker, group_list, word, word);
+	complete_on_enum (tracker, group_ptr, word, word);
     }
-
-  xfree (syscall_list);
-  xfree (group_list);
-  do_cleanups (cleanups);
 }
 
 static void
@@ -640,7 +616,7 @@ _initialize_break_catch_syscall (void)
 {
   initialize_syscall_catchpoint_ops ();
 
-  observer_attach_inferior_exit (clear_syscall_counts);
+  gdb::observers::inferior_exit.attach (clear_syscall_counts);
   catch_syscall_inferior_data
     = register_inferior_data_with_cleanup (NULL,
 					   catch_syscall_inferior_data_cleanup);

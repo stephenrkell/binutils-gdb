@@ -1,6 +1,6 @@
 /* Everything about catch/throw catchpoints, for GDB.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -106,20 +106,20 @@ fetch_probe_arguments (struct value **arg0, struct value **arg1)
   unsigned n_args;
 
   pc_probe = find_probe_by_pc (pc);
-  if (pc_probe.probe == NULL
-      || strcmp (pc_probe.probe->provider, "libstdcxx") != 0
-      || (strcmp (pc_probe.probe->name, "catch") != 0
-	  && strcmp (pc_probe.probe->name, "throw") != 0
-	  && strcmp (pc_probe.probe->name, "rethrow") != 0))
+  if (pc_probe.prob == NULL
+      || pc_probe.prob->get_provider () != "libstdcxx"
+      || (pc_probe.prob->get_name () != "catch"
+	  && pc_probe.prob->get_name () != "throw"
+	  && pc_probe.prob->get_name () != "rethrow"))
     error (_("not stopped at a C++ exception catchpoint"));
 
-  n_args = get_probe_argument_count (pc_probe.probe, frame);
+  n_args = pc_probe.prob->get_argument_count (frame);
   if (n_args < 2)
     error (_("C++ exception catchpoint has too few arguments"));
 
   if (arg0 != NULL)
-    *arg0 = evaluate_probe_argument (pc_probe.probe, 0, frame);
-  *arg1 = evaluate_probe_argument (pc_probe.probe, 1, frame);
+    *arg0 = pc_probe.prob->evaluate_argument (0, frame);
+  *arg1 = pc_probe.prob->evaluate_argument (1, frame);
 
   if ((arg0 != NULL && *arg0 == NULL) || *arg1 == NULL)
     error (_("error computing probe argument at c++ exception catchpoint"));
@@ -238,8 +238,7 @@ print_it_exception_catchpoint (bpstat bs)
   bp_temp = b->disposition == disp_del;
   uiout->text (bp_temp ? "Temporary catchpoint "
 		       : "Catchpoint ");
-  if (!uiout->is_mi_like_p ())
-    uiout->field_int ("bkptno", b->number);
+  uiout->field_int ("bkptno", b->number);
   uiout->text ((kind == EX_EVENT_THROW ? " (exception thrown), "
 		: (kind == EX_EVENT_CATCH ? " (exception caught), "
 		   : " (exception rethrown), ")));
@@ -248,7 +247,6 @@ print_it_exception_catchpoint (bpstat bs)
       uiout->field_string ("reason",
 			   async_reason_lookup (EXEC_ASYNC_BREAKPOINT_HIT));
       uiout->field_string ("disp", bpdisp_text (b->disposition));
-      uiout->field_int ("bkptno", b->number);
     }
   return PRINT_SRC_AND_LOC;
 }
@@ -430,11 +428,10 @@ extract_exception_regexp (const char **string)
 
 static void
 catch_exception_command_1 (enum exception_event_kind ex_event,
-			   char *arg_entry,
+			   const char *arg,
 			   int tempflag, int from_tty)
 {
   const char *cond_string = NULL;
-  const char *arg = arg_entry;
 
   if (!arg)
     arg = "";
@@ -459,7 +456,8 @@ catch_exception_command_1 (enum exception_event_kind ex_event,
 /* Implementation of "catch catch" command.  */
 
 static void
-catch_catch_command (char *arg, int from_tty, struct cmd_list_element *command)
+catch_catch_command (const char *arg, int from_tty,
+		     struct cmd_list_element *command)
 {
   int tempflag = get_cmd_context (command) == CATCH_TEMPORARY;
 
@@ -469,7 +467,8 @@ catch_catch_command (char *arg, int from_tty, struct cmd_list_element *command)
 /* Implementation of "catch throw" command.  */
 
 static void
-catch_throw_command (char *arg, int from_tty, struct cmd_list_element *command)
+catch_throw_command (const char *arg, int from_tty,
+		     struct cmd_list_element *command)
 {
   int tempflag = get_cmd_context (command) == CATCH_TEMPORARY;
 
@@ -479,7 +478,7 @@ catch_throw_command (char *arg, int from_tty, struct cmd_list_element *command)
 /* Implementation of "catch rethrow" command.  */
 
 static void
-catch_rethrow_command (char *arg, int from_tty,
+catch_rethrow_command (const char *arg, int from_tty,
 		       struct cmd_list_element *command)
 {
   int tempflag = get_cmd_context (command) == CATCH_TEMPORARY;

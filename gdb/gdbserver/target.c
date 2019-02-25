@@ -1,5 +1,5 @@
 /* Target operations for the remote server for GDB.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2019 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -26,56 +26,11 @@ struct target_ops *the_target;
 int
 set_desired_thread ()
 {
-  thread_info *found = find_thread_ptid (general_thread);
+  client_state &cs = get_client_state ();
+  thread_info *found = find_thread_ptid (cs.general_thread);
 
   current_thread = found;
   return (current_thread != NULL);
-}
-
-/* Structure used to look up a thread to use as current when accessing
-   memory.  */
-
-struct thread_search
-{
-  /* The PTID of the current general thread.  This is an input
-     parameter.  */
-  ptid_t current_gen_ptid;
-
-  /* The first thread found.  */
-  struct thread_info *first;
-
-  /* The first stopped thread found.  */
-  struct thread_info *stopped;
-
-  /* The current general thread, if found.  */
-  struct thread_info *current;
-};
-
-/* Callback for find_inferior.  Search for a thread to use as current
-   when accessing memory.  */
-
-static int
-thread_search_callback (struct inferior_list_entry *entry, void *args)
-{
-  struct thread_info *thread = (struct thread_info *) entry;
-  struct thread_search *s = (struct thread_search *) args;
-
-  if (ptid_get_pid (entry->id) == ptid_get_pid (s->current_gen_ptid)
-      && mythread_alive (ptid_of (thread)))
-    {
-      if (s->stopped == NULL
-	  && the_target->thread_stopped != NULL
-	  && thread_stopped (thread))
-	s->stopped = thread;
-
-      if (s->first == NULL)
-	s->first = thread;
-
-      if (s->current == NULL && ptid_equal (s->current_gen_ptid, entry->id))
-	s->current = thread;
-    }
-
-  return 0;
 }
 
 /* The thread that was current before prepare_to_access_memory was
@@ -88,12 +43,18 @@ static ptid_t prev_general_thread;
 int
 prepare_to_access_memory (void)
 {
-  struct thread_search search;
-  struct thread_info *thread;
+  client_state &cs = get_client_state ();
 
-  memset (&search, 0, sizeof (search));
-  search.current_gen_ptid = general_thread;
-  prev_general_thread = general_thread;
+  /* The first thread found.  */
+  struct thread_info *first = NULL;
+  /* The first stopped thread found.  */
+  struct thread_info *stopped = NULL;
+  /* The current general thread, if found.  */
+  struct thread_info *current = NULL;
+
+  /* Save the general thread value, since prepare_to_access_memory could change
+     it.  */
+  prev_general_thread = cs.general_thread;
 
   if (the_target->prepare_to_access_memory != NULL)
     {
@@ -104,18 +65,35 @@ prepare_to_access_memory (void)
 	return res;
     }
 
-  find_inferior (&all_threads, thread_search_callback, &search);
+  for_each_thread (prev_general_thread.pid (), [&] (thread_info *thread)
+    {
+      if (mythread_alive (thread->id))
+	{
+	  if (stopped == NULL && the_target->thread_stopped != NULL
+	      && thread_stopped (thread))
+	    stopped = thread;
+
+	  if (first == NULL)
+	    first = thread;
+
+	  if (current == NULL && prev_general_thread == thread->id)
+	    current = thread;
+	}
+    });
+
+  /* The thread we end up choosing.  */
+  struct thread_info *thread;
 
   /* Prefer a stopped thread.  If none is found, try the current
      thread.  Otherwise, take the first thread in the process.  If
      none is found, undo the effects of
      target->prepare_to_access_memory() and return error.  */
-  if (search.stopped != NULL)
-    thread = search.stopped;
-  else if (search.current != NULL)
-    thread = search.current;
-  else if (search.first != NULL)
-    thread = search.first;
+  if (stopped != NULL)
+    thread = stopped;
+  else if (current != NULL)
+    thread = current;
+  else if (first != NULL)
+    thread = first;
   else
     {
       done_accessing_memory ();
@@ -123,7 +101,7 @@ prepare_to_access_memory (void)
     }
 
   current_thread = thread;
-  general_thread = ptid_of (thread);
+  cs.general_thread = ptid_of (thread);
 
   return 0;
 }
@@ -133,12 +111,14 @@ prepare_to_access_memory (void)
 void
 done_accessing_memory (void)
 {
+  client_state &cs = get_client_state ();
+
   if (the_target->done_accessing_memory != NULL)
     the_target->done_accessing_memory ();
 
   /* Restore the previous selected thread.  */
-  general_thread = prev_general_thread;
-  switch_to_thread (general_thread);
+  cs.general_thread = prev_general_thread;
+  switch_to_thread (cs.general_thread);
 }
 
 int
@@ -268,7 +248,7 @@ target_wait (ptid_t ptid, struct target_waitstatus *status, int options)
 void
 target_mourn_inferior (ptid_t ptid)
 {
-  (*the_target->mourn) (find_process_pid (ptid_get_pid (ptid)));
+  (*the_target->mourn) (find_process_pid (ptid.pid ()));
 }
 
 /* See target/target.h.  */
@@ -334,29 +314,29 @@ target_pid_to_str (ptid_t ptid)
 {
   static char buf[80];
 
-  if (ptid_equal (ptid, minus_one_ptid))
+  if (ptid == minus_one_ptid)
     xsnprintf (buf, sizeof (buf), "<all threads>");
-  else if (ptid_equal (ptid, null_ptid))
+  else if (ptid == null_ptid)
     xsnprintf (buf, sizeof (buf), "<null thread>");
-  else if (ptid_get_tid (ptid) != 0)
+  else if (ptid.tid () != 0)
     xsnprintf (buf, sizeof (buf), "Thread %d.0x%lx",
-	       ptid_get_pid (ptid), ptid_get_tid (ptid));
-  else if (ptid_get_lwp (ptid) != 0)
+	       ptid.pid (), ptid.tid ());
+  else if (ptid.lwp () != 0)
     xsnprintf (buf, sizeof (buf), "LWP %d.%ld",
-	       ptid_get_pid (ptid), ptid_get_lwp (ptid));
+	       ptid.pid (), ptid.lwp ());
   else
     xsnprintf (buf, sizeof (buf), "Process %d",
-	       ptid_get_pid (ptid));
+	       ptid.pid ());
 
   return buf;
 }
 
 int
-kill_inferior (int pid)
+kill_inferior (process_info *proc)
 {
-  gdb_agent_about_to_close (pid);
+  gdb_agent_about_to_close (proc->pid);
 
-  return (*the_target->kill) (pid);
+  return (*the_target->kill) (proc);
 }
 
 /* Target can do hardware single step.  */
@@ -385,8 +365,8 @@ default_breakpoint_kind_from_pc (CORE_ADDR *pcptr)
 
 /* Define it.  */
 
-enum target_terminal::terminal_state target_terminal::terminal_state
-  = target_terminal::terminal_is_ours;
+target_terminal_state target_terminal::m_terminal_state
+  = target_terminal_state::is_ours;
 
 /* See target/target.h.  */
 

@@ -1,7 +1,7 @@
 /* *INDENT-OFF* */ /* ATTRIBUTE_PRINTF confuses indent, avoid running it
 		      for now.  */
 /* I/O, string, cleanup, and other random utilities for GDB.
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -31,11 +31,45 @@ extern void initialize_utils (void);
 
 extern int sevenbit_strings;
 
+/* Modes of operation for strncmp_iw_with_mode.  */
+
+enum class strncmp_iw_mode
+{
+/* Do a strcmp() type operation on STRING1 and STRING2, ignoring any
+   differences in whitespace.  Returns 0 if they match, non-zero if
+   they don't (slightly different than strcmp()'s range of return
+   values).  */
+  NORMAL,
+
+  /* Like NORMAL, but also apply the strcmp_iw hack.  I.e.,
+     string1=="FOO(PARAMS)" matches string2=="FOO".  */
+  MATCH_PARAMS,
+};
+
+/* Helper for strcmp_iw and strncmp_iw.  Exported so that languages
+   can implement both NORMAL and MATCH_PARAMS variants in a single
+   function and defer part of the work to strncmp_iw_with_mode.
+
+   LANGUAGE is used to implement some context-sensitive
+   language-specific comparisons.  For example, for C++,
+   "string1=operator()" should not match "string2=operator" even in
+   MATCH_PARAMS mode.
+
+   MATCH_FOR_LCD is passed down so that the function can mark parts of
+   the symbol name as ignored for completion matching purposes (e.g.,
+   to handle abi tags).  */
+extern int strncmp_iw_with_mode
+  (const char *string1, const char *string2, size_t string2_len,
+   strncmp_iw_mode mode, enum language language,
+   completion_match_for_lcd *match_for_lcd = NULL);
+
 /* Do a strncmp() type operation on STRING1 and STRING2, ignoring any
    differences in whitespace.  STRING2_LEN is STRING2's length.
    Returns 0 if STRING1 matches STRING2_LEN characters of STRING2,
    non-zero otherwise (slightly different than strncmp()'s range of
-   return values).  */
+   return values).  Note: passes language_minimal to
+   strncmp_iw_with_mode, and should therefore be avoided if a more
+   suitable language is available.  */
 extern int strncmp_iw (const char *string1, const char *string2,
 		       size_t string2_len);
 
@@ -47,17 +81,26 @@ extern int strncmp_iw (const char *string1, const char *string2,
    As an extra hack, string1=="FOO(ARGS)" matches string2=="FOO".
    This "feature" is useful when searching for matching C++ function
    names (such as if the user types 'break FOO', where FOO is a
-   mangled C++ function).  */
+   mangled C++ function).
+
+   Note: passes language_minimal to strncmp_iw_with_mode, and should
+   therefore be avoided if a more suitable language is available.  */
 extern int strcmp_iw (const char *string1, const char *string2);
 
 extern int strcmp_iw_ordered (const char *, const char *);
 
-extern int streq (const char *, const char *);
+/* Return true if the strings are equal.  */
+
+extern bool streq (const char *, const char *);
+
+/* A variant of streq that is suitable for use as an htab
+   callback.  */
+
+extern int streq_hash (const void *, const void *);
 
 extern int subset_compare (const char *, const char *);
 
 int compare_positive_ints (const void *ap, const void *bp);
-int compare_strings (const void *ap, const void *bp);
 
 /* Compare C strings for std::sort.  */
 
@@ -72,7 +115,7 @@ compare_cstrings (const char *str1, const char *str2)
    MATCHING, if non-NULL, is the corresponding argument to
    bfd_check_format_matches, and will be freed.  */
 
-extern const char *gdb_bfd_errmsg (bfd_error_type error_tag, char **matching);
+extern std::string gdb_bfd_errmsg (bfd_error_type error_tag, char **matching);
 
 /* Reset the prompt_for_continue clock.  */
 void reset_prompt_for_continue_wait_time (void);
@@ -205,21 +248,6 @@ private:
 
 /* Cleanup utilities.  */
 
-struct section_addr_info;
-extern struct cleanup *(make_cleanup_free_section_addr_info 
-                        (struct section_addr_info *));
-
-/* For make_cleanup_close see common/filestuff.h.  */
-
-extern struct cleanup *make_cleanup_restore_integer (int *variable);
-extern struct cleanup *make_cleanup_restore_uinteger (unsigned int *variable);
-
-struct target_ops;
-extern struct cleanup *make_cleanup_unpush_target (struct target_ops *ops);
-
-extern struct cleanup *make_cleanup_value_free_to_mark (struct value *);
-extern struct cleanup *make_cleanup_value_free (struct value *);
-
 /* A deleter for a hash table.  */
 struct htab_deleter
 {
@@ -236,19 +264,30 @@ extern void free_current_contents (void *);
 
 extern void init_page_info (void);
 
-extern struct cleanup *make_cleanup_restore_page_info (void);
-extern struct cleanup *
-  set_batch_flag_and_make_cleanup_restore_page_info (void);
+/* Temporarily set BATCH_FLAG and the associated unlimited terminal size.
+   Restore when destroyed.  */
 
-extern struct cleanup *make_bpstat_clear_actions_cleanup (void);
+struct set_batch_flag_and_restore_page_info
+{
+public:
+
+  set_batch_flag_and_restore_page_info ();
+  ~set_batch_flag_and_restore_page_info ();
+
+  DISABLE_COPY_AND_ASSIGN (set_batch_flag_and_restore_page_info);
+
+private:
+
+  /* Note that this doesn't use scoped_restore, because it's important
+     to control the ordering of operations in the destruction, and it
+     was simpler to avoid introducing a new ad hoc class.  */
+  unsigned m_save_lines_per_page;
+  unsigned m_save_chars_per_line;
+  int m_save_batch_flag;
+};
+
 
 /* Path utilities.  */
-
-extern gdb::unique_xmalloc_ptr<char> gdb_realpath (const char *);
-
-extern gdb::unique_xmalloc_ptr<char> gdb_realpath_keepfile (const char *);
-
-extern gdb::unique_xmalloc_ptr<char> gdb_abspath (const char *);
 
 extern int gdb_filename_fnmatch (const char *pattern, const char *string,
 				 int flags);
@@ -374,11 +413,38 @@ extern void fputstr_unfiltered (const char *str, int quotr,
 extern void fputstrn_filtered (const char *str, int n, int quotr,
 			       struct ui_file * stream);
 
+typedef int (*do_fputc_ftype) (int c, ui_file *stream);
+
 extern void fputstrn_unfiltered (const char *str, int n, int quotr,
+				 do_fputc_ftype do_fputc,
 				 struct ui_file * stream);
 
 /* Return nonzero if filtered printing is initialized.  */
 extern int filtered_printing_initialized (void);
+
+/* Like fprintf_filtered, but styles the output according to STYLE,
+   when appropriate.  */
+
+extern void fprintf_styled (struct ui_file *stream,
+			    const ui_file_style &style,
+			    const char *fmt,
+			    ...)
+  ATTRIBUTE_PRINTF (3, 4);
+
+/* Like fputs_filtered, but styles the output according to STYLE, when
+   appropriate.  */
+
+extern void fputs_styled (const char *linebuffer,
+			  const ui_file_style &style,
+			  struct ui_file *stream);
+
+/* Reset the terminal style to the default, if needed.  */
+
+extern void reset_terminal_style (struct ui_file *stream);
+
+/* Return true if ANSI escapes can be used on STREAM.  */
+
+extern bool can_emit_style_escape (struct ui_file *stream);
 
 /* Display the host ADDR on STREAM formatted as ``0x%x''.  */
 extern void gdb_print_host_address_1 (const void *addr, struct ui_file *stream);
@@ -386,6 +452,9 @@ extern void gdb_print_host_address_1 (const void *addr, struct ui_file *stream);
 /* Wrapper that avoids adding a pointless cast to all callers.  */
 #define gdb_print_host_address(ADDR, STREAM) \
   gdb_print_host_address_1 ((const void *) ADDR, STREAM)
+
+/* Return the address only having significant bits.  */
+extern CORE_ADDR address_significant (gdbarch *gdbarch, CORE_ADDR addr);
 
 /* Convert CORE_ADDR to string in platform-specific manner.
    This is usually formatted similar to 0x%lx.  */
@@ -444,38 +513,6 @@ extern pid_t wait_to_die_with_timeout (pid_t pid, int *status, int timeout);
 
 extern int myread (int, char *, int);
 
-/* Ensure that V is aligned to an N byte boundary (B's assumed to be a
-   power of 2).  Round up/down when necessary.  Examples of correct
-   use include:
-
-   addr = align_up (addr, 8); -- VALUE needs 8 byte alignment
-   write_memory (addr, value, len);
-   addr += len;
-
-   and:
-
-   sp = align_down (sp - len, 16); -- Keep SP 16 byte aligned
-   write_memory (sp, value, len);
-
-   Note that uses such as:
-
-   write_memory (addr, value, len);
-   addr += align_up (len, 8);
-
-   and:
-
-   sp -= align_up (len, 8);
-   write_memory (sp, value, len);
-
-   are typically not correct as they don't ensure that the address (SP
-   or ADDR) is correctly aligned (relying on previous alignment to
-   keep things right).  This is also why the methods are called
-   "align_..." instead of "round_..." as the latter reads better with
-   this incorrect coding style.  */
-
-extern ULONGEST align_up (ULONGEST v, int n);
-extern ULONGEST align_down (ULONGEST v, int n);
-
 /* Resource limits used by getrlimit and setrlimit.  */
 
 enum resource_limit_kind
@@ -504,5 +541,13 @@ extern void dump_core (void);
    Space for the result is malloc'd, caller must free.  */
 
 extern char *make_hex_string (const gdb_byte *data, size_t length);
+
+/* Copy NBITS bits from SOURCE to DEST starting at the given bit
+   offsets.  Use the bit order as specified by BITS_BIG_ENDIAN.
+   Source and destination buffers must not overlap.  */
+
+extern void copy_bitwise (gdb_byte *dest, ULONGEST dest_offset,
+			  const gdb_byte *source, ULONGEST source_offset,
+			  ULONGEST nbits, int bits_big_endian);
 
 #endif /* UTILS_H */

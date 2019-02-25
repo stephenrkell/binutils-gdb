@@ -1,6 +1,6 @@
 dnl Process this file with autoconf to produce a configure script
 dnl
-dnl   Copyright (C) 2012-2017 Free Software Foundation, Inc.
+dnl   Copyright (C) 2012-2019 Free Software Foundation, Inc.
 dnl
 dnl This file is free software; you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@ dnl along with this program; see the file COPYING3.  If not see
 dnl <http://www.gnu.org/licenses/>.
 dnl
 
-AC_PREREQ(2.59)
 m4_include([../bfd/version.m4])
 AC_INIT([ld], BFD_VERSION)
 AC_CONFIG_SRCDIR(ldmain.c)
@@ -44,7 +43,7 @@ AC_ARG_ENABLE(targets,
 [  --enable-targets        alternative target configurations],
 [case "${enableval}" in
   yes | "") AC_MSG_ERROR(enable-targets option must specify target names or 'all')
-            ;;
+	    ;;
   no)       enable_targets= ;;
   *)        enable_targets=$enableval ;;
 esac])dnl
@@ -120,7 +119,7 @@ AC_SUBST(installed_linker)
 
 AC_ARG_ENABLE([got],
 AS_HELP_STRING([--enable-got=<type>],
-               [GOT handling scheme (target, single, negative, multigot)]),
+	       [GOT handling scheme (target, single, negative, multigot)]),
 [case "${enableval}" in
   target | single | negative | multigot)  got_handling=$enableval ;;
   *)  AC_MSG_ERROR(bad value ${enableval} for --enable-got option) ;;
@@ -130,16 +129,16 @@ esac],
 case "${got_handling}" in
   target)
     AC_DEFINE([GOT_HANDLING_DEFAULT], [GOT_HANDLING_TARGET_DEFAULT],
-              [Define to choose default GOT handling scheme]) ;;
+	      [Define to choose default GOT handling scheme]) ;;
   single)
     AC_DEFINE([GOT_HANDLING_DEFAULT], [GOT_HANDLING_SINGLE],
-              [Define to choose default GOT handling scheme]) ;;
+	      [Define to choose default GOT handling scheme]) ;;
   negative)
     AC_DEFINE([GOT_HANDLING_DEFAULT], [GOT_HANDLING_NEGATIVE],
-              [Define to choose default GOT handling scheme]) ;;
+	      [Define to choose default GOT handling scheme]) ;;
   multigot)
     AC_DEFINE([GOT_HANDLING_DEFAULT], [GOT_HANDLING_MULTIGOT],
-              [Define to choose default GOT handling scheme]) ;;
+	      [Define to choose default GOT handling scheme]) ;;
   *)  AC_MSG_ERROR(bad value ${got_handling} for --enable-got option) ;;
 esac
 
@@ -176,6 +175,16 @@ AC_ARG_ENABLE(relro,
   yes)  ac_default_ld_z_relro=1 ;;
   no)  ac_default_ld_z_relro=0 ;;
 esac])dnl
+
+# Decide if -z separate-code should be enabled in ELF linker by default.
+ac_default_ld_z_separate_code=unset
+AC_ARG_ENABLE(separate-code,
+	      AS_HELP_STRING([--enable-separate-code],
+	      [enable -z separate-code in ELF linker by default]),
+[case "${enableval}" in
+  yes) ac_default_ld_z_separate_code=1 ;;
+  no) ac_default_ld_z_separate_code=0 ;;
+esac])
 
 # Decide which "--hash-style" to use by default
 # Provide a configure time option to override our default.
@@ -227,7 +236,7 @@ fi
 
 # host-specific stuff:
 
-ALL_LINGUAS="bg da de es fi fr ga id it ru sr sv tr uk vi zh_CN zh_TW pt_BR"
+ALL_LINGUAS="bg da de es fi fr ga id it ja pt_BR ru sr sv tr uk vi zh_CN zh_TW"
 ZW_GNU_GETTEXT_SISTER_DIR
 AM_PO_SUBDIRS
 
@@ -434,6 +443,13 @@ AC_DEFINE_UNQUOTED(DEFAULT_LD_Z_RELRO,
   $ac_default_ld_z_relro,
   [Define to 1 if you want to enable -z relro in ELF linker by default.])
 
+if test "${ac_default_ld_z_separate_code}" = unset; then
+  ac_default_ld_z_separate_code=0
+fi
+AC_DEFINE_UNQUOTED(DEFAULT_LD_Z_SEPARATE_CODE,
+  $ac_default_ld_z_separate_code,
+  [Define to 1 if you want to enable -z separate-code in ELF linker by default.])
+
 AC_DEFINE_UNQUOTED([DEFAULT_EMIT_SYSV_HASH],
   [$ac_default_emit_sysv_hash],
   [Define to 1 if you want to emit sysv hash in the ELF linker by default.])
@@ -490,6 +506,26 @@ if test x${EXTRA_SHLIB_EXTENSION} != x ; then
   AC_DEFINE_UNQUOTED(EXTRA_SHLIB_EXTENSION, "$EXTRA_SHLIB_EXTENSION",
    [Additional extension a shared object might have.])
 fi
+
+AC_CONFIG_COMMANDS([default],
+[[
+case "$srcdir" in
+  .) srcdirpre= ;;
+  *) srcdirpre='$(srcdir)/' ;;
+esac
+POFILES=
+GMOFILES=
+for lang in dummy $OBSOLETE_ALL_LINGUAS; do
+  if test $lang != dummy; then
+    POFILES="$POFILES $srcdirpre$lang.po"
+    GMOFILES="$GMOFILES $srcdirpre$lang.gmo"
+  fi
+done
+sed -e '/^SRC-POTFILES =/r po/SRC-POTFILES' \
+    -e '/^BLD-POTFILES =/r po/BLD-POTFILES' \
+    -e "s,@POFILES@,$POFILES," \
+    -e "s,@GMOFILES@,$GMOFILES," \
+    po/Makefile.in > po/Makefile]],[[]])
 
 dnl Required by html, pdf, install-pdf and install-html
 AC_SUBST(datarootdir)

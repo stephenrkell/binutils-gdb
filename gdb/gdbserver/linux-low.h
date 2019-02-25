@@ -1,5 +1,5 @@
 /* Internal interfaces for the GNU/Linux specific target code for gdbserver.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,6 +15,9 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+
+#ifndef GDBSERVER_LINUX_LOW_H
+#define GDBSERVER_LINUX_LOW_H
 
 #include "nat/linux-nat.h"
 #include "nat/gdb_thread_db.h"
@@ -189,10 +192,18 @@ struct linux_target_ops
      allocate it here.  */
   struct arch_process_info * (*new_process) (void);
 
+  /* Hook to call when a process is being deleted.  If extra per-process
+     architecture-specific data is needed, delete it here.  */
+  void (*delete_process) (struct arch_process_info *info);
+
   /* Hook to call when a new thread is detected.
      If extra per-thread architecture-specific data is needed,
      allocate it here.  */
   void (*new_thread) (struct lwp_info *);
+
+  /* Hook to call when a thread is being deleted.  If extra per-thread
+     architecture-specific data is needed, delete it here.  */
+  void (*delete_thread) (struct arch_lwp_info *);
 
   /* Hook to call, if any, when a new fork is attached.  */
   void (*new_fork) (struct process_info *parent, struct process_info *child);
@@ -417,8 +428,10 @@ int thread_db_look_up_one_symbol (const char *name, CORE_ADDR *addrp);
    both the clone and the parent should be stopped.  This function does
    whatever is required have the clone under thread_db's control.  */
 
-void thread_db_notice_clone (struct process_info *proc, ptid_t lwp);
+void thread_db_notice_clone (struct thread_info *parent_thr, ptid_t child_ptid);
 
 bool thread_db_thread_handle (ptid_t ptid, gdb_byte **handle, int *handle_len);
 
 extern int have_ptrace_getregset;
+
+#endif /* GDBSERVER_LINUX_LOW_H */

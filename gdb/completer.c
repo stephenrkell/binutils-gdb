@@ -1,5 +1,5 @@
 /* Line completion stuff for GDB, the GNU debugger.
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,7 +22,7 @@
 #include "expression.h"
 #include "filenames.h"		/* For DOSish file names.  */
 #include "language.h"
-#include "gdb_signals.h"
+#include "common/gdb_signals.h"
 #include "target.h"
 #include "reggroups.h"
 #include "user-regs.h"
@@ -75,6 +75,9 @@ enum explicit_location_match_type
 
     /* The name of a function or method.  */
     MATCH_FUNCTION,
+
+    /* The fully-qualified name of a function or method.  */
+    MATCH_QUALIFIED,
 
     /* A line number.  */
     MATCH_LINE,
@@ -151,15 +154,13 @@ filename_completer (struct cmd_list_element *ignore,
 		    const char *text, const char *word)
 {
   int subsequent_name;
-  VEC (char_ptr) *return_val = NULL;
 
   subsequent_name = 0;
   while (1)
     {
-      char *p, *q;
-
-      p = rl_filename_completion_function (text, subsequent_name);
-      if (p == NULL)
+      gdb::unique_xmalloc_ptr<char> p_rl
+	(rl_filename_completion_function (text, subsequent_name));
+      if (p_rl == NULL)
 	break;
       /* We need to set subsequent_name to a non-zero value before the
 	 continue line below, because otherwise, if the first file
@@ -168,32 +169,12 @@ filename_completer (struct cmd_list_element *ignore,
       subsequent_name = 1;
       /* Like emacs, don't complete on old versions.  Especially
          useful in the "source" command.  */
+      const char *p = p_rl.get ();
       if (p[strlen (p) - 1] == '~')
-	{
-	  xfree (p);
-	  continue;
-	}
+	continue;
 
-      if (word == text)
-	/* Return exactly p.  */
-	q = p;
-      else if (word > text)
-	{
-	  /* Return some portion of p.  */
-	  q = (char *) xmalloc (strlen (p) + 5);
-	  strcpy (q, p + (word - text));
-	  xfree (p);
-	}
-      else
-	{
-	  /* Return some of TEXT plus p.  */
-	  q = (char *) xmalloc (strlen (p) + (text - word) + 5);
-	  strncpy (q, word, text - word);
-	  q[text - word] = '\0';
-	  strcat (q, p);
-	  xfree (p);
-	}
-      tracker.add_completion (gdb::unique_xmalloc_ptr<char> (q));
+      tracker.add_completion
+	(make_completion_match_str (std::move (p_rl), text, word));
     }
 #if 0
   /* There is no way to do this just long enough to affect quote
@@ -426,7 +407,6 @@ static void
 complete_files_symbols (completion_tracker &tracker,
 			const char *text, const char *word)
 {
-  int ix;
   completion_list fn_list;
   const char *p;
   int quote_found = 0;
@@ -499,6 +479,7 @@ complete_files_symbols (completion_tracker &tracker,
     {
       collect_file_symbol_completion_matches (tracker,
 					      complete_symbol_mode::EXPRESSION,
+					      symbol_name_match_type::EXPRESSION,
 					      symbol_start, word,
 					      file_to_match);
       xfree (file_to_match);
@@ -509,6 +490,7 @@ complete_files_symbols (completion_tracker &tracker,
 
       collect_symbol_completion_matches (tracker,
 					 complete_symbol_mode::EXPRESSION,
+					 symbol_name_match_type::EXPRESSION,
 					 symbol_start, word);
       /* If text includes characters which cannot appear in a file
 	 name, they cannot be asking for completion on files.  */
@@ -519,8 +501,6 @@ complete_files_symbols (completion_tracker &tracker,
 
   if (!fn_list.empty () && !tracker.have_completions ())
     {
-      char *fn;
-
       /* If we only have file names as possible completion, we should
 	 bring them in sync with what rl_complete expects.  The
 	 problem is that if the user types "break /foo/b TAB", and the
@@ -551,6 +531,7 @@ complete_files_symbols (completion_tracker &tracker,
 	 on the entire text as a symbol.  */
       collect_symbol_completion_matches (tracker,
 					 complete_symbol_mode::EXPRESSION,
+					 symbol_name_match_type::EXPRESSION,
 					 orig_text, word);
     }
 }
@@ -576,7 +557,8 @@ complete_source_filenames (const char *text)
 
 static void
 complete_address_and_linespec_locations (completion_tracker &tracker,
-					 const char *text)
+					 const char *text,
+					 symbol_name_match_type match_type)
 {
   if (*text == '*')
     {
@@ -588,7 +570,7 @@ complete_address_and_linespec_locations (completion_tracker &tracker,
     }
   else
     {
-      linespec_complete (tracker, text);
+      linespec_complete (tracker, text, match_type);
     }
 }
 
@@ -599,6 +581,7 @@ static const char *const explicit_options[] =
   {
     "-source",
     "-function",
+    "-qualified",
     "-line",
     "-label",
     NULL
@@ -635,6 +618,9 @@ collect_explicit_location_matches (completion_tracker &tracker,
   const struct explicit_location *explicit_loc
     = get_explicit_location (location);
 
+  /* True if the option expects an argument.  */
+  bool needs_arg = true;
+
   /* Note, in the various MATCH_* below, we complete on
      explicit_loc->foo instead of WORD, because only the former will
      have already skipped past any quote char.  */
@@ -653,10 +639,14 @@ collect_explicit_location_matches (completion_tracker &tracker,
       {
 	const char *function = string_or_empty (explicit_loc->function_name);
 	linespec_complete_function (tracker, function,
+				    explicit_loc->func_name_match_type,
 				    explicit_loc->source_filename);
       }
       break;
 
+    case MATCH_QUALIFIED:
+      needs_arg = false;
+      break;
     case MATCH_LINE:
       /* Nothing to offer.  */
       break;
@@ -667,6 +657,7 @@ collect_explicit_location_matches (completion_tracker &tracker,
 	linespec_complete_label (tracker, language,
 				 explicit_loc->source_filename,
 				 explicit_loc->function_name,
+				 explicit_loc->func_name_match_type,
 				 label);
       }
       break;
@@ -675,7 +666,7 @@ collect_explicit_location_matches (completion_tracker &tracker,
       gdb_assert_not_reached ("unhandled explicit_location_match_type");
     }
 
-  if (tracker.completes_to_completion_word (word))
+  if (!needs_arg || tracker.completes_to_completion_word (word))
     {
       tracker.discard_completions ();
       tracker.advance_custom_word_point_by (strlen (word));
@@ -864,7 +855,7 @@ location_completer (struct cmd_list_element *ignore,
       tracker.advance_custom_word_point_by (1);
     }
 
-  if (location != NULL)
+  if (completion_info.saw_explicit_location_option)
     {
       if (*copy != '\0')
 	{
@@ -904,10 +895,29 @@ location_completer (struct cmd_list_element *ignore,
 
 	}
     }
+  /* This is an address or linespec location.  */
+  else if (location != NULL)
+    {
+      /* Handle non-explicit location options.  */
+
+      int keyword = skip_keyword (tracker, explicit_options, &text);
+      if (keyword == -1)
+	complete_on_enum (tracker, explicit_options, text, text);
+      else
+	{
+	  tracker.advance_custom_word_point_by (copy - text);
+	  text = copy;
+
+	  symbol_name_match_type match_type
+	    = get_explicit_location (location.get ())->func_name_match_type;
+	  complete_address_and_linespec_locations (tracker, text, match_type);
+	}
+    }
   else
     {
-      /* This is an address or linespec location.  */
-      complete_address_and_linespec_locations (tracker, text);
+      /* No options.  */
+      complete_address_and_linespec_locations (tracker, text,
+					       symbol_name_match_type::WILD);
     }
 
   /* Add matches for option names, if either:
@@ -952,7 +962,7 @@ location_completer_handle_brkchars (struct cmd_list_element *ignore,
 
 static void
 add_struct_fields (struct type *type, completion_list &output,
-		   char *fieldname, int namelen)
+		   const char *fieldname, int namelen)
 {
   int i;
   int computed_type_name = 0;
@@ -989,7 +999,7 @@ add_struct_fields (struct type *type, completion_list &output,
 	{
 	  if (!computed_type_name)
 	    {
-	      type_name = type_name_no_tag (type);
+	      type_name = TYPE_NAME (type);
 	      computed_type_name = 1;
 	    }
 	  /* Omit constructors from the completion list.  */
@@ -1006,12 +1016,11 @@ complete_expression (completion_tracker &tracker,
 		     const char *text, const char *word)
 {
   struct type *type = NULL;
-  char *fieldname;
+  gdb::unique_xmalloc_ptr<char> fieldname;
   enum type_code code = TYPE_CODE_UNDEF;
 
   /* Perform a tentative parse of the expression, to see whether a
      field completion is required.  */
-  fieldname = NULL;
   TRY
     {
       type = parse_expression_for_completion (text, &fieldname, &code);
@@ -1022,7 +1031,7 @@ complete_expression (completion_tracker &tracker,
     }
   END_CATCH
 
-  if (fieldname && type)
+  if (fieldname != nullptr && type)
     {
       for (;;)
 	{
@@ -1035,26 +1044,20 @@ complete_expression (completion_tracker &tracker,
       if (TYPE_CODE (type) == TYPE_CODE_UNION
 	  || TYPE_CODE (type) == TYPE_CODE_STRUCT)
 	{
-	  int flen = strlen (fieldname);
 	  completion_list result;
 
-	  add_struct_fields (type, result, fieldname, flen);
-	  xfree (fieldname);
+	  add_struct_fields (type, result, fieldname.get (),
+			     strlen (fieldname.get ()));
 	  tracker.add_completions (std::move (result));
 	  return;
 	}
     }
-  else if (fieldname && code != TYPE_CODE_UNDEF)
+  else if (fieldname != nullptr && code != TYPE_CODE_UNDEF)
     {
-      VEC (char_ptr) *result;
-      struct cleanup *cleanup = make_cleanup (xfree, fieldname);
-
-      collect_symbol_completion_matches_type (tracker, fieldname, fieldname,
-					      code);
-      do_cleanups (cleanup);
+      collect_symbol_completion_matches_type (tracker, fieldname.get (),
+					      fieldname.get (), code);
       return;
     }
-  xfree (fieldname);
 
   complete_files_symbols (tracker, text, word);
 }
@@ -1104,6 +1107,7 @@ symbol_completer (struct cmd_list_element *ignore,
 		  const char *text, const char *word)
 {
   collect_symbol_completion_matches (tracker, complete_symbol_mode::EXPRESSION,
+				     symbol_name_match_type::EXPRESSION,
 				     text, word);
 }
 
@@ -1266,10 +1270,13 @@ complete_line_internal_1 (completion_tracker &tracker,
       word = tmp_command + point - strlen (text);
     }
 
-  if (point == 0)
+  /* Move P up to the start of the command.  */
+  p = skip_spaces (p);
+
+  if (*p == '\0')
     {
-      /* An empty line we want to consider ambiguous; that is, it
-	 could be any command.  */
+      /* An empty line is ambiguous; that is, it could be any
+	 command.  */
       c = CMD_LIST_AMBIGUOUS;
       result_list = 0;
     }
@@ -1447,6 +1454,7 @@ complete_line_internal (completion_tracker &tracker,
       if (except.error != MAX_COMPLETIONS_REACHED_ERROR)
 	throw_exception (except);
     }
+  END_CATCH
 }
 
 /* See completer.h.  */
@@ -1461,7 +1469,7 @@ int max_completions = 200;
 completion_tracker::completion_tracker ()
 {
   m_entries_hash = htab_create_alloc (INITIAL_COMPLETION_HTAB_SIZE,
-				      htab_hash_string, (htab_eq) streq,
+				      htab_hash_string, streq_hash,
 				      NULL, xcalloc, xfree);
 }
 
@@ -1479,7 +1487,7 @@ completion_tracker::discard_completions ()
 
   htab_delete (m_entries_hash);
   m_entries_hash = htab_create_alloc (INITIAL_COMPLETION_HTAB_SIZE,
-				      htab_hash_string, (htab_eq) streq,
+				      htab_hash_string, streq_hash,
 				      NULL, xcalloc, xfree);
 }
 
@@ -1494,7 +1502,10 @@ completion_tracker::~completion_tracker ()
 /* See completer.h.  */
 
 bool
-completion_tracker::maybe_add_completion (gdb::unique_xmalloc_ptr<char> name)
+completion_tracker::maybe_add_completion
+  (gdb::unique_xmalloc_ptr<char> name,
+   completion_match_for_lcd *match_for_lcd,
+   const char *text, const char *word)
 {
   void **slot;
 
@@ -1507,9 +1518,18 @@ completion_tracker::maybe_add_completion (gdb::unique_xmalloc_ptr<char> name)
   slot = htab_find_slot (m_entries_hash, name.get (), INSERT);
   if (*slot == HTAB_EMPTY_ENTRY)
     {
-      const char *match_for_lcd_str = name.get ();
+      const char *match_for_lcd_str = NULL;
 
-      recompute_lowest_common_denominator (match_for_lcd_str);
+      if (match_for_lcd != NULL)
+	match_for_lcd_str = match_for_lcd->finish ();
+
+      if (match_for_lcd_str == NULL)
+	match_for_lcd_str = name.get ();
+
+      gdb::unique_xmalloc_ptr<char> lcd
+	= make_completion_match_str (match_for_lcd_str, text, word);
+
+      recompute_lowest_common_denominator (std::move (lcd));
 
       *slot = name.get ();
       m_entries_vec.push_back (std::move (name));
@@ -1521,9 +1541,11 @@ completion_tracker::maybe_add_completion (gdb::unique_xmalloc_ptr<char> name)
 /* See completer.h.  */
 
 void
-completion_tracker::add_completion (gdb::unique_xmalloc_ptr<char> name)
+completion_tracker::add_completion (gdb::unique_xmalloc_ptr<char> name,
+				    completion_match_for_lcd *match_for_lcd,
+				    const char *text, const char *word)
 {
-  if (!maybe_add_completion (std::move (name)))
+  if (!maybe_add_completion (std::move (name), match_for_lcd, text, word))
     throw_error (MAX_COMPLETIONS_REACHED_ERROR, _("Max completions reached."));
 }
 
@@ -1534,6 +1556,63 @@ completion_tracker::add_completions (completion_list &&list)
 {
   for (auto &candidate : list)
     add_completion (std::move (candidate));
+}
+
+/* Helper for the make_completion_match_str overloads.  Returns NULL
+   as an indication that we want MATCH_NAME exactly.  It is up to the
+   caller to xstrdup that string if desired.  */
+
+static char *
+make_completion_match_str_1 (const char *match_name,
+			     const char *text, const char *word)
+{
+  char *newobj;
+
+  if (word == text)
+    {
+      /* Return NULL as an indication that we want MATCH_NAME
+	 exactly.  */
+      return NULL;
+    }
+  else if (word > text)
+    {
+      /* Return some portion of MATCH_NAME.  */
+      newobj = xstrdup (match_name + (word - text));
+    }
+  else
+    {
+      /* Return some of WORD plus MATCH_NAME.  */
+      size_t len = strlen (match_name);
+      newobj = (char *) xmalloc (text - word + len + 1);
+      memcpy (newobj, word, text - word);
+      memcpy (newobj + (text - word), match_name, len + 1);
+    }
+
+  return newobj;
+}
+
+/* See completer.h.  */
+
+gdb::unique_xmalloc_ptr<char>
+make_completion_match_str (const char *match_name,
+			   const char *text, const char *word)
+{
+  char *newobj = make_completion_match_str_1 (match_name, text, word);
+  if (newobj == NULL)
+    newobj = xstrdup (match_name);
+  return gdb::unique_xmalloc_ptr<char> (newobj);
+}
+
+/* See completer.h.  */
+
+gdb::unique_xmalloc_ptr<char>
+make_completion_match_str (gdb::unique_xmalloc_ptr<char> &&match_name,
+			   const char *text, const char *word)
+{
+  char *newobj = make_completion_match_str_1 (match_name.get (), text, word);
+  if (newobj == NULL)
+    return std::move (match_name);
+  return gdb::unique_xmalloc_ptr<char> (newobj);
 }
 
 /* Generate completions all at once.  Does nothing if max_completions
@@ -1824,21 +1903,23 @@ completion_find_completion_word (completion_tracker &tracker, const char *text,
 /* See completer.h.  */
 
 void
-completion_tracker::recompute_lowest_common_denominator (const char *new_match)
+completion_tracker::recompute_lowest_common_denominator
+  (gdb::unique_xmalloc_ptr<char> &&new_match_up)
 {
   if (m_lowest_common_denominator == NULL)
     {
       /* We don't have a lowest common denominator yet, so simply take
-	 the whole NEW_MATCH as being it.  */
-      m_lowest_common_denominator = xstrdup (new_match);
+	 the whole NEW_MATCH_UP as being it.  */
+      m_lowest_common_denominator = new_match_up.release ();
       m_lowest_common_denominator_unique = true;
     }
   else
     {
       /* Find the common denominator between the currently-known
-	 lowest common denominator and NEW_MATCH.  That becomes the
+	 lowest common denominator and NEW_MATCH_UP.  That becomes the
 	 new lowest common denominator.  */
       size_t i;
+      const char *new_match = new_match_up.get ();
 
       for (i = 0;
 	   (new_match[i] != '\0'
@@ -1951,7 +2032,7 @@ completion_tracker::build_completion_result (const char *text,
       /* We don't rely on readline appending the quote char as
 	 delimiter as then readline wouldn't append the ' ' after the
 	 completion.  */
-      char buf[2] = { quote_char () };
+      char buf[2] = { (char) quote_char () };
 
       match_list[0] = reconcat (match_list[0], match_list[0],
 				buf, (char *) NULL);

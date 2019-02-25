@@ -1,5 +1,5 @@
 /* dwarf2dbg.c - DWARF2 debug support
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2019 Free Software Foundation, Inc.
    Contributed by David Mosberger-Tang <davidm@hpl.hp.com>
 
    This file is part of GAS, the GNU Assembler.
@@ -97,9 +97,9 @@
 #define DWARF2_ARANGES_VERSION 2
 #endif
 
-/* This implementation output version 2 .debug_line information. */
+/* This implementation outputs version 3 .debug_line information.  */
 #ifndef DWARF2_LINE_VERSION
-#define DWARF2_LINE_VERSION 2
+#define DWARF2_LINE_VERSION 3
 #endif
 
 #include "subsegs.h"
@@ -251,6 +251,7 @@ generic_dwarf2_emit_offset (symbolS *symbol, unsigned int size)
 {
   expressionS exp;
 
+  memset (&exp, 0, sizeof exp);
   exp.X_op = O_symbol;
   exp.X_add_symbol = symbol;
   exp.X_add_number = 0;
@@ -379,6 +380,7 @@ set_or_check_view (struct line_entry *e, struct line_entry *p,
 	  if (view_assert_failed)
 	    {
 	      expressionS chk;
+
 	      memset (&chk, 0, sizeof (chk));
 	      chk.X_unsigned = 1;
 	      chk.X_op = O_add;
@@ -424,7 +426,7 @@ set_or_check_view (struct line_entry *e, struct line_entry *p,
   if (!S_IS_DEFINED (e->loc.view))
     {
       symbol_set_value_expression (e->loc.view, &viewx);
-      S_SET_SEGMENT (e->loc.view, absolute_section);
+      S_SET_SEGMENT (e->loc.view, expr_section);
       symbol_set_frag (e->loc.view, &zero_address_frag);
     }
 
@@ -624,6 +626,7 @@ dwarf2_consume_line_info (void)
 		     | DWARF2_FLAG_PROLOGUE_END
 		     | DWARF2_FLAG_EPILOGUE_BEGIN);
   current.discriminator = 0;
+  current.view = NULL;
 }
 
 /* Called for each (preferably code) label.  If dwarf2_loc_mark_labels
@@ -751,10 +754,10 @@ get_filenum (const char *filename, unsigned int num)
    - Pass .file "source.c" to s_app_file
    - Handle .file 1 "source.c" by adding an entry to the DWARF-2 file table
 
-   If an entry is added to the file table, return a pointer to the filename. */
+   If an entry is added to the file table, return a pointer to the filename.  */
 
 char *
-dwarf2_directive_file (int dummy ATTRIBUTE_UNUSED)
+dwarf2_directive_filename (void)
 {
   offsetT num;
   char *filename;
@@ -793,6 +796,15 @@ dwarf2_directive_file (int dummy ATTRIBUTE_UNUSED)
   get_filenum (filename, num);
 
   return filename;
+}
+
+/* Calls dwarf2_directive_filename, but discards its result.
+   Used in pseudo-op tables where the function result is ignored.  */
+
+void
+dwarf2_directive_file (int dummy ATTRIBUTE_UNUSED)
+{
+  (void) dwarf2_directive_filename ();
 }
 
 void
@@ -948,16 +960,19 @@ dwarf2_directive_loc (int dummy ATTRIBUTE_UNUSED)
 	      if (!name)
 		return;
 	      sym = symbol_find_or_make (name);
-	      if (S_IS_DEFINED (sym))
+	      if (S_IS_DEFINED (sym) || symbol_equated_p (sym))
 		{
-		  if (!S_CAN_BE_REDEFINED (sym))
-		    as_bad (_("symbol `%s' is already defined"), name);
-		  else
+		  if (S_IS_VOLATILE (sym))
 		    sym = symbol_clone (sym, 1);
-		  S_SET_SEGMENT (sym, undefined_section);
-		  S_SET_VALUE (sym, 0);
-		  symbol_set_frag (sym, &zero_address_frag);
+		  else if (!S_CAN_BE_REDEFINED (sym))
+		    {
+		      as_bad (_("symbol `%s' is already defined"), name);
+		      return;
+		    }
 		}
+	      S_SET_SEGMENT (sym, undefined_section);
+	      S_SET_VALUE (sym, 0);
+	      symbol_set_frag (sym, &zero_address_frag);
 	    }
 	  current.view = sym;
 	}
@@ -1098,6 +1113,7 @@ out_set_addr (symbolS *sym)
 {
   expressionS exp;
 
+  memset (&exp, 0, sizeof exp);
   out_opcode (DW_LNS_extended_op);
   out_uleb128 (sizeof_address + 1);
 
@@ -1363,6 +1379,7 @@ emit_fixed_inc_line_addr (int line_delta, addressT addr_delta, fragS *frag,
       symbolS *to_sym;
       expressionS exp;
 
+      memset (&exp, 0, sizeof exp);
       gas_assert (pexp->X_op == O_subtract);
       to_sym = pexp->X_add_symbol;
 
@@ -1403,6 +1420,7 @@ relax_inc_line_addr (int line_delta, symbolS *to_sym, symbolS *from_sym)
   expressionS exp;
   int max_chars;
 
+  memset (&exp, 0, sizeof exp);
   exp.X_op = O_subtract;
   exp.X_add_symbol = to_sym;
   exp.X_op_symbol = from_sym;
@@ -1770,6 +1788,7 @@ out_debug_line (segT line_seg)
   struct line_seg *s;
   int sizeof_offset;
 
+  memset (&exp, 0, sizeof exp);
   sizeof_offset = out_header (line_seg, &exp);
   line_end = exp.X_add_symbol;
 
@@ -1840,6 +1859,7 @@ out_debug_ranges (segT ranges_seg)
   expressionS exp;
   unsigned int i;
 
+  memset (&exp, 0, sizeof exp);
   subseg_set (ranges_seg, 0);
 
   /* Base Address Entry.  */
@@ -1893,6 +1913,7 @@ out_debug_aranges (segT aranges_seg, segT info_seg)
   char *p;
   int sizeof_offset;
 
+  memset (&exp, 0, sizeof exp);
   sizeof_offset = out_header (aranges_seg, &exp);
   aranges_end = exp.X_add_symbol;
   size = -exp.X_add_number;
@@ -2002,6 +2023,7 @@ out_debug_info (segT info_seg, segT abbrev_seg, segT line_seg, segT ranges_seg,
   symbolS *info_end;
   int sizeof_offset;
 
+  memset (&exp, 0, sizeof exp);
   sizeof_offset = out_header (info_seg, &exp);
   info_end = exp.X_add_symbol;
 

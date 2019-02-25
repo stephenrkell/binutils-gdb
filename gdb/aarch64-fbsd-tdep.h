@@ -1,6 +1,6 @@
 /* FreeBSD/aarch64 target support, prototypes.
 
-   Copyright (C) 2017 Free Software Foundation, Inc.
+   Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,11 +17,14 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+#ifndef AARCH64_FBSD_TDEP_H
+#define AARCH64_FBSD_TDEP_H
+
 #include "regset.h"
 
 /* The general-purpose regset consists of 30 X registers, plus LR, SP,
    ELR, and SPSR registers.  SPSR is 32 bits but the structure is
-   passed to 64 bit alignment.  */
+   padded to 64 bit alignment.  */
 #define AARCH64_FBSD_SIZEOF_GREGSET  (34 * X_REGISTER_SIZE)
 
 /* The fp regset consists of 32 V registers, plus FPSR and FPCR which
@@ -31,3 +34,5 @@
 
 extern const struct regset aarch64_fbsd_gregset;
 extern const struct regset aarch64_fbsd_fpregset;
+
+#endif /* AARCH64_FBSD_TDEP_H */

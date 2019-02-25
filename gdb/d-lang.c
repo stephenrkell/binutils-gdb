@@ -1,6 +1,6 @@
 /* D language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 2005-2017 Free Software Foundation, Inc.
+   Copyright (C) 2005-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -216,7 +216,6 @@ extern const struct language_defn d_language_defn =
   d_extensions,
   &exp_descriptor_c,
   d_parse,
-  d_yyerror,
   null_post_parser,
   c_printchar,			/* Print a character constant.  */
   c_printstr,			/* Function to print string constant.  */
@@ -229,6 +228,7 @@ extern const struct language_defn d_language_defn =
   default_read_var_value,	/* la_read_var_value */
   NULL,				/* Language specific skip_trampoline.  */
   "this",
+  false,			/* la_store_sym_names_in_linkage_form_p */
   d_lookup_symbol_nonlocal,
   basic_lookup_transparent_type,
   d_demangle,			/* Language specific symbol demangler.  */
@@ -245,8 +245,9 @@ extern const struct language_defn d_language_defn =
   default_pass_by_reference,
   c_get_string,
   c_watch_location_expression,
-  NULL,				/* la_get_symbol_name_cmp */
+  NULL,				/* la_get_symbol_name_matcher */
   iterate_over_symbols,
+  default_search_name_hash,
   &default_varobj_ops,
   NULL,
   NULL,
@@ -263,7 +264,7 @@ build_d_types (struct gdbarch *gdbarch)
 
   /* Basic types.  */
   builtin_d_type->builtin_void
-    = arch_type (gdbarch, TYPE_CODE_VOID, 1, "void");
+    = arch_type (gdbarch, TYPE_CODE_VOID, TARGET_CHAR_BIT, "void");
   builtin_d_type->builtin_bool
     = arch_boolean_type (gdbarch, 8, 1, "bool");
   builtin_d_type->builtin_byte

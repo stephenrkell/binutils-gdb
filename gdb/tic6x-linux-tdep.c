@@ -1,5 +1,5 @@
 /* GNU/Linux on  TI C6x target support.
-   Copyright (C) 2011-2017 Free Software Foundation, Inc.
+   Copyright (C) 2011-2019 Free Software Foundation, Inc.
    Contributed by Yao Qi <yao@codesourcery.com>
 
    This file is part of GDB.
@@ -26,10 +26,6 @@
 #include "tramp-frame.h"
 #include "elf-bfd.h"
 #include "elf/tic6x.h"
-
-#include "features/tic6x-c64xp-linux.c"
-#include "features/tic6x-c64x-linux.c"
-#include "features/tic6x-c62x-linux.c"
 
 /* The offset from rt_sigframe pointer to SP register.  */
 #define TIC6X_SP_RT_SIGFRAME 8
@@ -141,7 +137,7 @@ static struct tramp_frame tic6x_linux_rt_sigreturn_tramp_frame =
   4,
   {
     {0x000045aa, 0x0fffffff},	/* mvk .S2 139,b0 */
-    {0x10000000, -1},		/* swe */
+    {0x10000000, ULONGEST_MAX},		/* swe */
     {TRAMP_SENTINEL_INSN}
   },
   tic6x_linux_rt_sigreturn_init
@@ -212,8 +208,4 @@ _initialize_tic6x_linux_tdep (void)
 {
   gdbarch_register_osabi (bfd_arch_tic6x, 0, GDB_OSABI_LINUX,
 			  tic6x_uclinux_init_abi);
-
-  initialize_tdesc_tic6x_c64xp_linux ();
-  initialize_tdesc_tic6x_c64x_linux ();
-  initialize_tdesc_tic6x_c62x_linux ();
 }

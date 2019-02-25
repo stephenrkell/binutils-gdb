@@ -1,3 +1,227 @@
+2019-02-11  Philippe Waroquiers  <philippe.waroquiers@skynet.be>
+
+	* splay-tree.c (splay_tree_insert): Also release old KEY in case
+	of insertion of a key equal to an already present key.
+	(splay_tree_new_typed_alloc): Update comment.
+
+2019-01-21  Tom Tromey  <tom@tromey.com>
+
+	* splay-tree.c (splay_tree_remove): Delete the key if necessary.
+
+2019-01-01  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2018-12-22  Jason Merrill  <jason@redhat.com>
+
+	Remove support for demangling GCC 2.x era mangling schemes.
+	* cplus-dem.c: Remove cplus_mangle_opname, cplus_demangle_opname,
+	internal_cplus_demangle, and all subroutines.
+	(libiberty_demanglers): Remove entries for ancient GNU (pre-3.0),
+	Lucid, ARM, HP, and EDG demangling styles.
+	(cplus_demangle): Remove 'work' variable.  Don't call
+	internal_cplus_demangle.
+
+2018-12-07  Nick Clifton  <nickc@redhat.com>
+
+	PR 87681
+	PR 87675
+	PR 87636
+	PR 87350
+	PR 87335
+	* cp-demangle.h (struct d_info): Add recursion_level field.
+	* cp-demangle.c (d_function_type): Add recursion counter.
+	If the recursion limit is reached and the check is not disabled,
+	then return with a failure result.
+	(cplus_demangle_init_info): Initialise the recursion_level field.
+        (d_demangle_callback): If the recursion limit is enabled, check
+	for a mangled string that is so long that there is not enough
+	stack space for the local arrays.
+        * cplus-dem.c (struct work): Add recursion_level field.
+	(squangle_mop_up): Set the numb and numk fields to zero.
+	(work_stuff_copy_to_from): Handle the case where a btypevec or
+	ktypevec field is NULL.
+	(demangle_nested_args): Add recursion counter.  If
+	the recursion limit is not disabled and reached, return with a
+	failure result.
+
+2018-10-23  Jason Merrill  <jason@redhat.com>
+
+	Implement P0732R2, class types in non-type template parameters.
+	* cp-demangle.c (d_dump, d_make_comp, d_count_templates_scopes)
+	(d_print_comp_inner): Handle DEMANGLE_COMPONENT_TPARM_OBJ.
+	(d_special_name): Handle TA.
+	(d_expresion_1): Fix demangling of brace-enclosed initializer list.
+
+2018-10-31  Joseph Myers  <joseph@codesourcery.com>
+
+	PR bootstrap/82856
+	Merge from binutils-gdb:
+	2018-06-19  Simon Marchi  <simon.marchi@ericsson.com>
+
+	* configure.ac: Remove AC_PREREQ.
+	* configure: Re-generate.
+	* config.in: Re-generate.
+
+2018-10-01  Nathan Sidwell  <nathan@acm.org>
+
+	* configure.ac (checkfuncs): Add pipe2.
+	* config.in, configure: Rebuilt.
+	* pex-unix.c (pex_unix_exec_child): Comminicate errors from child
+	to parent with a pipe, when possible.
+
+2018-08-23  Nathan Sidwell  <nathan@acm.org>
+	    Martin Liska  <mliska@suse.cz>
+
+	PR driver/87056
+	* pex-unix.c (pex_unix_exec_child): Duplicate bad_fn into local
+	scopes to avoid potential clobber.
+
+2018-08-20  Nathan Sidwell  <nathan@acm.org>
+
+	* pex-unix.c (pex_child_error): Delete.
+	(pex_unix_exec_child): Commonize error paths to single message &
+	exit.
+
+2018-07-30  Tom Tromey  <tom@tromey.com>
+
+	* cplus-dem.c (remember_Btype): Don't call memcpy with LEN==0.
+
+2018-07-26  Martin Liska  <mliska@suse.cz>
+
+	PR lto/86548
+	* make-temp-file.c (TEMP_FILE): Remove leading 'cc'.
+	(make_temp_file): Call make_temp_file_with_prefix with
+	first argument set to NULL.
+	(make_temp_file_with_prefix): Support also prefix.
+
+2018-07-19  Eli Zaretskii  <eliz@gnu.org>
+
+	* simple-object-elf.c (ENOTSUP): If not defined by errno.h, redirect
+	to ENOSYS.
+
+2018-05-30  Jan Hubicka  <hubicka@ucw.cz>
+
+	* simple-object.c (handle_lto_debug_sections): Add rename parameter.
+	(handle_lto_debug_sections_rename): New function.
+	(handle_lto_debug_sections_norename): New function.
+	(simple_object_copy_lto_debug_sections): Add rename parameter.
+
+2018-05-28  Bernd Edlinger  <bernd.edlinger@hotmail.de>
+
+	* splay-tree.c (splay_tree_compare_strings,
+	splay_tree_delete_pointers): New utility functions.
+
+2018-05-10  Martin Liska  <mliska@suse.cz>
+
+	PR bootstrap/64914
+	* md5.c: Use strict alignment with UBSAN_BOOTSTRAP.
+
+2018-04-30  Daniel van Gerpen  <daniel@vangerpen.de>
+
+	* argv.c (expandargv): Fix memory leak for copied argv.
+
+2018-04-13  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
+
+	PR lto/81968
+	* simple-object.c (handle_lto_debug_sections): Keep .comment
+	section.
+
+2018-03-02  David Malcolm  <dmalcolm@redhat.com>
+
+	* cp-demangle.c: Update URL for g++ V3 ABI.
+
+2018-01-20  Eli Zaretskii  <eliz@gnu.org>
+
+	* simple-object-xcoff.c (simple_object_xcoff_find_sections): Use
+	ulong_type to avoid warning about 32-bit shift.
+
+2018-01-11  Richard Biener  <rguenther@suse.de>
+	Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
+
+	PR lto/81968
+	* simple-object-common.h (struct simple_object_functions):
+	Change copy_lto_debug_sections callback signature.
+	* simple-object-elf.c (SHN_HIRESERVE, SHT_SYMTAB_SHNDX,
+	SHF_INFO_LINK): Add defines.
+	(simple_object_elf_copy_lto_debug_sections): Instead of
+	leaving not to be copied sections empty unnamed SHT_NULL
+	remove them from the target section headers and adjust section
+	reference everywhere.  Handle SHN_XINDEX in the symbol table
+	processing properly.
+	* simple-object.c (handle_lto_debug_sections): Change
+	interface to return a modified string and handle renaming
+	of relocation sections.
+
+2018-01-10  Daniel van Gerpen  <daniel@vangerpen.de>
+
+	* argv.c (expandargv): Correct check for dynamically
+	allocated argv.
+
+2018-01-03  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2017-01-02  Richard Biener  <rguenther@suse.de>
+
+	PR lto/83452
+	* simple-object-elf.c (simple_object_elf_copy_lto_debug_section):
+	Do not use UNDEF locals for removed symbols but instead just
+	define them in the first prevailing section and with no name.
+	Use the same gnu_lto_v1 name for all removed globals we promote to
+	WEAK UNDEFs so hpux can use a stub to provide this symbol.  Clear
+	sh_info and sh_link in removed sections.
+
+2017-10-30  Richard Biener  <rguenther@suse.de>
+
+	PR lto/82757
+	* simple-object-elf.c (simple_object_elf_copy_lto_debug_sections):
+	Strip two leading _s from the __gnu_lto_* symbols.
+
+2017-10-24  Alan Modra  <amodra@gmail.com>
+
+	PR lto/82687
+	PR lto/82575
+	* simple-object-elf.c (simple_object_elf_copy_lto_debug_sections):
+	Only make __gnu_lto symbols hidden.
+
+2017-10-20  Alan Modra  <amodra@gmail.com>
+
+	PR lto/82575
+	* simple-object-elf.c (simple_object_elf_copy_lto_debug_sections):
+	Make discarded non-local symbols weak and hidden.
+
+2017-10-18  Jakub Jelinek  <jakub@redhat.com>
+
+	PR lto/82598
+	* simple-object.c (handle_lto_debug_sections): Copy over also
+	.note.GNU-stack section with unchanged name.
+	* simple-object-elf.c (SHF_EXECINSTR): Define.
+	(simple_object_elf_copy_lto_debug_section): Drop SHF_EXECINSTR bit
+	on .note.GNU-stack section.
+
+2017-09-25  Nathan Sidwell  <nathan@acm.org>
+
+	PR demangler/82195
+	* cp-demangle.c (d_encoding): Strip return type when name is a
+	LOCAL_NAME.
+	(d_local_name): Strip return type of enclosing TYPED_NAME.
+	* testsuite/demangle-expected: Add and adjust tests.
+
+2017-09-21  Nathan Sidwell  <nathan@acm.org>
+
+	PR demangler/82195
+	* cp-demangle.c (d_name): Revert addition of 'toplevel' parm.
+	(has_return_type): Recurse for DEMANGLE_COMPONENT_LOCAL_NAME.
+	(d_encoding): Revert d_name change.  Use is_fnqual_component_type
+	to strip modifiers that do not belong.
+	(d_special_name, d_class_enum_type): Revert d_name call change.
+	(d_expresion_1): Commonize DEMANGLE_COMPONENT_UNARY building.
+	(d_local_name): Revert parsing of a function type.
+	(d_print_comp_inner): An inner LOCAL_NAME might contain a
+	TEMPLATE.
+	* testsuite/demangle-expected: Add & adjust tests
+
 2017-09-15  Nathan Sidwell  <nathan@acm.org>
 
 	PR demangler/82195
@@ -777,8 +1001,8 @@
 	* functions.texi: Regenerate.
 
 2014-12-11  Uros Bizjak  <ubizjak@gmail.com>
-            Ben Elliston  <bje@au.ibm.com>
-            Manuel Lopez-Ibanez  <manu@gcc.gnu.org>
+	    Ben Elliston  <bje@au.ibm.com>
+	    Manuel Lopez-Ibanez  <manu@gcc.gnu.org>
 
 	* xvasprintf.c: New file.
 	* vprintf-support.h: Likewise.

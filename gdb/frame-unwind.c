@@ -1,6 +1,6 @@
 /* Definitions for frame unwinder, for GDB, the GNU debugger.
 
-   Copyright (C) 2003-2017 Free Software Foundation, Inc.
+   Copyright (C) 2003-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -97,10 +97,9 @@ static int
 frame_unwind_try_unwinder (struct frame_info *this_frame, void **this_cache,
                           const struct frame_unwind *unwinder)
 {
-  struct cleanup *old_cleanup;
   int res = 0;
 
-  old_cleanup = frame_prepare_for_sniffer (this_frame, unwinder);
+  frame_prepare_for_sniffer (this_frame, unwinder);
 
   TRY
     {
@@ -111,13 +110,14 @@ frame_unwind_try_unwinder (struct frame_info *this_frame, void **this_cache,
       /* Catch all exceptions, caused by either interrupt or error.
 	 Reset *THIS_CACHE.  */
       *this_cache = NULL;
+      frame_cleanup_after_sniffer (this_frame);
+
       if (ex.error == NOT_AVAILABLE_ERROR)
 	{
 	  /* This usually means that not even the PC is available,
 	     thus most unwinders aren't able to determine if they're
 	     the best fit.  Keep trying.  Fallback prologue unwinders
 	     should always accept the frame.  */
-	  do_cleanups (old_cleanup);
 	  return 0;
 	}
       throw_exception (ex);
@@ -125,15 +125,12 @@ frame_unwind_try_unwinder (struct frame_info *this_frame, void **this_cache,
   END_CATCH
 
   if (res)
-    {
-      discard_cleanups (old_cleanup);
-      return 1;
-    }
+    return 1;
   else
     {
       /* Don't set *THIS_CACHE to NULL here, because sniffer has to do
 	 so.  */
-      do_cleanups (old_cleanup);
+      frame_cleanup_after_sniffer (this_frame);
       return 0;
     }
   gdb_assert_not_reached ("frame_unwind_try_unwinder");
@@ -194,6 +191,26 @@ default_frame_unwind_stop_reason (struct frame_info *this_frame,
     return UNWIND_OUTERMOST;
   else
     return UNWIND_NO_REASON;
+}
+
+/* See frame-unwind.h.  */
+
+CORE_ADDR
+default_unwind_pc (struct gdbarch *gdbarch, struct frame_info *next_frame)
+{
+  int pc_regnum = gdbarch_pc_regnum (gdbarch);
+  CORE_ADDR pc = frame_unwind_register_unsigned (next_frame, pc_regnum);
+  pc = gdbarch_addr_bits_remove (gdbarch, pc);
+  return pc;
+}
+
+/* See frame-unwind.h.  */
+
+CORE_ADDR
+default_unwind_sp (struct gdbarch *gdbarch, struct frame_info *next_frame)
+{
+  int sp_regnum = gdbarch_sp_regnum (gdbarch);
+  return frame_unwind_register_unsigned (next_frame, sp_regnum);
 }
 
 /* Helper functions for value-based register unwinding.  These return

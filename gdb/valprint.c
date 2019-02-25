@@ -1,6 +1,6 @@
 /* Print values for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,9 +27,7 @@
 #include "language.h"
 #include "annotate.h"
 #include "valprint.h"
-#include "floatformat.h"
-#include "doublest.h"
-#include "dfp.h"
+#include "target-float.h"
 #include "extension.h"
 #include "ada-lang.h"
 #include "gdb_obstack.h"
@@ -72,9 +70,6 @@ struct converted_character
   int repeat_count;
 };
 
-typedef struct converted_character converted_character_d;
-DEF_VEC_O (converted_character_d);
-
 /* Command lists for set/show print raw.  */
 struct cmd_list_element *setprintrawlist;
 struct cmd_list_element *showprintrawlist;
@@ -84,19 +79,7 @@ struct cmd_list_element *showprintrawlist;
 static int partial_memory_read (CORE_ADDR memaddr, gdb_byte *myaddr,
 				int len, int *errptr);
 
-static void show_print (char *, int);
-
-static void set_print (char *, int);
-
-static void set_radix (char *, int);
-
-static void show_radix (char *, int);
-
-static void set_input_radix (char *, int, struct cmd_list_element *);
-
 static void set_input_radix_1 (int, unsigned);
-
-static void set_output_radix (char *, int, struct cmd_list_element *);
 
 static void set_output_radix_1 (int, unsigned);
 
@@ -824,7 +807,7 @@ generic_val_print_char (struct type *type, struct type *unresolved_type,
     }
 }
 
-/* generic_val_print helper for TYPE_CODE_FLT.  */
+/* generic_val_print helper for TYPE_CODE_FLT and TYPE_CODE_DECFLOAT.  */
 
 static void
 generic_val_print_float (struct type *type,
@@ -845,29 +828,6 @@ generic_val_print_float (struct type *type,
       const gdb_byte *valaddr = value_contents_for_printing (original_value);
 
       print_floating (valaddr + embedded_offset * unit_size, type, stream);
-    }
-}
-
-/* generic_val_print helper for TYPE_CODE_DECFLOAT.  */
-
-static void
-generic_val_print_decfloat (struct type *type,
-			    int embedded_offset, struct ui_file *stream,
-			    struct value *original_value,
-			    const struct value_print_options *options)
-{
-  struct gdbarch *gdbarch = get_type_arch (type);
-  int unit_size = gdbarch_addressable_memory_unit_size (gdbarch);
-
-  if (options->format)
-    val_print_scalar_formatted (type, embedded_offset, original_value,
-				options, 0, stream);
-  else
-    {
-      const gdb_byte *valaddr = value_contents_for_printing (original_value);
-
-      print_decimal_floating (valaddr + embedded_offset * unit_size, type,
-			      stream);
     }
 }
 
@@ -994,13 +954,9 @@ generic_val_print (struct type *type,
       break;
 
     case TYPE_CODE_FLT:
+    case TYPE_CODE_DECFLOAT:
       generic_val_print_float (type, embedded_offset, stream,
 			       original_value, options);
-      break;
-
-    case TYPE_CODE_DECFLOAT:
-      generic_val_print_decfloat (type, embedded_offset, stream,
-				  original_value, options);
       break;
 
     case TYPE_CODE_VOID:
@@ -1395,93 +1351,15 @@ longest_to_int (LONGEST arg)
   return (rtnval);
 }
 
-/* Print a floating point value of type TYPE (not always a
-   TYPE_CODE_FLT), pointed to in GDB by VALADDR, on STREAM.  */
+/* Print a floating point value of floating-point type TYPE,
+   pointed to in GDB by VALADDR, on STREAM.  */
 
 void
 print_floating (const gdb_byte *valaddr, struct type *type,
 		struct ui_file *stream)
 {
-  DOUBLEST doub;
-  int inv;
-  const struct floatformat *fmt = NULL;
-  unsigned len = TYPE_LENGTH (type);
-  enum float_kind kind;
-
-  /* If it is a floating-point, check for obvious problems.  */
-  if (TYPE_CODE (type) == TYPE_CODE_FLT)
-    fmt = floatformat_from_type (type);
-  if (fmt != NULL)
-    {
-      kind = floatformat_classify (fmt, valaddr);
-      if (kind == float_nan)
-	{
-	  if (floatformat_is_negative (fmt, valaddr))
-	    fprintf_filtered (stream, "-");
-	  fprintf_filtered (stream, "nan(");
-	  fputs_filtered ("0x", stream);
-	  fputs_filtered (floatformat_mantissa (fmt, valaddr), stream);
-	  fprintf_filtered (stream, ")");
-	  return;
-	}
-      else if (kind == float_infinite)
-	{
-	  if (floatformat_is_negative (fmt, valaddr))
-	    fputs_filtered ("-", stream);
-	  fputs_filtered ("inf", stream);
-	  return;
-	}
-    }
-
-  /* NOTE: cagney/2002-01-15: The TYPE passed into print_floating()
-     isn't necessarily a TYPE_CODE_FLT.  Consequently, unpack_double
-     needs to be used as that takes care of any necessary type
-     conversions.  Such conversions are of course direct to DOUBLEST
-     and disregard any possible target floating point limitations.
-     For instance, a u64 would be converted and displayed exactly on a
-     host with 80 bit DOUBLEST but with loss of information on a host
-     with 64 bit DOUBLEST.  */
-
-  doub = unpack_double (type, valaddr, &inv);
-  if (inv)
-    {
-      fprintf_filtered (stream, "<invalid float value>");
-      return;
-    }
-
-  /* FIXME: kettenis/2001-01-20: The following code makes too much
-     assumptions about the host and target floating point format.  */
-
-  /* NOTE: cagney/2002-02-03: Since the TYPE of what was passed in may
-     not necessarily be a TYPE_CODE_FLT, the below ignores that and
-     instead uses the type's length to determine the precision of the
-     floating-point value being printed.  */
-
-  if (len < sizeof (double))
-      fprintf_filtered (stream, "%.9g", (double) doub);
-  else if (len == sizeof (double))
-      fprintf_filtered (stream, "%.17g", (double) doub);
-  else
-#ifdef PRINTF_HAS_LONG_DOUBLE
-    fprintf_filtered (stream, "%.35Lg", doub);
-#else
-    /* This at least wins with values that are representable as
-       doubles.  */
-    fprintf_filtered (stream, "%.17g", (double) doub);
-#endif
-}
-
-void
-print_decimal_floating (const gdb_byte *valaddr, struct type *type,
-			struct ui_file *stream)
-{
-  enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
-  char decstr[MAX_DECIMAL_STRING];
-  unsigned len = TYPE_LENGTH (type);
-
-  decimal_to_string (valaddr, len, byte_order, decstr);
-  fputs_filtered (decstr, stream);
-  return;
+  std::string str = target_float_to_string (valaddr, type);
+  fputs_filtered (str.c_str (), stream);
 }
 
 void
@@ -1726,6 +1604,7 @@ maybe_negate_by_bytes (const gdb_byte *bytes, unsigned len,
 		       gdb::byte_vector *out_vec)
 {
   gdb_byte sign_byte;
+  gdb_assert (len > 0);
   if (byte_order == BFD_ENDIAN_BIG)
     sign_byte = bytes[0];
   else
@@ -2007,7 +1886,7 @@ print_function_pointer_address (const struct value_print_options *options,
 {
   CORE_ADDR func_addr
     = gdbarch_convert_from_func_ptr_addr (gdbarch, address,
-					  &current_target);
+					  current_top_target ());
 
   /* If the function pointer is represented by a description, print
      the address of the description.  */
@@ -2218,10 +2097,10 @@ partial_memory_read (CORE_ADDR memaddr, gdb_byte *myaddr,
   return (nread);
 }
 
-/* Read a string from the inferior, at ADDR, with LEN characters of WIDTH bytes
-   each.  Fetch at most FETCHLIMIT characters.  BUFFER will be set to a newly
-   allocated buffer containing the string, which the caller is responsible to
-   free, and BYTES_READ will be set to the number of bytes read.  Returns 0 on
+/* Read a string from the inferior, at ADDR, with LEN characters of
+   WIDTH bytes each.  Fetch at most FETCHLIMIT characters.  BUFFER
+   will be set to a newly allocated buffer containing the string, and
+   BYTES_READ will be set to the number of bytes read.  Returns 0 on
    success, or a target_xfer_status on failure.
 
    If LEN > 0, reads the lesser of LEN or FETCHLIMIT characters
@@ -2244,20 +2123,18 @@ partial_memory_read (CORE_ADDR memaddr, gdb_byte *myaddr,
 
 int
 read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
-	     enum bfd_endian byte_order, gdb_byte **buffer, int *bytes_read)
+	     enum bfd_endian byte_order, gdb::unique_xmalloc_ptr<gdb_byte> *buffer,
+	     int *bytes_read)
 {
   int errcode;			/* Errno returned from bad reads.  */
   unsigned int nfetch;		/* Chars to fetch / chars fetched.  */
   gdb_byte *bufptr;		/* Pointer to next available byte in
 				   buffer.  */
-  struct cleanup *old_chain = NULL;	/* Top of the old cleanup chain.  */
 
   /* Loop until we either have all the characters, or we encounter
      some error, such as bumping into the end of the address space.  */
 
-  *buffer = NULL;
-
-  old_chain = make_cleanup (free_current_contents, buffer);
+  buffer->reset (nullptr);
 
   if (len > 0)
     {
@@ -2265,8 +2142,8 @@ read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
 	 one operation.  */
       unsigned int fetchlen = std::min ((unsigned) len, fetchlimit);
 
-      *buffer = (gdb_byte *) xmalloc (fetchlen * width);
-      bufptr = *buffer;
+      buffer->reset ((gdb_byte *) xmalloc (fetchlen * width));
+      bufptr = buffer->get ();
 
       nfetch = partial_memory_read (addr, bufptr, fetchlen * width, &errcode)
 	/ width;
@@ -2295,12 +2172,12 @@ read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
 	  nfetch = std::min ((unsigned long) chunksize, fetchlimit - bufsize);
 
 	  if (*buffer == NULL)
-	    *buffer = (gdb_byte *) xmalloc (nfetch * width);
+	    buffer->reset ((gdb_byte *) xmalloc (nfetch * width));
 	  else
-	    *buffer = (gdb_byte *) xrealloc (*buffer,
-					     (nfetch + bufsize) * width);
+	    buffer->reset ((gdb_byte *) xrealloc (buffer->release (),
+						  (nfetch + bufsize) * width));
 
-	  bufptr = *buffer + bufsize * width;
+	  bufptr = buffer->get () + bufsize * width;
 	  bufsize += nfetch;
 
 	  /* Read as much as we can.  */
@@ -2332,23 +2209,22 @@ read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
 	    }
 	}
       while (errcode == 0	/* no error */
-	     && bufptr - *buffer < fetchlimit * width	/* no overrun */
+	     && bufptr - buffer->get () < fetchlimit * width	/* no overrun */
 	     && !found_nul);	/* haven't found NUL yet */
     }
   else
     {				/* Length of string is really 0!  */
       /* We always allocate *buffer.  */
-      *buffer = bufptr = (gdb_byte *) xmalloc (1);
+      buffer->reset ((gdb_byte *) xmalloc (1));
+      bufptr = buffer->get ();
       errcode = 0;
     }
 
   /* bufptr and addr now point immediately beyond the last byte which we
      consider part of the string (including a '\0' which ends the string).  */
-  *bytes_read = bufptr - *buffer;
+  *bytes_read = bufptr - buffer->get ();
 
   QUIT;
-
-  discard_cleanups (old_chain);
 
   return errcode;
 }
@@ -2485,13 +2361,13 @@ generic_emit_char (int c, struct type *type, struct ui_file *stream,
 {
   enum bfd_endian byte_order
     = gdbarch_byte_order (get_type_arch (type));
-  gdb_byte *buf;
+  gdb_byte *c_buf;
   int need_escape = 0;
 
-  buf = (gdb_byte *) alloca (TYPE_LENGTH (type));
-  pack_long (buf, type, c);
+  c_buf = (gdb_byte *) alloca (TYPE_LENGTH (type));
+  pack_long (c_buf, type, c);
 
-  wchar_iterator iter (buf, TYPE_LENGTH (type), encoding, TYPE_LENGTH (type));
+  wchar_iterator iter (c_buf, TYPE_LENGTH (type), encoding, TYPE_LENGTH (type));
 
   /* This holds the printable form of the wchar_t data.  */
   auto_obstack wchar_buf;
@@ -2557,11 +2433,11 @@ generic_emit_char (int c, struct type *type, struct ui_file *stream,
 
 static int
 count_next_character (wchar_iterator *iter,
-		      VEC (converted_character_d) **vec)
+		      std::vector<converted_character> *vec)
 {
   struct converted_character *current;
 
-  if (VEC_empty (converted_character_d, *vec))
+  if (vec->empty ())
     {
       struct converted_character tmp;
       gdb_wchar_t *chars;
@@ -2573,10 +2449,10 @@ count_next_character (wchar_iterator *iter,
 	  gdb_assert (tmp.num_chars < MAX_WCHARS);
 	  memcpy (tmp.chars, chars, tmp.num_chars * sizeof (gdb_wchar_t));
 	}
-      VEC_safe_push (converted_character_d, *vec, &tmp);
+      vec->push_back (tmp);
     }
 
-  current = VEC_last (converted_character_d, *vec);
+  current = &vec->back ();
 
   /* Count repeated characters or bytes.  */
   current->repeat_count = 1;
@@ -2630,25 +2506,25 @@ count_next_character (wchar_iterator *iter,
 
       /* Push this next converted character onto the result vector.  */
       repeat = current->repeat_count;
-      VEC_safe_push (converted_character_d, *vec, &d);
+      vec->push_back (d);
       return repeat;
     }
 }
 
 /* Print the characters in CHARS to the OBSTACK.  QUOTE_CHAR is the quote
    character to use with string output.  WIDTH is the size of the output
-   character type.  BYTE_ORDER is the the target byte order.  OPTIONS
+   character type.  BYTE_ORDER is the target byte order.  OPTIONS
    is the user's print options.  */
 
 static void
 print_converted_chars_to_obstack (struct obstack *obstack,
-				  VEC (converted_character_d) *chars,
+				  const std::vector<converted_character> &chars,
 				  int quote_char, int width,
 				  enum bfd_endian byte_order,
 				  const struct value_print_options *options)
 {
   unsigned int idx;
-  struct converted_character *elem;
+  const converted_character *elem;
   enum {START, SINGLE, REPEAT, INCOMPLETE, FINISH} state, last;
   gdb_wchar_t wide_quote_char = gdb_btowc (quote_char);
   int need_escape = 0;
@@ -2697,7 +2573,6 @@ print_converted_chars_to_obstack (struct obstack *obstack,
 	case REPEAT:
 	  {
 	    int j;
-	    char *s;
 
 	    /* We are outputting a character with a repeat count
 	       greater than options->repeat_count_threshold.  */
@@ -2720,13 +2595,13 @@ print_converted_chars_to_obstack (struct obstack *obstack,
 	      print_wchar (gdb_WEOF, elem->buf, elem->buflen, width,
 			   byte_order, obstack, quote_char, &need_escape);
 	    obstack_grow_wstr (obstack, LCST ("'"));
-	    s = xstrprintf (_(" <repeats %u times>"), elem->repeat_count);
+	    std::string s = string_printf (_(" <repeats %u times>"),
+					   elem->repeat_count);
 	    for (j = 0; s[j]; ++j)
 	      {
 		gdb_wchar_t w = gdb_btowc (s[j]);
 		obstack_grow (obstack, &w, sizeof (gdb_wchar_t));
 	      }
-	    xfree (s);
 	  }
 	  break;
 
@@ -2765,7 +2640,7 @@ print_converted_chars_to_obstack (struct obstack *obstack,
       last = state;
       if (state != FINISH)
 	{
-	  elem = VEC_index (converted_character_d, chars, idx++);
+	  elem = &chars[idx++];
 	  switch (elem->result)
 	    {
 	    case wchar_iterate_ok:
@@ -2808,10 +2683,8 @@ generic_printstr (struct ui_file *stream, struct type *type,
   enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
   unsigned int i;
   int width = TYPE_LENGTH (type);
-  struct cleanup *cleanup;
   int finished = 0;
   struct converted_character *last;
-  VEC (converted_character_d) *converted_chars;
 
   if (length == -1)
     {
@@ -2844,9 +2717,7 @@ generic_printstr (struct ui_file *stream, struct type *type,
 
   /* Arrange to iterate over the characters, in wchar_t form.  */
   wchar_iterator iter (string, length * width, encoding, width);
-  converted_chars = NULL;
-  cleanup = make_cleanup (VEC_cleanup (converted_character_d),
-			  &converted_chars);
+  std::vector<converted_character> converted_chars;
 
   /* Convert characters until the string is over or the maximum
      number of printed characters has been reached.  */
@@ -2871,7 +2742,7 @@ generic_printstr (struct ui_file *stream, struct type *type,
 
   /* Get the last element and determine if the entire string was
      processed.  */
-  last = VEC_last (converted_character_d, converted_chars);
+  last = &converted_chars.back ();
   finished = (last->result == wchar_iterate_eof);
 
   /* Ensure that CONVERTED_CHARS is terminated.  */
@@ -2898,8 +2769,6 @@ generic_printstr (struct ui_file *stream, struct type *type,
   obstack_1grow (&output, '\0');
 
   fputs_filtered ((const char *) obstack_base (&output), stream);
-
-  do_cleanups (cleanup);
 }
 
 /* Print a string from the inferior, starting at ADDR and printing up to LEN
@@ -2921,8 +2790,7 @@ val_print_string (struct type *elttype, const char *encoding,
   int found_nul;		/* Non-zero if we found the nul char.  */
   unsigned int fetchlimit;	/* Maximum number of chars to print.  */
   int bytes_read;
-  gdb_byte *buffer = NULL;	/* Dynamically growable fetch buffer.  */
-  struct cleanup *old_chain = NULL;	/* Top of the old cleanup chain.  */
+  gdb::unique_xmalloc_ptr<gdb_byte> buffer;	/* Dynamically growable fetch buffer.  */
   struct gdbarch *gdbarch = get_type_arch (elttype);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int width = TYPE_LENGTH (elttype);
@@ -2940,7 +2808,6 @@ val_print_string (struct type *elttype, const char *encoding,
 
   err = read_string (addr, len, width, fetchlimit, byte_order,
 		     &buffer, &bytes_read);
-  old_chain = make_cleanup (xfree, buffer);
 
   addr += bytes_read;
 
@@ -2951,8 +2818,8 @@ val_print_string (struct type *elttype, const char *encoding,
   /* Determine found_nul by looking at the last character read.  */
   found_nul = 0;
   if (bytes_read >= width)
-    found_nul = extract_unsigned_integer (buffer + bytes_read - width, width,
-					  byte_order) == 0;
+    found_nul = extract_unsigned_integer (buffer.get () + bytes_read - width,
+					  width, byte_order) == 0;
   if (len == -1 && !found_nul)
     {
       gdb_byte *peekbuf;
@@ -2980,7 +2847,7 @@ val_print_string (struct type *elttype, const char *encoding,
      and then the error message.  */
   if (err == 0 || bytes_read > 0)
     {
-      LA_PRINT_STRING (stream, elttype, buffer, bytes_read / width,
+      LA_PRINT_STRING (stream, elttype, buffer.get (), bytes_read / width,
 		       encoding, force_ellipsis, options);
     }
 
@@ -2994,7 +2861,6 @@ val_print_string (struct type *elttype, const char *encoding,
     }
 
   gdb_flush (stream);
-  do_cleanups (old_chain);
 
   return (bytes_read / width);
 }
@@ -3011,7 +2877,7 @@ static unsigned input_radix_1 = 10;
    setting the input radix to "10" never changes it!  */
 
 static void
-set_input_radix (char *args, int from_tty, struct cmd_list_element *c)
+set_input_radix (const char *args, int from_tty, struct cmd_list_element *c)
 {
   set_input_radix_1 (from_tty, input_radix_1);
 }
@@ -3048,7 +2914,7 @@ set_input_radix_1 (int from_tty, unsigned radix)
 static unsigned output_radix_1 = 10;
 
 static void
-set_output_radix (char *args, int from_tty, struct cmd_list_element *c)
+set_output_radix (const char *args, int from_tty, struct cmd_list_element *c)
 {
   set_output_radix_1 (from_tty, output_radix_1);
 }
@@ -3093,7 +2959,7 @@ set_output_radix_1 (int from_tty, unsigned radix)
    the 'set input-radix' command.  */
 
 static void
-set_radix (char *arg, int from_tty)
+set_radix (const char *arg, int from_tty)
 {
   unsigned radix;
 
@@ -3111,7 +2977,7 @@ set_radix (char *arg, int from_tty)
 /* Show both the input and output radices.  */
 
 static void
-show_radix (char *arg, int from_tty)
+show_radix (const char *arg, int from_tty)
 {
   if (from_tty)
     {
@@ -3135,7 +3001,7 @@ show_radix (char *arg, int from_tty)
 
 
 static void
-set_print (char *arg, int from_tty)
+set_print (const char *arg, int from_tty)
 {
   printf_unfiltered (
      "\"set print\" must be followed by the name of a print subcommand.\n");
@@ -3143,13 +3009,13 @@ set_print (char *arg, int from_tty)
 }
 
 static void
-show_print (char *args, int from_tty)
+show_print (const char *args, int from_tty)
 {
   cmd_show_list (showprintlist, from_tty, "");
 }
 
 static void
-set_print_raw (char *arg, int from_tty)
+set_print_raw (const char *arg, int from_tty)
 {
   printf_unfiltered (
      "\"set print raw\" must be followed by the name of a \"print raw\" subcommand.\n");
@@ -3157,7 +3023,7 @@ set_print_raw (char *arg, int from_tty)
 }
 
 static void
-show_print_raw (char *args, int from_tty)
+show_print_raw (const char *args, int from_tty)
 {
   cmd_show_list (showprintrawlist, from_tty, "");
 }

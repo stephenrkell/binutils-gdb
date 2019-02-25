@@ -1,6 +1,6 @@
 /* MI Interpreter Definitions and Commands for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -30,10 +30,9 @@
 #include "mi-out.h"
 #include "mi-console.h"
 #include "mi-common.h"
-#include "observer.h"
+#include "observable.h"
 #include "gdbthread.h"
 #include "solist.h"
-#include "gdb.h"
 #include "objfiles.h"
 #include "tracepoint.h"
 #include "cli-out.h"
@@ -44,7 +43,8 @@
    interpreter.  */
 
 static void mi_execute_command_wrapper (const char *cmd);
-static void mi_execute_command_input_handler (char *cmd);
+static void mi_execute_command_input_handler
+  (gdb::unique_xmalloc_ptr<char> &&cmd);
 
 /* These are hooks that we put in place while doing interpreter_exec
    so we can report interesting things that happened "behind the MI's
@@ -107,16 +107,13 @@ display_mi_prompt (struct mi_interp *mi)
 static struct mi_interp *
 as_mi_interp (struct interp *interp)
 {
-  if (interp_ui_out (interp)->is_mi_like_p ())
-    return (struct mi_interp *) interp;
-  return NULL;
+  return dynamic_cast<mi_interp *> (interp);
 }
 
 void
 mi_interp::init (bool top_level)
 {
   mi_interp *mi = this;
-  const char *name;
   int mi_version;
 
   /* Store the current output channel, so that we can create a console
@@ -132,16 +129,15 @@ mi_interp::init (bool top_level)
   mi->targ = new mi_console_file (mi->raw_stdout, "@", '"');
   mi->event_channel = new mi_console_file (mi->raw_stdout, "=", 0);
 
-  name = interp_name (this);
   /* INTERP_MI selects the most recent released version.  "mi2" was
      released as part of GDB 6.0.  */
-  if (strcmp (name, INTERP_MI) == 0)
+  if (strcmp (name (), INTERP_MI) == 0)
     mi_version = 2;
-  else if (strcmp (name, INTERP_MI1) == 0)
+  else if (strcmp (name (), INTERP_MI1) == 0)
     mi_version = 1;
-  else if (strcmp (name, INTERP_MI2) == 0)
+  else if (strcmp (name (), INTERP_MI2) == 0)
     mi_version = 2;
-  else if (strcmp (name, INTERP_MI3) == 0)
+  else if (strcmp (name (), INTERP_MI3) == 0)
     mi_version = 3;
   else
     gdb_assert_not_reached ("unhandled MI version");
@@ -285,7 +281,6 @@ mi_execute_command_wrapper (const char *cmd)
 static void
 mi_on_sync_execution_done (void)
 {
-  struct ui *ui = current_ui;
   struct mi_interp *mi = as_mi_interp (top_level_interpreter ());
 
   if (mi == NULL)
@@ -300,14 +295,14 @@ mi_on_sync_execution_done (void)
 /* mi_execute_command_wrapper wrapper suitable for INPUT_HANDLER.  */
 
 static void
-mi_execute_command_input_handler (char *cmd)
+mi_execute_command_input_handler (gdb::unique_xmalloc_ptr<char> &&cmd)
 {
   struct mi_interp *mi = as_mi_interp (top_level_interpreter ());
   struct ui *ui = current_ui;
 
   ui->prompt_state = PROMPT_NEEDED;
 
-  mi_execute_command_wrapper (cmd);
+  mi_execute_command_wrapper (cmd.get ());
 
   /* Print a prompt, indicating we're ready for further input, unless
      we just started a synchronous command.  In that case, we're about
@@ -334,10 +329,6 @@ mi_interp::pre_command_loop ()
 static void
 mi_new_thread (struct thread_info *t)
 {
-  struct inferior *inf = find_inferior_ptid (t->ptid);
-
-  gdb_assert (inf);
-
   SWITCH_THRU_ALL_UIS ()
     {
       struct mi_interp *mi = as_mi_interp (top_level_interpreter ());
@@ -350,7 +341,7 @@ mi_new_thread (struct thread_info *t)
 
       fprintf_unfiltered (mi->event_channel,
 			  "thread-created,id=\"%d\",group-id=\"i%d\"",
-			  t->global_num, inf->num);
+			  t->global_num, t->inf->num);
       gdb_flush (mi->event_channel);
     }
 }
@@ -535,7 +526,7 @@ find_mi_interp (void)
 }
 
 /* Observers for several run control events that print why the
-   inferior has stopped to both the the MI event channel and to the MI
+   inferior has stopped to both the MI event channel and to the MI
    console.  If the MI interpreter is not active, print nothing.  */
 
 /* Observer for the signal_received notification.  */
@@ -629,7 +620,7 @@ mi_on_normal_stop_1 (struct bpstats *bs, int print_frame)
   /* Since this can be called when CLI command is executing,
      using cli interpreter, be sure to use MI uiout for output,
      not the current one.  */
-  struct ui_out *mi_uiout = interp_ui_out (top_level_interpreter ());
+  struct ui_out *mi_uiout = top_level_interpreter ()->interp_ui_out ();
   struct mi_interp *mi = (struct mi_interp *) top_level_interpreter ();
 
   if (print_frame)
@@ -641,11 +632,11 @@ mi_on_normal_stop_1 (struct bpstats *bs, int print_frame)
       tp = inferior_thread ();
 
       if (tp->thread_fsm != NULL
-	  && thread_fsm_finished_p (tp->thread_fsm))
+	  && tp->thread_fsm->finished_p ())
 	{
 	  enum async_reply_reason reason;
 
-	  reason = thread_fsm_async_reply_reason (tp->thread_fsm);
+	  reason = tp->thread_fsm->async_reply_reason ();
 	  mi_uiout->field_string ("reason", async_reason_lookup (reason));
 	}
       print_stop_event (mi_uiout);
@@ -664,7 +655,7 @@ mi_on_normal_stop_1 (struct bpstats *bs, int print_frame)
       else
 	mi_uiout->field_string ("stopped-threads", "all");
 
-      core = target_core_of_thread (inferior_ptid);
+      core = target_core_of_thread (tp->ptid);
       if (core != -1)
 	mi_uiout->field_int ("core", core);
     }
@@ -694,7 +685,7 @@ mi_about_to_proceed (void)
 {
   /* Suppress output while calling an inferior function.  */
 
-  if (!ptid_equal (inferior_ptid, null_ptid))
+  if (inferior_ptid != null_ptid)
     {
       struct thread_info *tp = inferior_thread ();
 
@@ -762,7 +753,7 @@ mi_tsv_created (const struct trace_state_variable *tsv)
 
       fprintf_unfiltered (mi->event_channel, "tsv-created,"
 			  "name=\"%s\",initial=\"%s\"\n",
-			  tsv->name, plongest (tsv->initial_value));
+			  tsv->name.c_str (), plongest (tsv->initial_value));
 
       gdb_flush (mi->event_channel);
     }
@@ -785,7 +776,7 @@ mi_tsv_deleted (const struct trace_state_variable *tsv)
 
       if (tsv != NULL)
 	fprintf_unfiltered (mi->event_channel, "tsv-deleted,"
-			    "name=\"%s\"\n", tsv->name);
+			    "name=\"%s\"\n", tsv->name.c_str ());
       else
 	fprintf_unfiltered (mi->event_channel, "tsv-deleted\n");
 
@@ -806,7 +797,7 @@ mi_tsv_modified (const struct trace_state_variable *tsv)
       if (mi == NULL)
 	continue;
 
-      mi_uiout = interp_ui_out (top_level_interpreter ());
+      mi_uiout = top_level_interpreter ()->interp_ui_out ();
 
       target_terminal::scoped_restore_terminal_state term_state;
       target_terminal::ours_for_output ();
@@ -828,6 +819,38 @@ mi_tsv_modified (const struct trace_state_variable *tsv)
     }
 }
 
+/* Print breakpoint BP on MI's event channel.  */
+
+static void
+mi_print_breakpoint_for_event (struct mi_interp *mi, breakpoint *bp)
+{
+  ui_out *mi_uiout = mi->interp_ui_out ();
+
+  /* We want the output from print_breakpoint to go to
+     mi->event_channel.  One approach would be to just call
+     print_breakpoint, and then use mi_out_put to send the current
+     content of mi_uiout into mi->event_channel.  However, that will
+     break if anything is output to mi_uiout prior to calling the
+     breakpoint_created notifications.  So, we use
+     ui_out_redirect.  */
+  mi_uiout->redirect (mi->event_channel);
+
+  TRY
+    {
+      scoped_restore restore_uiout
+	= make_scoped_restore (&current_uiout, mi_uiout);
+
+      print_breakpoint (bp);
+    }
+  CATCH (ex, RETURN_MASK_ALL)
+    {
+      exception_print (gdb_stderr, ex);
+    }
+  END_CATCH
+
+  mi_uiout->redirect (NULL);
+}
+
 /* Emit notification about a created breakpoint.  */
 
 static void
@@ -842,36 +865,16 @@ mi_breakpoint_created (struct breakpoint *b)
   SWITCH_THRU_ALL_UIS ()
     {
       struct mi_interp *mi = as_mi_interp (top_level_interpreter ());
-      struct ui_out *mi_uiout;
 
       if (mi == NULL)
 	continue;
-
-      mi_uiout = interp_ui_out (top_level_interpreter ());
 
       target_terminal::scoped_restore_terminal_state term_state;
       target_terminal::ours_for_output ();
 
       fprintf_unfiltered (mi->event_channel,
 			  "breakpoint-created");
-      /* We want the output from gdb_breakpoint_query to go to
-	 mi->event_channel.  One approach would be to just call
-	 gdb_breakpoint_query, and then use mi_out_put to send the current
-	 content of mi_uiout into mi->event_channel.  However, that will
-	 break if anything is output to mi_uiout prior to calling the
-	 breakpoint_created notifications.  So, we use
-	 ui_out_redirect.  */
-      mi_uiout->redirect (mi->event_channel);
-      TRY
-	{
-	  gdb_breakpoint_query (mi_uiout, b->number, NULL);
-	}
-      CATCH (e, RETURN_MASK_ERROR)
-	{
-	}
-      END_CATCH
-
-      mi_uiout->redirect (NULL);
+      mi_print_breakpoint_for_event (mi, b);
 
       gdb_flush (mi->event_channel);
     }
@@ -927,34 +930,15 @@ mi_breakpoint_modified (struct breakpoint *b)
       target_terminal::ours_for_output ();
       fprintf_unfiltered (mi->event_channel,
 			  "breakpoint-modified");
-      /* We want the output from gdb_breakpoint_query to go to
-	 mi->event_channel.  One approach would be to just call
-	 gdb_breakpoint_query, and then use mi_out_put to send the current
-	 content of mi_uiout into mi->event_channel.  However, that will
-	 break if anything is output to mi_uiout prior to calling the
-	 breakpoint_created notifications.  So, we use
-	 ui_out_redirect.  */
-      mi->mi_uiout->redirect (mi->event_channel);
-      TRY
-	{
-	  gdb_breakpoint_query (mi->mi_uiout, b->number, NULL);
-	}
-      CATCH (e, RETURN_MASK_ERROR)
-	{
-	}
-      END_CATCH
-
-      mi->mi_uiout->redirect (NULL);
+      mi_print_breakpoint_for_event (mi, b);
 
       gdb_flush (mi->event_channel);
     }
 }
 
-static int
-mi_output_running_pid (struct thread_info *info, void *arg)
+static void
+mi_output_running (struct thread_info *thread)
 {
-  ptid_t *ptid = (ptid_t *) arg;
-
   SWITCH_THRU_ALL_UIS ()
     {
       struct mi_interp *mi = as_mi_interp (top_level_interpreter ());
@@ -962,25 +946,28 @@ mi_output_running_pid (struct thread_info *info, void *arg)
       if (mi == NULL)
 	continue;
 
-      if (ptid_get_pid (*ptid) == ptid_get_pid (info->ptid))
-	fprintf_unfiltered (mi->raw_stdout,
-			    "*running,thread-id=\"%d\"\n",
-			    info->global_num);
+      fprintf_unfiltered (mi->raw_stdout,
+			  "*running,thread-id=\"%d\"\n",
+			  thread->global_num);
     }
-
-  return 0;
 }
 
-static int
-mi_inferior_count (struct inferior *inf, void *arg)
+/* Return true if there are multiple inferiors loaded.  This is used
+   for backwards compatibility -- if there's only one inferior, output
+   "all", otherwise, output each resumed thread individually.  */
+
+static bool
+multiple_inferiors_p ()
 {
-  if (inf->pid != 0)
+  int count = 0;
+  for (inferior *inf ATTRIBUTE_UNUSED : all_non_exited_inferiors ())
     {
-      int *count_p = (int *) arg;
-      (*count_p)++;
+      count++;
+      if (count > 1)
+	return true;
     }
 
-  return 0;
+  return false;
 }
 
 static void
@@ -1000,30 +987,15 @@ mi_on_resume_1 (struct mi_interp *mi, ptid_t ptid)
 			  current_token ? current_token : "");
     }
 
-  if (ptid_get_pid (ptid) == -1)
+  /* Backwards compatibility.  If doing a wildcard resume and there's
+     only one inferior, output "all", otherwise, output each resumed
+     thread individually.  */
+  if ((ptid == minus_one_ptid || ptid.is_pid ())
+      && !multiple_inferiors_p ())
     fprintf_unfiltered (mi->raw_stdout, "*running,thread-id=\"all\"\n");
-  else if (ptid_is_pid (ptid))
-    {
-      int count = 0;
-
-      /* Backwards compatibility.  If there's only one inferior,
-	 output "all", otherwise, output each resumed thread
-	 individually.  */
-      iterate_over_inferiors (mi_inferior_count, &count);
-
-      if (count == 1)
-	fprintf_unfiltered (mi->raw_stdout, "*running,thread-id=\"all\"\n");
-      else
-	iterate_over_threads (mi_output_running_pid, &ptid);
-    }
   else
-    {
-      struct thread_info *ti = find_thread_ptid (ptid);
-
-      gdb_assert (ti);
-      fprintf_unfiltered (mi->raw_stdout, "*running,thread-id=\"%d\"\n",
-			  ti->global_num);
-    }
+    for (thread_info *tp : all_non_exited_threads (ptid))
+      mi_output_running (tp);
 
   if (!running_result_record_printed && mi_proceeded)
     {
@@ -1042,7 +1014,7 @@ mi_on_resume (ptid_t ptid)
 {
   struct thread_info *tp = NULL;
 
-  if (ptid_equal (ptid, minus_one_ptid) || ptid_is_pid (ptid))
+  if (ptid == minus_one_ptid || ptid.is_pid ())
     tp = inferior_thread ();
   else
     tp = find_thread_ptid (ptid);
@@ -1099,7 +1071,7 @@ mi_solib_loaded (struct so_list *solib)
       if (mi == NULL)
 	continue;
 
-      uiout = interp_ui_out (top_level_interpreter ());
+      uiout = top_level_interpreter ()->interp_ui_out ();
 
       target_terminal::scoped_restore_terminal_state term_state;
       target_terminal::ours_for_output ();
@@ -1127,7 +1099,7 @@ mi_solib_unloaded (struct so_list *solib)
       if (mi == NULL)
 	continue;
 
-      uiout = interp_ui_out (top_level_interpreter ());
+      uiout = top_level_interpreter ()->interp_ui_out ();
 
       target_terminal::scoped_restore_terminal_state term_state;
       target_terminal::ours_for_output ();
@@ -1166,7 +1138,7 @@ mi_command_param_changed (const char *param, const char *value)
       if (mi == NULL)
 	continue;
 
-      mi_uiout = interp_ui_out (top_level_interpreter ());
+      mi_uiout = top_level_interpreter ()->interp_ui_out ();
 
       target_terminal::scoped_restore_terminal_state term_state;
       target_terminal::ours_for_output ();
@@ -1202,7 +1174,7 @@ mi_memory_changed (struct inferior *inferior, CORE_ADDR memaddr,
       if (mi == NULL)
 	continue;
 
-      mi_uiout = interp_ui_out (top_level_interpreter ());
+      mi_uiout = top_level_interpreter ()->interp_ui_out ();
 
       target_terminal::scoped_restore_terminal_state term_state;
       target_terminal::ours_for_output ();
@@ -1245,7 +1217,10 @@ mi_user_selected_context_changed (user_selected_what selection)
   if (mi_suppress_notification.user_selected_context)
     return;
 
-  tp = find_thread_ptid (inferior_ptid);
+  if (inferior_ptid != null_ptid)
+    tp = inferior_thread ();
+  else
+    tp = NULL;
 
   SWITCH_THRU_ALL_UIS ()
     {
@@ -1255,7 +1230,7 @@ mi_user_selected_context_changed (user_selected_what selection)
       if (mi == NULL)
 	continue;
 
-      mi_uiout = interp_ui_out (top_level_interpreter ());
+      mi_uiout = top_level_interpreter ()->interp_ui_out ();
 
       mi_uiout->redirect (mi->event_channel);
       ui_out_redirect_pop redirect_popper (mi_uiout);
@@ -1360,33 +1335,33 @@ _initialize_mi_interp (void)
   interp_factory_register (INTERP_MI3, mi_interp_factory);
   interp_factory_register (INTERP_MI, mi_interp_factory);
 
-  observer_attach_signal_received (mi_on_signal_received);
-  observer_attach_end_stepping_range (mi_on_end_stepping_range);
-  observer_attach_signal_exited (mi_on_signal_exited);
-  observer_attach_exited (mi_on_exited);
-  observer_attach_no_history (mi_on_no_history);
-  observer_attach_new_thread (mi_new_thread);
-  observer_attach_thread_exit (mi_thread_exit);
-  observer_attach_inferior_added (mi_inferior_added);
-  observer_attach_inferior_appeared (mi_inferior_appeared);
-  observer_attach_inferior_exit (mi_inferior_exit);
-  observer_attach_inferior_removed (mi_inferior_removed);
-  observer_attach_record_changed (mi_record_changed);
-  observer_attach_normal_stop (mi_on_normal_stop);
-  observer_attach_target_resumed (mi_on_resume);
-  observer_attach_solib_loaded (mi_solib_loaded);
-  observer_attach_solib_unloaded (mi_solib_unloaded);
-  observer_attach_about_to_proceed (mi_about_to_proceed);
-  observer_attach_traceframe_changed (mi_traceframe_changed);
-  observer_attach_tsv_created (mi_tsv_created);
-  observer_attach_tsv_deleted (mi_tsv_deleted);
-  observer_attach_tsv_modified (mi_tsv_modified);
-  observer_attach_breakpoint_created (mi_breakpoint_created);
-  observer_attach_breakpoint_deleted (mi_breakpoint_deleted);
-  observer_attach_breakpoint_modified (mi_breakpoint_modified);
-  observer_attach_command_param_changed (mi_command_param_changed);
-  observer_attach_memory_changed (mi_memory_changed);
-  observer_attach_sync_execution_done (mi_on_sync_execution_done);
-  observer_attach_user_selected_context_changed
+  gdb::observers::signal_received.attach (mi_on_signal_received);
+  gdb::observers::end_stepping_range.attach (mi_on_end_stepping_range);
+  gdb::observers::signal_exited.attach (mi_on_signal_exited);
+  gdb::observers::exited.attach (mi_on_exited);
+  gdb::observers::no_history.attach (mi_on_no_history);
+  gdb::observers::new_thread.attach (mi_new_thread);
+  gdb::observers::thread_exit.attach (mi_thread_exit);
+  gdb::observers::inferior_added.attach (mi_inferior_added);
+  gdb::observers::inferior_appeared.attach (mi_inferior_appeared);
+  gdb::observers::inferior_exit.attach (mi_inferior_exit);
+  gdb::observers::inferior_removed.attach (mi_inferior_removed);
+  gdb::observers::record_changed.attach (mi_record_changed);
+  gdb::observers::normal_stop.attach (mi_on_normal_stop);
+  gdb::observers::target_resumed.attach (mi_on_resume);
+  gdb::observers::solib_loaded.attach (mi_solib_loaded);
+  gdb::observers::solib_unloaded.attach (mi_solib_unloaded);
+  gdb::observers::about_to_proceed.attach (mi_about_to_proceed);
+  gdb::observers::traceframe_changed.attach (mi_traceframe_changed);
+  gdb::observers::tsv_created.attach (mi_tsv_created);
+  gdb::observers::tsv_deleted.attach (mi_tsv_deleted);
+  gdb::observers::tsv_modified.attach (mi_tsv_modified);
+  gdb::observers::breakpoint_created.attach (mi_breakpoint_created);
+  gdb::observers::breakpoint_deleted.attach (mi_breakpoint_deleted);
+  gdb::observers::breakpoint_modified.attach (mi_breakpoint_modified);
+  gdb::observers::command_param_changed.attach (mi_command_param_changed);
+  gdb::observers::memory_changed.attach (mi_memory_changed);
+  gdb::observers::sync_execution_done.attach (mi_on_sync_execution_done);
+  gdb::observers::user_selected_context_changed.attach
     (mi_user_selected_context_changed);
 }

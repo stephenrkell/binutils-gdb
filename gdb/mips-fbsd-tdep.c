@@ -1,6 +1,6 @@
 /* Target-dependent code for FreeBSD/mips.
 
-   Copyright (C) 2017 Free Software Foundation, Inc.
+   Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -71,7 +71,7 @@ void
 mips_fbsd_supply_fpregs (struct regcache *regcache, int regnum,
 			 const void *fpregs, size_t regsize)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   const gdb_byte *regs = (const gdb_byte *) fpregs;
   int i, fp0num;
 
@@ -100,7 +100,7 @@ void
 mips_fbsd_supply_gregs (struct regcache *regcache, int regnum,
 			const void *gregs, size_t regsize)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   const gdb_byte *regs = (const gdb_byte *) gregs;
   int i;
 
@@ -117,7 +117,7 @@ void
 mips_fbsd_collect_fpregs (const struct regcache *regcache, int regnum,
 			  void *fpregs, size_t regsize)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   gdb_byte *regs = (gdb_byte *) fpregs;
   int i, fp0num;
 
@@ -144,7 +144,7 @@ void
 mips_fbsd_collect_gregs (const struct regcache *regcache, int regnum,
 			 void *gregs, size_t regsize)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   gdb_byte *regs = (gdb_byte *) gregs;
   int i;
 
@@ -162,7 +162,7 @@ mips_fbsd_supply_fpregset (const struct regset *regset,
 			   struct regcache *regcache,
 			   int regnum, const void *fpregs, size_t len)
 {
-  size_t regsize = mips_abi_regsize (get_regcache_arch (regcache));
+  size_t regsize = mips_abi_regsize (regcache->arch ());
 
   gdb_assert (len >= MIPS_FBSD_NUM_FPREGS * regsize);
 
@@ -179,7 +179,7 @@ mips_fbsd_collect_fpregset (const struct regset *regset,
 			    const struct regcache *regcache,
 			    int regnum, void *fpregs, size_t len)
 {
-  size_t regsize = mips_abi_regsize (get_regcache_arch (regcache));
+  size_t regsize = mips_abi_regsize (regcache->arch ());
 
   gdb_assert (len >= MIPS_FBSD_NUM_FPREGS * regsize);
 
@@ -195,7 +195,7 @@ mips_fbsd_supply_gregset (const struct regset *regset,
 			  struct regcache *regcache, int regnum,
 			  const void *gregs, size_t len)
 {
-  size_t regsize = mips_abi_regsize (get_regcache_arch (regcache));
+  size_t regsize = mips_abi_regsize (regcache->arch ());
 
   gdb_assert (len >= MIPS_FBSD_NUM_GREGS * regsize);
 
@@ -212,7 +212,7 @@ mips_fbsd_collect_gregset (const struct regset *regset,
 			   const struct regcache *regcache,
 			   int regnum, void *gregs, size_t len)
 {
-  size_t regsize = mips_abi_regsize (get_regcache_arch (regcache));
+  size_t regsize = mips_abi_regsize (regcache->arch ());
 
   gdb_assert (len >= MIPS_FBSD_NUM_GREGS * regsize);
 
@@ -245,10 +245,10 @@ mips_fbsd_iterate_over_regset_sections (struct gdbarch *gdbarch,
 {
   size_t regsize = mips_abi_regsize (gdbarch);
 
-  cb (".reg", MIPS_FBSD_NUM_GREGS * regsize, &mips_fbsd_gregset,
-      NULL, cb_data);
-  cb (".reg2", MIPS_FBSD_NUM_FPREGS * regsize, &mips_fbsd_fpregset,
-      NULL, cb_data);
+  cb (".reg", MIPS_FBSD_NUM_GREGS * regsize, MIPS_FBSD_NUM_GREGS * regsize,
+      &mips_fbsd_gregset, NULL, cb_data);
+  cb (".reg2", MIPS_FBSD_NUM_FPREGS * regsize, MIPS_FBSD_NUM_FPREGS * regsize,
+      &mips_fbsd_fpregset, NULL, cb_data);
 }
 
 /* Signal trampoline support.  */
@@ -342,11 +342,11 @@ static const struct tramp_frame mips_fbsd_sigframe =
   SIGTRAMP_FRAME,
   MIPS_INSN32_SIZE,
   {
-    { MIPS_INST_ADDIU_A0_SP_O32, -1 },	/* addiu   a0, sp, SIGF_UC */
-    { MIPS_INST_LI_V0_SIGRETURN, -1 },	/* li      v0, SYS_sigreturn */
-    { MIPS_INST_SYSCALL, -1 },		/* syscall */
-    { MIPS_INST_BREAK, -1 },		/* break */
-    { TRAMP_SENTINEL_INSN, -1 }
+    { MIPS_INST_ADDIU_A0_SP_O32, ULONGEST_MAX },	/* addiu   a0, sp, SIGF_UC */
+    { MIPS_INST_LI_V0_SIGRETURN, ULONGEST_MAX },	/* li      v0, SYS_sigreturn */
+    { MIPS_INST_SYSCALL, ULONGEST_MAX },		/* syscall */
+    { MIPS_INST_BREAK, ULONGEST_MAX },		/* break */
+    { TRAMP_SENTINEL_INSN, ULONGEST_MAX }
   },
   mips_fbsd_sigframe_init
 };
@@ -426,6 +426,23 @@ mips64_fbsd_sigframe_init (const struct tramp_frame *self,
   trad_frame_set_id (cache, frame_id_build (sp, func));
 }
 
+#define MIPS_INST_ADDIU_A0_SP_N32 (0x27a40000 \
+				   + N64_SIGFRAME_UCONTEXT_OFFSET)
+
+static const struct tramp_frame mipsn32_fbsd_sigframe =
+{
+  SIGTRAMP_FRAME,
+  MIPS_INSN32_SIZE,
+  {
+    { MIPS_INST_ADDIU_A0_SP_N32, ULONGEST_MAX },	/* addiu   a0, sp, SIGF_UC */
+    { MIPS_INST_LI_V0_SIGRETURN, ULONGEST_MAX },	/* li      v0, SYS_sigreturn */
+    { MIPS_INST_SYSCALL, ULONGEST_MAX },		/* syscall */
+    { MIPS_INST_BREAK, ULONGEST_MAX },		/* break */
+    { TRAMP_SENTINEL_INSN, ULONGEST_MAX }
+  },
+  mips64_fbsd_sigframe_init
+};
+
 #define MIPS_INST_DADDIU_A0_SP_N64 (0x67a40000 \
 				    + N64_SIGFRAME_UCONTEXT_OFFSET)
 
@@ -434,11 +451,11 @@ static const struct tramp_frame mips64_fbsd_sigframe =
   SIGTRAMP_FRAME,
   MIPS_INSN32_SIZE,
   {
-    { MIPS_INST_DADDIU_A0_SP_N64, -1 },	/* daddiu  a0, sp, SIGF_UC */
-    { MIPS_INST_LI_V0_SIGRETURN, -1 },	/* li      v0, SYS_sigreturn */
-    { MIPS_INST_SYSCALL, -1 },		/* syscall */
-    { MIPS_INST_BREAK, -1 },		/* break */
-    { TRAMP_SENTINEL_INSN, -1 }
+    { MIPS_INST_DADDIU_A0_SP_N64, ULONGEST_MAX },	/* daddiu  a0, sp, SIGF_UC */
+    { MIPS_INST_LI_V0_SIGRETURN, ULONGEST_MAX },	/* li      v0, SYS_sigreturn */
+    { MIPS_INST_SYSCALL, ULONGEST_MAX },		/* syscall */
+    { MIPS_INST_BREAK, ULONGEST_MAX },		/* break */
+    { TRAMP_SENTINEL_INSN, ULONGEST_MAX }
   },
   mips64_fbsd_sigframe_init
 };
@@ -519,6 +536,7 @@ mips_fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 	tramp_frame_prepend_unwinder (gdbarch, &mips_fbsd_sigframe);
 	break;
       case MIPS_ABI_N32:
+	tramp_frame_prepend_unwinder (gdbarch, &mipsn32_fbsd_sigframe);
 	break;
       case MIPS_ABI_N64:
 	tramp_frame_prepend_unwinder (gdbarch, &mips64_fbsd_sigframe);

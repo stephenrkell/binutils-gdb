@@ -1,4 +1,4 @@
-# Copyright 2017 Free Software Foundation, Inc.
+# Copyright 2017-2019 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,5 +47,5 @@ gdb_test_sequence "" "starti" {
 gdb_breakpoint main
 gdb_test_sequence "continue" "" {
     "\\$2 = 1"
-    ".*Breakpoint .*main \\(\\) at .*starti.c.*"
+    "Breakpoint \[^\r\n\]*main \\(\\) at \[^\r\n\]*starti.c"
 }

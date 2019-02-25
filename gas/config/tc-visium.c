@@ -1,6 +1,6 @@
 /* This is the machine dependent code of the Visium Assembler.
 
-   Copyright (C) 2005-2017 Free Software Foundation, Inc.
+   Copyright (C) 2005-2019 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -15,9 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with GAS; see the file COPYING.  If not, write to
-   the Free Software Foundation, 59 Temple Place - Suite 330,
-   Boston, MA 02111-1307, USA. */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
+   MA 02110-1301, USA.  */
 
 #include "as.h"
 #include "safe-ctype.h"
@@ -1367,6 +1367,10 @@ md_assemble (char *str0)
 
       if (previous_mode == mode_cad || previous_mode == mode_ci)
 	as_bad ("branch instruction in delay slot");
+
+      /* For the GR6, BRA insns must be aligned on 64-bit boundaries.  */
+      if (visium_arch == VISIUM_ARCH_GR6)
+	do_align (3, NULL, 0, 0);
 
       this_dest = r3;
       condition_code = cc;

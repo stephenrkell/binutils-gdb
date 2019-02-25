@@ -1,6 +1,6 @@
 /* Reverse execution and reverse debugging.
 
-   Copyright (C) 2006-2017 Free Software Foundation, Inc.
+   Copyright (C) 2006-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -36,7 +36,7 @@
    Used to implement reverse-next etc. commands.  */
 
 static void
-exec_reverse_once (const char *cmd, char *args, int from_tty)
+exec_reverse_once (const char *cmd, const char *args, int from_tty)
 {
   enum exec_direction_kind dir = execution_direction;
 
@@ -50,41 +50,41 @@ exec_reverse_once (const char *cmd, char *args, int from_tty)
   std::string reverse_command = string_printf ("%s %s", cmd, args ? args : "");
   scoped_restore restore_exec_dir
     = make_scoped_restore (&execution_direction, EXEC_REVERSE);
-  execute_command (&reverse_command[0], from_tty);
+  execute_command (reverse_command.c_str (), from_tty);
 }
 
 static void
-reverse_step (char *args, int from_tty)
+reverse_step (const char *args, int from_tty)
 {
   exec_reverse_once ("step", args, from_tty);
 }
 
 static void
-reverse_stepi (char *args, int from_tty)
+reverse_stepi (const char *args, int from_tty)
 {
   exec_reverse_once ("stepi", args, from_tty);
 }
 
 static void
-reverse_next (char *args, int from_tty)
+reverse_next (const char *args, int from_tty)
 {
   exec_reverse_once ("next", args, from_tty);
 }
 
 static void
-reverse_nexti (char *args, int from_tty)
+reverse_nexti (const char *args, int from_tty)
 {
   exec_reverse_once ("nexti", args, from_tty);
 }
 
 static void
-reverse_continue (char *args, int from_tty)
+reverse_continue (const char *args, int from_tty)
 {
   exec_reverse_once ("continue", args, from_tty);
 }
 
 static void
-reverse_finish (char *args, int from_tty)
+reverse_finish (const char *args, int from_tty)
 {
   exec_reverse_once ("finish", args, from_tty);
 }
@@ -117,11 +117,11 @@ static int bookmark_count;
    Up to us to free it as required.  */
 
 static void
-save_bookmark_command (char *args, int from_tty)
+save_bookmark_command (const char *args, int from_tty)
 {
   /* Get target's idea of a bookmark.  */
   gdb_byte *bookmark_id = target_get_bookmark (args, from_tty);
-  struct gdbarch *gdbarch = get_regcache_arch (get_current_regcache ());
+  struct gdbarch *gdbarch = get_current_regcache ()->arch ();
 
   /* CR should not cause another identical bookmark.  */
   dont_repeat ();
@@ -201,7 +201,7 @@ delete_all_bookmarks (void)
 }
 
 static void
-delete_bookmark_command (char *args, int from_tty)
+delete_bookmark_command (const char *args, int from_tty)
 {
   if (bookmark_chain == NULL)
     {
@@ -230,11 +230,11 @@ delete_bookmark_command (char *args, int from_tty)
 /* Implement "goto-bookmark" command.  */
 
 static void
-goto_bookmark_command (char *args, int from_tty)
+goto_bookmark_command (const char *args, int from_tty)
 {
   struct bookmark *b;
   unsigned long num;
-  char *p = args;
+  const char *p = args;
 
   if (args == NULL || args[0] == '\0')
     error (_("Command requires an argument."));
@@ -280,7 +280,7 @@ goto_bookmark_command (char *args, int from_tty)
 static int
 bookmark_1 (int bnum)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (get_current_regcache ());
+  struct gdbarch *gdbarch = get_current_regcache ()->arch ();
   struct bookmark *b;
   int matched = 0;
 
@@ -305,7 +305,7 @@ bookmark_1 (int bnum)
 /* Implement "info bookmarks" command.  */
 
 static void
-info_bookmarks_command (char *args, int from_tty)
+info_bookmarks_command (const char *args, int from_tty)
 {
   if (!bookmark_chain)
     printf_filtered (_("No bookmarks.\n"));

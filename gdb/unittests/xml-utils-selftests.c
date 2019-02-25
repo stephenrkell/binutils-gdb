@@ -1,6 +1,6 @@
 /* Unit tests for the xml-utils.c file.
 
-   Copyright (C) 2017 Free Software Foundation, Inc.
+   Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,8 +18,8 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "defs.h"
-#include "xml-utils.h"
-#include "selftest.h"
+#include "common/xml-utils.h"
+#include "common/selftest.h"
 
 namespace selftests {
 namespace xml_utils {
@@ -33,6 +33,18 @@ static void test_xml_escape_text ()
   SELF_CHECK (actual_output == expected_output);
 }
 
+static void test_xml_escape_text_append ()
+{
+  /* Make sure that we do indeed append.  */
+  std::string actual_output = "foo<xml>";
+  const char *input = "<this isn't=\"xml\"> &";
+  const char *expected_output
+    = "foo<xml>&lt;this isn&apos;t=&quot;xml&quot;&gt; &amp;";
+  xml_escape_text_append (&actual_output, input);
+
+  SELF_CHECK (actual_output == expected_output);
+}
+
 }
 }
 
@@ -41,4 +53,6 @@ _initialize_xml_utils ()
 {
   selftests::register_test ("xml_escape_text",
 			    selftests::xml_utils::test_xml_escape_text);
+  selftests::register_test ("xml_escape_text_append",
+			    selftests::xml_utils::test_xml_escape_text_append);
 }

@@ -1,6 +1,6 @@
 /* Find a variable's value in memory, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -25,7 +25,6 @@
 #include "gdbcore.h"
 #include "inferior.h"
 #include "target.h"
-#include "floatformat.h"
 #include "symfile.h"		/* for overlay functions */
 #include "regcache.h"
 #include "user-regs.h"
@@ -33,7 +32,7 @@
 #include "objfiles.h"
 #include "language.h"
 #include "dwarf2loc.h"
-#include "selftest.h"
+#include "common/selftest.h"
 
 /* Basic byte-swapping routines.  All 'extract' functions return a
    host-format integer from a target-format integer at ADDR which is
@@ -51,7 +50,7 @@ template<typename T, typename>
 T
 extract_integer (const gdb_byte *addr, int len, enum bfd_endian byte_order)
 {
-  T retval = 0;
+  typename std::make_unsigned<T>::type retval = 0;
   const unsigned char *p;
   const unsigned char *startaddr = addr;
   const unsigned char *endaddr = startaddr + len;
@@ -268,8 +267,7 @@ value_of_register (int regnum, struct frame_info *frame)
 
   /* User registers lie completely outside of the range of normal
      registers.  Catch them early so that the target never sees them.  */
-  if (regnum >= gdbarch_num_regs (gdbarch)
-		+ gdbarch_num_pseudo_regs (gdbarch))
+  if (regnum >= gdbarch_num_cooked_regs (gdbarch))
     return value_of_user_reg (regnum, frame);
 
   reg_val = value_of_register_lazy (frame, regnum);
@@ -288,8 +286,7 @@ value_of_register_lazy (struct frame_info *frame, int regnum)
   struct value *reg_val;
   struct frame_info *next_frame;
 
-  gdb_assert (regnum < (gdbarch_num_regs (gdbarch)
-			+ gdbarch_num_pseudo_regs (gdbarch)));
+  gdb_assert (regnum < gdbarch_num_cooked_regs (gdbarch));
 
   gdb_assert (frame != NULL);
 
@@ -633,7 +630,7 @@ default_read_var_value (struct symbol *var, const struct block *var_block,
       v = allocate_value (type);
       if (overlay_debugging)
 	{
-	  CORE_ADDR addr
+	  addr
 	    = symbol_overlayed_address (SYMBOL_VALUE_ADDRESS (var),
 					SYMBOL_OBJ_SECTION (symbol_objfile (var),
 							    var));
@@ -703,10 +700,10 @@ default_read_var_value (struct symbol *var, const struct block *var_block,
     case LOC_BLOCK:
       if (overlay_debugging)
 	addr = symbol_overlayed_address
-	  (BLOCK_START (SYMBOL_BLOCK_VALUE (var)),
+	  (BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (var)),
 	   SYMBOL_OBJ_SECTION (symbol_objfile (var), var));
       else
-	addr = BLOCK_START (SYMBOL_BLOCK_VALUE (var));
+	addr = BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (var));
       break;
 
     case LOC_REGISTER:
@@ -790,6 +787,8 @@ default_read_var_value (struct symbol *var, const struct block *var_block,
       break;
 
     case LOC_OPTIMIZED_OUT:
+      if (is_dynamic_type (type))
+	type = resolve_dynamic_type (type, NULL, /* Unused address.  */ 0);
       return allocate_optimized_out_value (type);
 
     default:
@@ -956,8 +955,7 @@ address_from_register (int regnum, struct frame_info *frame)
   struct type *type = builtin_type (gdbarch)->builtin_data_ptr;
   struct value *value;
   CORE_ADDR result;
-  int regnum_max_excl = (gdbarch_num_regs (gdbarch)
-			 + gdbarch_num_pseudo_regs (gdbarch));
+  int regnum_max_excl = gdbarch_num_cooked_regs (gdbarch);
 
   if (regnum < 0 || regnum >= regnum_max_excl)
     error (_("Invalid register #%d, expecting 0 <= # < %d"), regnum,
@@ -1005,7 +1003,6 @@ address_from_register (int regnum, struct frame_info *frame)
 
   result = value_as_address (value);
   release_value (value);
-  value_free (value);
 
   return result;
 }

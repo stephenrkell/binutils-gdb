@@ -1,6 +1,6 @@
 /* Multiple source language support for GDB.
 
-   Copyright (C) 1991-2017 Free Software Foundation, Inc.
+   Copyright (C) 1991-2019 Free Software Foundation, Inc.
 
    Contributed by the Department of Computer Science at the State University
    of New York at Buffalo.
@@ -46,13 +46,7 @@
 #include "c-lang.h"
 #include <algorithm>
 
-static void unk_lang_error (const char *);
-
 static int unk_lang_parser (struct parser_state *);
-
-static void show_check (char *, int);
-
-static void set_check (char *, int);
 
 static void set_range_case (void);
 
@@ -111,10 +105,9 @@ static const struct language_defn *languages[] = {
   &ada_language_defn,
 };
 
-/* The current values of the "set language/type/range" enum
+/* The current values of the "set language/range/case-sensitive" enum
    commands.  */
 static const char *language;
-static const char *type;
 static const char *range;
 static const char *case_sensitive;
 
@@ -159,7 +152,8 @@ show_language_command (struct ui_file *file, int from_tty,
 
 /* Set command.  Change the current working language.  */
 static void
-set_language_command (char *ignore, int from_tty, struct cmd_list_element *c)
+set_language_command (const char *ignore,
+		      int from_tty, struct cmd_list_element *c)
 {
   enum language flang = language_unknown;
 
@@ -256,7 +250,8 @@ show_range_command (struct ui_file *file, int from_tty,
 
 /* Set command.  Change the setting for range checking.  */
 static void
-set_range_command (char *ignore, int from_tty, struct cmd_list_element *c)
+set_range_command (const char *ignore,
+		   int from_tty, struct cmd_list_element *c)
 {
   if (strcmp (range, "on") == 0)
     {
@@ -330,7 +325,7 @@ show_case_command (struct ui_file *file, int from_tty,
 /* Set command.  Change the setting for case sensitivity.  */
 
 static void
-set_case_command (char *ignore, int from_tty, struct cmd_list_element *c)
+set_case_command (const char *ignore, int from_tty, struct cmd_list_element *c)
 {
    if (strcmp (case_sensitive, "on") == 0)
      {
@@ -507,7 +502,7 @@ language_str (enum language lang)
 }
 
 static void
-set_check (char *ignore, int from_tty)
+set_check (const char *ignore, int from_tty)
 {
   printf_unfiltered (
      "\"set check\" must be followed by the name of a check subcommand.\n");
@@ -515,7 +510,7 @@ set_check (char *ignore, int from_tty)
 }
 
 static void
-show_check (char *ignore, int from_tty)
+show_check (const char *ignore, int from_tty)
 {
   cmd_show_list (showchecklist, from_tty, "");
 }
@@ -695,10 +690,54 @@ default_print_array_index (struct value *index_value, struct ui_file *stream,
 }
 
 void
-default_get_string (struct value *value, gdb_byte **buffer, int *length,
-		    struct type **char_type, const char **charset)
+default_get_string (struct value *value,
+		    gdb::unique_xmalloc_ptr<gdb_byte> *buffer,
+		    int *length, struct type **char_type, const char **charset)
 {
   error (_("Getting a string is unsupported in this language."));
+}
+
+/* See language.h.  */
+
+bool
+default_symbol_name_matcher (const char *symbol_search_name,
+			     const lookup_name_info &lookup_name,
+			     completion_match_result *comp_match_res)
+{
+  const std::string &name = lookup_name.name ();
+  completion_match_for_lcd *match_for_lcd
+    = (comp_match_res != NULL ? &comp_match_res->match_for_lcd : NULL);
+  strncmp_iw_mode mode = (lookup_name.completion_mode ()
+			  ? strncmp_iw_mode::NORMAL
+			  : strncmp_iw_mode::MATCH_PARAMS);
+
+  if (strncmp_iw_with_mode (symbol_search_name, name.c_str (), name.size (),
+			    mode, language_minimal, match_for_lcd) == 0)
+    {
+      if (comp_match_res != NULL)
+	comp_match_res->set_match (symbol_search_name);
+      return true;
+    }
+  else
+    return false;
+}
+
+/* See language.h.  */
+
+symbol_name_matcher_ftype *
+get_symbol_name_matcher (const language_defn *lang,
+			 const lookup_name_info &lookup_name)
+{
+  /* If currently in Ada mode, and the lookup name is wrapped in
+     '<...>', hijack all symbol name comparisons using the Ada
+     matcher, which handles the verbatim matching.  */
+  if (current_language->la_language == language_ada
+      && lookup_name.ada ().verbatim_p ())
+    return current_language->la_get_symbol_name_matcher (lookup_name);
+
+  if (lang->la_get_symbol_name_matcher != nullptr)
+    return lang->la_get_symbol_name_matcher (lookup_name);
+  return default_symbol_name_matcher;
 }
 
 /* Define the language that is no language.  */
@@ -707,12 +746,6 @@ static int
 unk_lang_parser (struct parser_state *ps)
 {
   return 1;
-}
-
-static void
-unk_lang_error (const char *msg)
-{
-  error (_("Attempted to parse an expression with unknown language"));
 }
 
 static void
@@ -811,7 +844,6 @@ const struct language_defn unknown_language_defn =
   NULL,
   &exp_descriptor_standard,
   unk_lang_parser,
-  unk_lang_error,
   null_post_parser,
   unk_lang_printchar,		/* Print character constant */
   unk_lang_printstr,
@@ -823,6 +855,7 @@ const struct language_defn unknown_language_defn =
   default_read_var_value,	/* la_read_var_value */
   unk_lang_trampoline,		/* Language specific skip_trampoline */
   "this",        	    	/* name_of_this */
+  true,				/* store_sym_names_in_linkage_form_p */
   basic_lookup_symbol_nonlocal, /* lookup_symbol_nonlocal */
   basic_lookup_transparent_type,/* lookup_transparent_type */
   unk_lang_demangle,		/* Language specific symbol demangler */
@@ -839,8 +872,9 @@ const struct language_defn unknown_language_defn =
   default_pass_by_reference,
   default_get_string,
   c_watch_location_expression,
-  NULL,				/* la_get_symbol_name_cmp */
+  NULL,				/* la_get_symbol_name_matcher */
   iterate_over_symbols,
+  default_search_name_hash,
   &default_varobj_ops,
   NULL,
   NULL,
@@ -861,7 +895,6 @@ const struct language_defn auto_language_defn =
   NULL,
   &exp_descriptor_standard,
   unk_lang_parser,
-  unk_lang_error,
   null_post_parser,
   unk_lang_printchar,		/* Print character constant */
   unk_lang_printstr,
@@ -873,6 +906,7 @@ const struct language_defn auto_language_defn =
   default_read_var_value,	/* la_read_var_value */
   unk_lang_trampoline,		/* Language specific skip_trampoline */
   "this",		        /* name_of_this */
+  false,			/* store_sym_names_in_linkage_form_p */
   basic_lookup_symbol_nonlocal,	/* lookup_symbol_nonlocal */
   basic_lookup_transparent_type,/* lookup_transparent_type */
   unk_lang_demangle,		/* Language specific symbol demangler */
@@ -889,8 +923,9 @@ const struct language_defn auto_language_defn =
   default_pass_by_reference,
   default_get_string,
   c_watch_location_expression,
-  NULL,				/* la_get_symbol_name_cmp */
+  NULL,				/* la_get_symbol_name_matcher */
   iterate_over_symbols,
+  default_search_name_hash,
   &default_varobj_ops,
   NULL,
   NULL,
@@ -1137,10 +1172,9 @@ For Fortran the default is off; for other languages the default is on."),
 
   add_set_language_command ();
 
-  language = xstrdup ("auto");
-  type = xstrdup ("auto");
-  range = xstrdup ("auto");
-  case_sensitive = xstrdup ("auto");
+  language = "auto";
+  range = "auto";
+  case_sensitive = "auto";
 
   /* Have the above take effect.  */
   set_language (language_auto);

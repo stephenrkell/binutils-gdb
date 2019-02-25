@@ -1,6 +1,6 @@
 /* Everything about signal catchpoints, for GDB.
 
-   Copyright (C) 2011-2017 Free Software Foundation, Inc.
+   Copyright (C) 2011-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -145,7 +145,7 @@ signal_catchpoint_remove_location (struct bp_location *bl,
 
 static int
 signal_catchpoint_breakpoint_hit (const struct bp_location *bl,
-				  struct address_space *aspace,
+				  const address_space *aspace,
 				  CORE_ADDR bp_addr,
 				  const struct target_waitstatus *ws)
 {
@@ -332,7 +332,7 @@ create_signal_catchpoint (int tempflag, std::vector<gdb_signal> &&filter,
    list, which is empty if no filtering is required.  */
 
 static std::vector<gdb_signal>
-catch_signal_split_args (char *arg, bool *catch_all)
+catch_signal_split_args (const char *arg, bool *catch_all)
 {
   std::vector<gdb_signal> result;
   bool first = true;
@@ -381,7 +381,7 @@ catch_signal_split_args (char *arg, bool *catch_all)
 /* Implement the "catch signal" command.  */
 
 static void
-catch_signal_command (char *arg, int from_tty,
+catch_signal_command (const char *arg, int from_tty,
 		      struct cmd_list_element *command)
 {
   int tempflag;

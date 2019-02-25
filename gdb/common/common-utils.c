@@ -1,6 +1,6 @@
 /* Shared general utility routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -95,13 +95,6 @@ xzalloc (size_t size)
 }
 
 void
-xfree (void *ptr)
-{
-  if (ptr != NULL)
-    free (ptr);		/* ARI: free */
-}
-
-void
 xmalloc_failed (size_t size)
 {
   malloc_failure (size);
@@ -172,6 +165,61 @@ string_printf (const char* fmt, ...)
   va_end (vp);
 
   return str;
+}
+
+/* See documentation in common-utils.h.  */
+
+std::string
+string_vprintf (const char* fmt, va_list args)
+{
+  va_list vp;
+  size_t size;
+
+  va_copy (vp, args);
+  size = vsnprintf (NULL, 0, fmt, vp);
+  va_end (vp);
+
+  std::string str (size, '\0');
+
+  /* C++11 and later guarantee std::string uses contiguous memory and
+     always includes the terminating '\0'.  */
+  vsprintf (&str[0], fmt, args);
+
+  return str;
+}
+
+
+/* See documentation in common-utils.h.  */
+
+void
+string_appendf (std::string &str, const char *fmt, ...)
+{
+  va_list vp;
+
+  va_start (vp, fmt);
+  string_vappendf (str, fmt, vp);
+  va_end (vp);
+}
+
+
+/* See documentation in common-utils.h.  */
+
+void
+string_vappendf (std::string &str, const char *fmt, va_list args)
+{
+  va_list vp;
+  int grow_size;
+
+  va_copy (vp, args);
+  grow_size = vsnprintf (NULL, 0, fmt, vp);
+  va_end (vp);
+
+  size_t curr_size = str.size ();
+  str.resize (curr_size + grow_size);
+
+  /* C++11 and later guarantee std::string uses contiguous memory and
+     always includes the terminating '\0'.  */
+  vsprintf (&str[curr_size], fmt, args);
 }
 
 char *
@@ -359,4 +407,24 @@ stringify_argv (const std::vector<char *> &args)
     }
 
   return ret;
+}
+
+/* See common/common-utils.h.  */
+
+ULONGEST
+align_up (ULONGEST v, int n)
+{
+  /* Check that N is really a power of two.  */
+  gdb_assert (n && (n & (n-1)) == 0);
+  return (v + n - 1) & -n;
+}
+
+/* See common/common-utils.h.  */
+
+ULONGEST
+align_down (ULONGEST v, int n)
+{
+  /* Check that N is really a power of two.  */
+  gdb_assert (n && (n & (n-1)) == 0);
+  return (v & -n);
 }

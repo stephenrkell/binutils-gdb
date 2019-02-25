@@ -1,7 +1,7 @@
 /* Support for connecting Guile's stdio to GDB's.
    as well as r/w memory via ports.
 
-   Copyright (C) 2014-2017 Free Software Foundation, Inc.
+   Copyright (C) 2014-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -97,10 +97,6 @@ static const char error_port_name[] = "gdb:stderr";
 static SCM input_port_scm;
 static SCM output_port_scm;
 static SCM error_port_scm;
-
-/* Magic number to identify port ui-files.
-   Actually, the address of this variable is the magic number.  */
-static int file_port_magic;
 
 /* Internal enum for specifying output port.  */
 enum oport { GDB_STDOUT, GDB_STDERR };
@@ -461,7 +457,6 @@ static SCM
 ioscm_with_output_to_port_worker (SCM port, SCM thunk, enum oport oport,
 				  const char *func_name)
 {
-  struct cleanup *cleanups;
   SCM result;
 
   SCM_ASSERT_TYPE (gdbscm_is_true (scm_output_port_p (port)), port,
@@ -469,7 +464,7 @@ ioscm_with_output_to_port_worker (SCM port, SCM thunk, enum oport oport,
   SCM_ASSERT_TYPE (gdbscm_is_true (scm_thunk_p (thunk)), thunk,
 		   SCM_ARG2, func_name, _("thunk"));
 
-  cleanups = set_batch_flag_and_make_cleanup_restore_page_info ();
+  set_batch_flag_and_restore_page_info save_page_info;
 
   scoped_restore restore_async = make_scoped_restore (&current_ui->async, 0);
 
@@ -492,8 +487,6 @@ ioscm_with_output_to_port_worker (SCM port, SCM thunk, enum oport oport,
 
     result = gdbscm_safe_call_0 (thunk, NULL);
   }
-
-  do_cleanups (cleanups);
 
   if (gdbscm_is_exception (result))
     gdbscm_throw (result);

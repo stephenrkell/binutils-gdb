@@ -1,6 +1,6 @@
 /* Self tests for array_view for GDB, the GNU debugger.
 
-   Copyright (C) 2017 Free Software Foundation, Inc.
+   Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "defs.h"
-#include "selftest.h"
+#include "common/selftest.h"
 #include "common/array-view.h"
 #include <array>
 
@@ -444,14 +444,14 @@ run_tests ()
 
   /* op[] */
   {
-    std::vector<gdb_byte> vec = {0x11, 0x22};
-    gdb::array_view<gdb_byte> view = vec;
-    gdb::array_view<const gdb_byte> cview = vec;
+    std::vector<gdb_byte> vec2 = {0x11, 0x22};
+    gdb::array_view<gdb_byte> view = vec2;
+    gdb::array_view<const gdb_byte> cview = vec2;
 
     /* Check that op[] on a non-const view of non-const T returns a
        mutable reference.  */
     view[0] = 0x33;
-    SELF_CHECK (vec[0] == 0x33);
+    SELF_CHECK (vec2[0] == 0x33);
 
     /* OTOH, check that assigning through op[] on a view of const T
        wouldn't compile.  */
@@ -482,6 +482,41 @@ run_tests ()
     Vec elem;
     gdb::array_view<Vec> view_elem = elem;
     SELF_CHECK (view_elem.size () == 1);
+  }
+
+  /* gdb::make_array_view, int length.  */
+  {
+    gdb_byte data[] = {0x55, 0x66, 0x77, 0x88};
+    int len = sizeof (data) / sizeof (data[0]);
+    auto view = gdb::make_array_view (data, len);
+
+    SELF_CHECK (view.data () == data);
+    SELF_CHECK (view.size () == len);
+
+    for (size_t i = 0; i < len; i++)
+      SELF_CHECK (view[i] == data[i]);
+  }
+
+  /* Test slicing.  */
+  {
+    gdb_byte data[] = {0x55, 0x66, 0x77, 0x88, 0x99};
+    gdb::array_view<gdb_byte> view = data;
+
+    {
+      auto slc = view.slice (1, 3);
+      SELF_CHECK (slc.data () == data + 1);
+      SELF_CHECK (slc.size () == 3);
+      SELF_CHECK (slc[0] == data[1]);
+      SELF_CHECK (slc[0] == view[1]);
+    }
+
+    {
+      auto slc = view.slice (2);
+      SELF_CHECK (slc.data () == data + 2);
+      SELF_CHECK (slc.size () == 3);
+      SELF_CHECK (slc[0] == view[2]);
+      SELF_CHECK (slc[0] == data[2]);
+    }
   }
 }
 

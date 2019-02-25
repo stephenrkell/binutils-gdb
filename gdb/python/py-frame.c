@@ -1,6 +1,6 @@
 /* Python interface to stack frames
 
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -28,7 +28,6 @@
 #include "symfile.h"
 #include "objfiles.h"
 #include "user-regs.h"
-#include "py-ref.h"
 
 typedef struct {
   PyObject_HEAD
@@ -416,7 +415,7 @@ frapy_older (PyObject *self, PyObject *args)
   END_CATCH
 
   if (prev)
-    prev_obj = (PyObject *) frame_info_to_frame_object (prev);
+    prev_obj = frame_info_to_frame_object (prev);
   else
     {
       Py_INCREF (Py_None);
@@ -449,7 +448,7 @@ frapy_newer (PyObject *self, PyObject *args)
   END_CATCH
 
   if (next)
-    next_obj = (PyObject *) frame_info_to_frame_object (next);
+    next_obj = frame_info_to_frame_object (next);
   else
     {
       Py_INCREF (Py_None);

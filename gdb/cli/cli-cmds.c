@@ -1,6 +1,6 @@
 /* GDB CLI commands.
 
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -23,7 +23,7 @@
 #include "readline/tilde.h"
 #include "completer.h"
 #include "target.h"	/* For baud_rate, remote_debug and remote_timeout.  */
-#include "gdb_wait.h"	/* For shell escape implementation.  */
+#include "common/gdb_wait.h"	/* For shell escape implementation.  */
 #include "gdb_regex.h"	/* Used by apropos_command.  */
 #include "gdb_vfork.h"
 #include "linespec.h"
@@ -36,8 +36,9 @@
 #include "source.h"
 #include "disasm.h"
 #include "tracepoint.h"
-#include "filestuff.h"
+#include "common/filestuff.h"
 #include "location.h"
+#include "block.h"
 
 #include "ui-out.h"
 
@@ -49,6 +50,7 @@
 #include "cli/cli-utils.h"
 
 #include "extension.h"
+#include "common/pathstuff.h"
 
 #ifdef TUI
 #include "tui/tui.h"	/* For tui_active et.al.  */
@@ -57,36 +59,6 @@
 #include <fcntl.h>
 #include <algorithm>
 #include <string>
-
-/* Prototypes for local command functions */
-
-static void complete_command (char *, int);
-
-static void echo_command (char *, int);
-
-static void pwd_command (char *, int);
-
-static void show_version (char *, int);
-
-static void help_command (char *, int);
-
-static void show_command (char *, int);
-
-static void info_command (char *, int);
-
-static void show_debug (char *, int);
-
-static void set_debug (char *, int);
-
-static void show_user (char *, int);
-
-static void make_command (char *, int);
-
-static void shell_escape (const char *, int);
-
-static void edit_command (char *, int);
-
-static void list_command (char *, int);
 
 /* Prototypes for local utility functions */
 
@@ -222,7 +194,7 @@ error_no_arg (const char *why)
    args.  */
 
 static void
-info_command (char *arg, int from_tty)
+info_command (const char *arg, int from_tty)
 {
   printf_unfiltered (_("\"info\" must be followed by "
 		       "the name of an info command.\n"));
@@ -232,16 +204,17 @@ info_command (char *arg, int from_tty)
 /* The "show" command with no arguments shows all the settings.  */
 
 static void
-show_command (char *arg, int from_tty)
+show_command (const char *arg, int from_tty)
 {
   cmd_show_list (showlist, from_tty, "");
 }
+
 
 /* Provide documentation on command or list given by COMMAND.  FROM_TTY
    is ignored.  */
 
 static void
-help_command (char *command, int from_tty)
+help_command (const char *command, int from_tty)
 {
   help_cmd (command, gdb_stdout);
 }
@@ -251,10 +224,8 @@ help_command (char *command, int from_tty)
    [Is that why this function writes output with *_unfiltered?]  */
 
 static void
-complete_command (char *arg_entry, int from_tty)
+complete_command (const char *arg, int from_tty)
 {
-  const char *arg = arg_entry;
-
   dont_repeat ();
 
   if (max_completions == 0)
@@ -300,6 +271,7 @@ complete_command (char *arg_entry, int from_tty)
     {
       return;
     }
+  END_CATCH
 
   std::string arg_prefix (arg, word - arg);
 
@@ -343,14 +315,14 @@ is_complete_command (struct cmd_list_element *c)
 }
 
 static void
-show_version (char *args, int from_tty)
+show_version (const char *args, int from_tty)
 {
-  print_gdb_version (gdb_stdout);
+  print_gdb_version (gdb_stdout, true);
   printf_filtered ("\n");
 }
 
 static void
-show_configuration (char *args, int from_tty)
+show_configuration (const char *args, int from_tty)
 {
   print_gdb_configuration (gdb_stdout);
 }
@@ -358,7 +330,7 @@ show_configuration (char *args, int from_tty)
 /* Handle the quit command.  */
 
 void
-quit_command (char *args, int from_tty)
+quit_command (const char *args, int from_tty)
 {
   int exit_code = 0;
 
@@ -380,7 +352,7 @@ quit_command (char *args, int from_tty)
 }
 
 static void
-pwd_command (char *args, int from_tty)
+pwd_command (const char *args, int from_tty)
 {
   if (args)
     error (_("The \"pwd\" command does not take an argument: %s"), args);
@@ -399,7 +371,7 @@ pwd_command (char *args, int from_tty)
 }
 
 void
-cd_command (char *dir, int from_tty)
+cd_command (const char *dir, int from_tty)
 {
   int len;
   /* Found something other than leading repetitions of "/..".  */
@@ -526,7 +498,7 @@ gdb::optional<open_script>
 find_and_open_script (const char *script_file, int search_path)
 {
   int fd;
-  int search_flags = OPF_TRY_CWD_FIRST | OPF_RETURN_REALPATH;
+  openp_flags search_flags = OPF_TRY_CWD_FIRST | OPF_RETURN_REALPATH;
   gdb::optional<open_script> opened;
 
   gdb::unique_xmalloc_ptr<char> file (tilde_expand (script_file));
@@ -536,10 +508,9 @@ find_and_open_script (const char *script_file, int search_path)
 
   /* Search for and open 'file' on the search path used for source
      files.  Put the full location in *FULL_PATHP.  */
-  char *temp_path;
+  gdb::unique_xmalloc_ptr<char> full_path;
   fd = openp (source_path, search_flags,
-	      file.get (), O_RDONLY, &temp_path);
-  gdb::unique_xmalloc_ptr<char> full_path (temp_path);
+	      file.get (), O_RDONLY, &full_path);
 
   if (fd == -1)
     return opened;
@@ -645,9 +616,9 @@ source_script (const char *file, int from_tty)
 }
 
 static void
-source_command (char *args, int from_tty)
+source_command (const char *args, int from_tty)
 {
-  char *file = args;
+  const char *file = args;
   int search_path = 0;
 
   scoped_restore save_source_verbose = make_scoped_restore (&source_verbose);
@@ -695,7 +666,7 @@ source_command (char *args, int from_tty)
 
 
 static void
-echo_command (char *text, int from_tty)
+echo_command (const char *text, int from_tty)
 {
   const char *p = text;
   int c;
@@ -717,6 +688,8 @@ echo_command (char *text, int from_tty)
 	else
 	  printf_filtered ("%c", c);
       }
+
+  reset_terminal_style (gdb_stdout);
 
   /* Force this output to appear now.  */
   wrap_here ("");
@@ -756,12 +729,9 @@ shell_escape (const char *arg, int from_tty)
 
   if ((pid = vfork ()) == 0)
     {
-      const char *p, *user_shell;
+      const char *p, *user_shell = get_shell ();
 
       close_most_fds ();
-
-      if ((user_shell = (char *) getenv ("SHELL")) == NULL)
-	user_shell = "/bin/sh";
 
       /* Get the name of the shell for arg0.  */
       p = lbasename (user_shell);
@@ -787,13 +757,13 @@ shell_escape (const char *arg, int from_tty)
 /* Implementation of the "shell" command.  */
 
 static void
-shell_command (char *arg, int from_tty)
+shell_command (const char *arg, int from_tty)
 {
   shell_escape (arg, from_tty);
 }
 
 static void
-edit_command (char *arg, int from_tty)
+edit_command (const char *arg, int from_tty)
 {
   struct symtab_and_line sal;
   struct symbol *sym;
@@ -818,7 +788,7 @@ edit_command (char *arg, int from_tty)
     }
   else
     {
-      char *arg1;
+      const char *arg1;
 
       /* Now should only be one argument -- decode it in SAL.  */
       arg1 = arg;
@@ -880,8 +850,8 @@ edit_command (char *arg, int from_tty)
         error (_("No line number known for %s."), arg);
     }
 
-  if ((editor = (char *) getenv ("EDITOR")) == NULL)
-      editor = "/bin/ex";
+  if ((editor = getenv ("EDITOR")) == NULL)
+    editor = "/bin/ex";
 
   fn = symtab_to_fullname (sal.symtab);
 
@@ -893,15 +863,15 @@ edit_command (char *arg, int from_tty)
 }
 
 static void
-list_command (char *arg, int from_tty)
+list_command (const char *arg, int from_tty)
 {
   struct symbol *sym;
-  char *arg1;
+  const char *arg1;
   int no_end = 1;
   int dummy_end = 0;
   int dummy_beg = 0;
   int linenum_beg = 0;
-  char *p;
+  const char *p;
 
   /* Pull in the current default source line if necessary.  */
   if (arg == NULL || ((arg[0] == '+' || arg[0] == '-') && arg[1] == '\0'))
@@ -925,14 +895,13 @@ list_command (char *arg, int from_tty)
 	      && get_lines_to_list () == 1 && first > 1)
 	    first -= 1;
 
-	  print_source_lines (cursal.symtab, first,
-			      first + get_lines_to_list (), 0);
+	  print_source_lines (cursal.symtab, source_lines_range (first), 0);
 	}
 
       /* "l" or "l +" lists next ten lines.  */
       else if (arg == NULL || arg[0] == '+')
-	print_source_lines (cursal.symtab, cursal.line,
-			    cursal.line + get_lines_to_list (), 0);
+	print_source_lines (cursal.symtab,
+			    source_lines_range (cursal.line), 0);
 
       /* "l -" lists previous ten lines, the ones before the ten just
 	 listed.  */
@@ -941,10 +910,9 @@ list_command (char *arg, int from_tty)
 	  if (get_first_line_listed () == 1)
 	    error (_("Already at the start of %s."),
 		   symtab_to_filename_for_display (cursal.symtab));
-	  print_source_lines (cursal.symtab,
-			      std::max (get_first_line_listed ()
-					- get_lines_to_list (), 1),
-			      get_first_line_listed (), 0);
+	  source_lines_range range (get_first_line_listed (),
+				    source_lines_range::BACKWARD);
+	  print_source_lines (cursal.symtab, range, 0);
 	}
 
       return;
@@ -1084,14 +1052,16 @@ list_command (char *arg, int from_tty)
      turn it into the no-arg variant.  */
 
   if (from_tty)
-    *arg = 0;
+    set_repeat_arguments ("");
 
   if (dummy_beg && sal_end.symtab == 0)
     error (_("No default source file yet.  Do \"help list\"."));
   if (dummy_beg)
-    print_source_lines (sal_end.symtab,
-			std::max (sal_end.line - (get_lines_to_list () - 1), 1),
-			sal_end.line + 1, 0);
+    {
+      source_lines_range range (sal_end.line + 1,
+				source_lines_range::BACKWARD);
+      print_source_lines (sal_end.symtab, range, 0);
+    }
   else if (sal.symtab == 0)
     error (_("No default source file yet.  Do \"help list\"."));
   else if (no_end)
@@ -1104,17 +1074,14 @@ list_command (char *arg, int from_tty)
 	    first_line = 1;
 	  if (sals.size () > 1)
 	    print_sal_location (sal);
-	  print_source_lines (sal.symtab,
-			      first_line,
-			      first_line + get_lines_to_list (),
-			      0);
+	  print_source_lines (sal.symtab, source_lines_range (first_line), 0);
 	}
     }
+  else if (dummy_end)
+    print_source_lines (sal.symtab, source_lines_range (sal.line), 0);
   else
-    print_source_lines (sal.symtab, sal.line,
-			(dummy_end
-			 ? sal.line + get_lines_to_list ()
-			 : sal_end.line + 1),
+    print_source_lines (sal.symtab,
+			source_lines_range (sal.line, (sal_end.line + 1)),
 			0);
 }
 
@@ -1122,11 +1089,15 @@ list_command (char *arg, int from_tty)
    Perform the disassembly.
    NAME is the name of the function if known, or NULL.
    [LOW,HIGH) are the range of addresses to disassemble.
+   BLOCK is the block to disassemble; it needs to be provided
+   when non-contiguous blocks are disassembled; otherwise
+   it can be NULL.
    MIXED is non-zero to print source with the assembler.  */
 
 static void
 print_disassembly (struct gdbarch *gdbarch, const char *name,
 		   CORE_ADDR low, CORE_ADDR high,
+		   const struct block *block,
 		   gdb_disassembly_flags flags)
 {
 #if defined(TUI)
@@ -1135,14 +1106,29 @@ print_disassembly (struct gdbarch *gdbarch, const char *name,
     {
       printf_filtered ("Dump of assembler code ");
       if (name != NULL)
-        printf_filtered ("for function %s:\n", name);
+	printf_filtered ("for function %s:\n", name);
+      if (block == nullptr || BLOCK_CONTIGUOUS_P (block))
+        {
+	  if (name == NULL)
+	    printf_filtered ("from %s to %s:\n",
+			     paddress (gdbarch, low), paddress (gdbarch, high));
+
+	  /* Dump the specified range.  */
+	  gdb_disassembly (gdbarch, current_uiout, flags, -1, low, high);
+	}
       else
-        printf_filtered ("from %s to %s:\n",
-			 paddress (gdbarch, low), paddress (gdbarch, high));
-
-      /* Dump the specified range.  */
-      gdb_disassembly (gdbarch, current_uiout, flags, -1, low, high);
-
+        {
+	  for (int i = 0; i < BLOCK_NRANGES (block); i++)
+	    {
+	      CORE_ADDR range_low = BLOCK_RANGE_START (block, i);
+	      CORE_ADDR range_high = BLOCK_RANGE_END (block, i);
+	      printf_filtered (_("Address range %s to %s:\n"),
+			       paddress (gdbarch, range_low),
+			       paddress (gdbarch, range_high));
+	      gdb_disassembly (gdbarch, current_uiout, flags, -1,
+			       range_low, range_high);
+	    }
+	}
       printf_filtered ("End of assembler dump.\n");
       gdb_flush (gdb_stdout);
     }
@@ -1164,11 +1150,12 @@ disassemble_current_function (gdb_disassembly_flags flags)
   struct gdbarch *gdbarch;
   CORE_ADDR low, high, pc;
   const char *name;
+  const struct block *block;
 
   frame = get_selected_frame (_("No frame selected."));
   gdbarch = get_frame_arch (frame);
   pc = get_frame_address_in_block (frame);
-  if (find_pc_partial_function (pc, &name, &low, &high) == 0)
+  if (find_pc_partial_function (pc, &name, &low, &high, &block) == 0)
     error (_("No function contains program counter for selected frame."));
 #if defined(TUI)
   /* NOTE: cagney/2003-02-13 The `tui_active' was previously
@@ -1179,7 +1166,7 @@ disassemble_current_function (gdb_disassembly_flags flags)
 #endif
   low += gdbarch_deprecated_function_start_offset (gdbarch);
 
-  print_disassembly (gdbarch, name, low, high, flags);
+  print_disassembly (gdbarch, name, low, high, block, flags);
 }
 
 /* Dump a specified section of assembly code.
@@ -1207,7 +1194,7 @@ disassemble_current_function (gdb_disassembly_flags flags)
    2) File names and contents for all relevant source files are displayed.  */
 
 static void
-disassemble_command (char *arg, int from_tty)
+disassemble_command (const char *arg, int from_tty)
 {
   struct gdbarch *gdbarch = get_current_arch ();
   CORE_ADDR low, high;
@@ -1215,6 +1202,7 @@ disassemble_command (char *arg, int from_tty)
   CORE_ADDR pc;
   gdb_disassembly_flags flags;
   const char *p;
+  const struct block *block = nullptr;
 
   p = arg;
   name = NULL;
@@ -1265,7 +1253,7 @@ disassemble_command (char *arg, int from_tty)
   if (p[0] == '\0')
     {
       /* One argument.  */
-      if (find_pc_partial_function (pc, &name, &low, &high) == 0)
+      if (find_pc_partial_function (pc, &name, &low, &high, &block) == 0)
 	error (_("No function contains specified address."));
 #if defined(TUI)
       /* NOTE: cagney/2003-02-13 The `tui_active' was previously
@@ -1293,11 +1281,11 @@ disassemble_command (char *arg, int from_tty)
 	high += low;
     }
 
-  print_disassembly (gdbarch, name, low, high, flags);
+  print_disassembly (gdbarch, name, low, high, block, flags);
 }
 
 static void
-make_command (char *arg, int from_tty)
+make_command (const char *arg, int from_tty)
 {
   if (arg == 0)
     shell_escape ("make", from_tty);
@@ -1310,7 +1298,7 @@ make_command (char *arg, int from_tty)
 }
 
 static void
-show_user (char *args, int from_tty)
+show_user (const char *args, int from_tty)
 {
   struct cmd_list_element *c;
   extern struct cmd_list_element *cmdlist;
@@ -1338,7 +1326,7 @@ show_user (char *args, int from_tty)
    regular expression.  */
 
 static void 
-apropos_command (char *searchstr, int from_tty)
+apropos_command (const char *searchstr, int from_tty)
 {
   if (searchstr == NULL)
     error (_("REGEXP string is empty"));
@@ -1407,11 +1395,11 @@ alias_usage_error (void)
 /* Make an alias of an existing command.  */
 
 static void
-alias_command (char *args, int from_tty)
+alias_command (const char *args, int from_tty)
 {
   int i, alias_argc, command_argc;
   int abbrev_flag = 0;
-  char *equals;
+  const char *equals;
   const char *alias, *command;
 
   if (args == NULL || strchr (args, '=') == NULL)
@@ -1619,7 +1607,7 @@ filter_sals (std::vector<symtab_and_line> &sals)
 }
 
 static void
-set_debug (char *arg, int from_tty)
+set_debug (const char *arg, int from_tty)
 {
   printf_unfiltered (_("\"set debug\" must be followed by "
 		       "the name of a debug subcommand.\n"));
@@ -1627,7 +1615,7 @@ set_debug (char *arg, int from_tty)
 }
 
 static void
-show_debug (char *args, int from_tty)
+show_debug (const char *args, int from_tty)
 {
   cmd_show_list (showdebuglist, from_tty, "");
 }
@@ -1693,28 +1681,28 @@ _initialize_cli_cmds (void)
   /* Define the classes of commands.
      They will appear in the help list in alphabetical order.  */
 
-  add_cmd ("internals", class_maintenance, NULL, _("\
+  add_cmd ("internals", class_maintenance, _("\
 Maintenance commands.\n\
 Some gdb commands are provided just for use by gdb maintainers.\n\
 These commands are subject to frequent change, and may not be as\n\
 well documented as user commands."),
 	   &cmdlist);
-  add_cmd ("obscure", class_obscure, NULL, _("Obscure features."), &cmdlist);
-  add_cmd ("aliases", class_alias, NULL,
+  add_cmd ("obscure", class_obscure, _("Obscure features."), &cmdlist);
+  add_cmd ("aliases", class_alias,
 	   _("Aliases of other commands."), &cmdlist);
-  add_cmd ("user-defined", class_user, NULL, _("\
+  add_cmd ("user-defined", class_user, _("\
 User-defined commands.\n\
 The commands in this class are those defined by the user.\n\
 Use the \"define\" command to define a command."), &cmdlist);
-  add_cmd ("support", class_support, NULL, _("Support facilities."), &cmdlist);
+  add_cmd ("support", class_support, _("Support facilities."), &cmdlist);
   if (!dbx_commands)
-    add_cmd ("status", class_info, NULL, _("Status inquiries."), &cmdlist);
-  add_cmd ("files", class_files, NULL, _("Specifying and examining files."),
+    add_cmd ("status", class_info, _("Status inquiries."), &cmdlist);
+  add_cmd ("files", class_files, _("Specifying and examining files."),
 	   &cmdlist);
-  add_cmd ("breakpoints", class_breakpoint, NULL,
+  add_cmd ("breakpoints", class_breakpoint,
 	   _("Making program stop at certain points."), &cmdlist);
-  add_cmd ("data", class_vars, NULL, _("Examining data."), &cmdlist);
-  add_cmd ("stack", class_stack, NULL, _("\
+  add_cmd ("data", class_vars, _("Examining data."), &cmdlist);
+  add_cmd ("stack", class_stack, _("\
 Examining the stack.\n\
 The stack is made up of stack frames.  Gdb assigns numbers to stack frames\n\
 counting from zero for the innermost (currently executing) frame.\n\n\
@@ -1723,7 +1711,7 @@ Variable lookups are done with respect to the selected frame.\n\
 When the program being debugged stops, gdb selects the innermost frame.\n\
 The commands below can be used to select other frames by number or address."),
 	   &cmdlist);
-  add_cmd ("running", class_run, NULL, _("Running the program."), &cmdlist);
+  add_cmd ("running", class_run, _("Running the program."), &cmdlist);
 
   /* Define general commands.  */
 
@@ -1731,9 +1719,11 @@ The commands below can be used to select other frames by number or address."),
 Print working directory.  This is used for your program as well."));
 
   c = add_cmd ("cd", class_files, cd_command, _("\
-Set working directory to DIR for debugger and program being debugged.\n\
-The change does not take effect for the program being debugged\n\
-until the next time it is started."), &cmdlist);
+Set working directory to DIR for debugger.\n\
+The debugger's current working directory specifies where scripts and other\n\
+files that can be loaded by GDB are located.\n\
+In order to change the inferior's current working directory, the recommended\n\
+way is to use the \"set cwd\" command."), &cmdlist);
   set_cmd_completer (c, filename_completer);
 
   add_com ("echo", class_support, echo_command, _("\

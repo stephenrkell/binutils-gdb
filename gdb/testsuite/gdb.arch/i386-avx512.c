@@ -1,6 +1,6 @@
 /* Test program for AVX 512 registers.
 
-   Copyright 2014-2017 Free Software Foundation, Inc.
+   Copyright 2014-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -249,6 +249,13 @@ main (int argc, char **argv)
 	 move back to array and check values.  */
       move_zmm_data_to_memory ();
       asm ("nop"); /* sixth breakpoint here  */
+
+      asm ("vpternlogd $0xff, %zmm0, %zmm0, %zmm0");
+#ifdef __x86_64__
+      asm ("vpternlogd $0xff, %zmm0, %zmm0, %zmm16");
+#endif
+      asm ("vzeroupper");
+      asm ("nop"); /* seventh breakpoint here  */
     }
 
   return 0;

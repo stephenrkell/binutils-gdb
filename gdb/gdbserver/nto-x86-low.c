@@ -1,6 +1,6 @@
 /* QNX Neutrino specific low level interface, for the remote server
    for GDB.
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2019 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -23,8 +23,9 @@
 #include "regcache.h"
 
 #include <x86/context.h>
-#include "x86-xstate.h"
+#include "common/x86-xstate.h"
 #include "arch/i386.h"
+#include "x86-tdesc.h"
 
 const unsigned char x86_breakpoint[] = { 0xCC };
 #define x86_breakpoint_len 1
@@ -87,7 +88,12 @@ static void
 nto_x86_arch_setup (void)
 {
   the_low_target.num_regs = 16;
-  nto_tdesc = i386_create_target_description (X86_XSTATE_SSE_MASK, false);
+  struct target_desc *tdesc
+    = i386_create_target_description (X86_XSTATE_SSE_MASK, false);
+
+  init_target_desc (tdesc, i386_expedite_regs);
+
+  nto_tdesc = tdesc;
 }
 
 struct nto_target_ops the_low_target =

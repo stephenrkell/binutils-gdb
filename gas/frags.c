@@ -1,5 +1,5 @@
 /* frags.c - manage frags -
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2019 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -112,7 +112,10 @@ frag_grow (size_t nchars)
 
       /* Check for possible overflow.  */
       if (newc < nchars)
-        as_fatal (_("can't extend frag %lu chars"), (unsigned long) nchars);
+	as_fatal (ngettext ("can't extend frag %lu char",
+			    "can't extend frag %lu chars",
+			    (unsigned long) nchars),
+		  (unsigned long) nchars);
 
       /* Force to allocate at least NEWC bytes, but not less than the
          default.  */
@@ -235,7 +238,7 @@ frag_var_init (relax_stateT type, size_t max_chars, size_t var,
   frag_now->fr_cgen.opinfo = 0;
 #endif
 #ifdef TC_FRAG_INIT
-  TC_FRAG_INIT (frag_now);
+  TC_FRAG_INIT (frag_now, max_chars);
 #endif
   frag_now->fr_file = as_where (&frag_now->fr_line);
 

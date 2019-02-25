@@ -1,6 +1,6 @@
 /* Target description support for GDB.
 
-   Copyright (C) 2006-2017 Free Software Foundation, Inc.
+   Copyright (C) 2006-2019 Free Software Foundation, Inc.
 
    Contributed by CodeSourcery.
 
@@ -21,7 +21,7 @@
 
 #ifndef TARGET_DESCRIPTIONS_H
 #define TARGET_DESCRIPTIONS_H 1
-#include "arch/tdesc.h"
+#include "common/tdesc.h"
 
 struct tdesc_arch_data;
 struct target_ops;
@@ -125,8 +125,8 @@ int tdesc_unnumbered_register (const struct tdesc_feature *feature,
 /* Search FEATURE for a register named NAME, and return its size in
    bits.  The register must exist.  */
 
-int tdesc_register_size (const struct tdesc_feature *feature,
-			 const char *name);
+int tdesc_register_bitsize (const struct tdesc_feature *feature,
+			    const char *name);
 
 /* Search FEATURE for a register with any of the names from NAMES
    (NULL-terminated).  Record REGNO and the register in DATA; when
@@ -199,9 +199,20 @@ struct type *tdesc_find_type (struct gdbarch *gdbarch, const char *id);
 int tdesc_register_in_reggroup_p (struct gdbarch *gdbarch, int regno,
 				  struct reggroup *reggroup);
 
+
+/* A deleter adapter for a target desc.  */
+
+struct target_desc_deleter
+{
+  void operator() (struct target_desc *desc) const;
+};
+
+/* A unique pointer specialization that holds a target_desc.  */
+
+typedef std::unique_ptr<target_desc, target_desc_deleter> target_desc_up;
+
 /* Methods for constructing a target description.  */
 
-struct cleanup *make_cleanup_free_target_description (struct target_desc *);
 void set_tdesc_architecture (struct target_desc *,
 			     const struct bfd_arch_info *);
 void set_tdesc_osabi (struct target_desc *, enum gdb_osabi osabi);
@@ -209,21 +220,13 @@ void set_tdesc_property (struct target_desc *,
 			 const char *key, const char *value);
 void tdesc_add_compatible (struct target_desc *,
 			   const struct bfd_arch_info *);
-struct tdesc_type *tdesc_create_enum (struct tdesc_feature *feature,
-				      const char *name,
-				      int size);
-void tdesc_add_typed_bitfield (struct tdesc_type *type, const char *field_name,
-			       int start, int end,
-			       struct tdesc_type *field_type);
-void tdesc_add_enum_value (struct tdesc_type *type, int value,
-			   const char *name);
 
 #if GDB_SELF_TEST
 namespace selftests {
 
 /* Record that XML_FILE should generate a target description that equals
    TDESC, to be verified by the "maintenance check xml-descriptions"
-   command.  */
+   command.  This function takes ownership of TDESC.  */
 
 void record_xml_tdesc (const char *xml_file,
 		       const struct target_desc *tdesc);

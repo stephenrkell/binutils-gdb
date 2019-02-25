@@ -1,6 +1,6 @@
 /* Basic C++ demangling support for GDB.
 
-   Copyright (C) 1991-2017 Free Software Foundation, Inc.
+   Copyright (C) 1991-2019 Free Software Foundation, Inc.
 
    Written by Fred Fish at Cygnus Support.
 
@@ -42,8 +42,6 @@
 #ifndef DEFAULT_DEMANGLING_STYLE
 #define DEFAULT_DEMANGLING_STYLE AUTO_DEMANGLING_STYLE_STRING
 #endif
-
-static void demangle_command (char *, int);
 
 /* See documentation in gdb-demangle.h.  */
 int demangle = 1;
@@ -106,7 +104,8 @@ show_demangling_style_names(struct ui_file *file, int from_tty,
    a malloc'd string, even if it is a null-string.  */
 
 static void
-set_demangling_command (char *ignore, int from_tty, struct cmd_list_element *c)
+set_demangling_command (const char *ignore,
+			int from_tty, struct cmd_list_element *c)
 {
   const struct demangler_engine *dem;
   int i;
@@ -159,7 +158,7 @@ is_cplus_marker (int c)
 /* Demangle the given string in the current language.  */
 
 static void
-demangle_command (char *args, int from_tty)
+demangle_command (const char *args, int from_tty)
 {
   char *demangled;
   const char *name;
@@ -181,11 +180,7 @@ demangle_command (char *args, int from_tty)
       else if (strncmp (arg_start, "--", p - arg_start) == 0)
 	processing_args = 0;
       else
-	{
-	  std::string option = extract_arg (&p);
-	  error (_("Unrecognized option '%s' to demangle command.  "
-		   "Try \"help demangle\"."), option.c_str ());
-	}
+	report_unrecognized_option_error ("demangle", arg_start);
 
       arg_start = skip_spaces (p);
     }
@@ -193,7 +188,7 @@ demangle_command (char *args, int from_tty)
   name = arg_start;
 
   if (*name == '\0')
-    error (_("Usage: demangle [-l language] [--] name"));
+    error (_("Usage: demangle [-l LANGUAGE] [--] NAME"));
 
   if (!lang_name.empty ())
     {
@@ -267,7 +262,7 @@ Use `set demangle-style' without arguments for a list of demangling styles."),
 
   add_cmd ("demangle", class_support, demangle_command, _("\
 Demangle a mangled name.\n\
-Usage: demangle [-l language] [--] name\n\
+Usage: demangle [-l LANGUAGE] [--] NAME\n\
 If LANGUAGE is not specified, NAME is demangled in the current language."),
 	   &cmdlist);
 }
