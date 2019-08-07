@@ -1932,11 +1932,11 @@ unbind_list_append (const char *cause, const char *sym)
   new_node->sym = strdup (sym);
 
   new_node->def_name = xmalloc (sizeof def_prefix + sym_len);
-  strncpy(new_node->def_name, def_prefix, sizeof def_prefix - 1);
+  strncpy(new_node->def_name, def_prefix, sizeof new_node->def_name - 1);
   strncpy(new_node->def_name + sizeof def_prefix - 1, sym, sym_len + 1);
 
   new_node->ref_name = xmalloc (sizeof ref_prefix + strlen(sym));
-  strncpy(new_node->ref_name, ref_prefix, sizeof ref_prefix - 1);
+  strncpy(new_node->ref_name, ref_prefix, sizeof new_node->ref_name - 1);
   strncpy(new_node->ref_name + sizeof ref_prefix - 1, sym, sym_len + 1);
 
   new_node->next = NULL;
